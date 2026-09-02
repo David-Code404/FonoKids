@@ -36,8 +36,10 @@ from extraer_landmarks_mediapipe import (  # noqa: E402
 )
 
 DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset_pt")
+SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 LABEL_MAP_PATH = os.path.join(DATASET_DIR, "label_map.json")
 MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_speakshadow.pt")
+GOAL_PER_WORD = 500
 
 MAX_FRAMES = 25
 MIN_FRAMES_VALID = 15          # menos que esto = probablemente no se dijo la frase completa
@@ -118,6 +120,42 @@ def preprocess_sequence(crops):
 def health():
     """La app la usa para chequear que el servidor está vivo y el modelo cargado."""
     return {"status": "ok", "device": DEVICE, "classes": _state["class_names"]}
+
+
+def _count_files(folder, extension):
+    if not os.path.isdir(folder):
+        return 0
+    return len([f for f in os.listdir(folder) if f.lower().endswith(extension)])
+
+
+@app.get("/dataset/stats")
+def dataset_stats():
+    """Progreso del dataset -- cuántos clips grabados y procesados hay por
+    palabra, para mostrar el dashboard en la app."""
+    words = set()
+    if os.path.isdir(SESSIONS_DIR):
+        words.update(d for d in os.listdir(SESSIONS_DIR)
+                      if os.path.isdir(os.path.join(SESSIONS_DIR, d)))
+    if os.path.isdir(DATASET_DIR):
+        words.update(d for d in os.listdir(DATASET_DIR)
+                      if os.path.isdir(os.path.join(DATASET_DIR, d)))
+
+    rows = []
+    total_clips, total_processed = 0, 0
+    for word in sorted(words):
+        n_clips = _count_files(os.path.join(SESSIONS_DIR, word, "clips"), ".avi")
+        n_processed = _count_files(os.path.join(DATASET_DIR, word), ".pt")
+        rows.append({"word": word, "clips": n_clips, "processed": n_processed})
+        total_clips += n_clips
+        total_processed += n_processed
+
+    return {
+        "goal_per_word": GOAL_PER_WORD,
+        "total_words": len(rows),
+        "total_clips": total_clips,
+        "total_processed": total_processed,
+        "words": rows,
+    }
 
 
 @app.post("/predict")

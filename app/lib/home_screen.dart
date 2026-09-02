@@ -5,6 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
+import 'dataset_dashboard_screen.dart';
 import 'settings_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -211,11 +212,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _connectionChip(),
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white, size: 28),
-            onPressed: _openSettings,
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.bar_chart, color: Colors.white, size: 28),
+                tooltip: 'Progreso del dataset',
+                onPressed: _openDashboard,
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings, color: Colors.white, size: 28),
+                onPressed: _openSettings,
+              ),
+            ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _openDashboard() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DatasetDashboardScreen(serverUrl: _serverUrl),
       ),
     );
   }

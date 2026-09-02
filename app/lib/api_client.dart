@@ -38,6 +38,53 @@ class PredictionResult {
   }
 }
 
+/// Progreso de una palabra en el dataset, tal como lo devuelve
+/// GET /dataset/stats.
+class WordProgress {
+  final String word;
+  final int clips;
+  final int processed;
+
+  WordProgress({required this.word, required this.clips, required this.processed});
+
+  factory WordProgress.fromJson(Map<String, dynamic> json) {
+    return WordProgress(
+      word: json['word'] as String,
+      clips: json['clips'] as int,
+      processed: json['processed'] as int,
+    );
+  }
+}
+
+/// Resultado completo de GET /dataset/stats.
+class DatasetStats {
+  final int goalPerWord;
+  final int totalWords;
+  final int totalClips;
+  final int totalProcessed;
+  final List<WordProgress> words;
+
+  DatasetStats({
+    required this.goalPerWord,
+    required this.totalWords,
+    required this.totalClips,
+    required this.totalProcessed,
+    required this.words,
+  });
+
+  factory DatasetStats.fromJson(Map<String, dynamic> json) {
+    return DatasetStats(
+      goalPerWord: json['goal_per_word'] as int,
+      totalWords: json['total_words'] as int,
+      totalClips: json['total_clips'] as int,
+      totalProcessed: json['total_processed'] as int,
+      words: (json['words'] as List<dynamic>)
+          .map((w) => WordProgress.fromJson(w as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
+
 /// Excepción específica para errores de red/servidor, para poder mostrar
 /// mensajes claros en la UI en vez de un crash o un error genérico.
 class ApiException implements Exception {
@@ -78,6 +125,27 @@ class ApiClient {
       return response.statusCode == 200;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Pide el progreso del dataset (cuántos clips por palabra) para el dashboard.
+  static Future<DatasetStats> getDatasetStats(String baseUrl) async {
+    final uri = Uri.parse('${_normalize(baseUrl)}/dataset/stats');
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw ApiException('El servidor respondió con error ${response.statusCode}.');
+      }
+      final Map<String, dynamic> json = jsonDecode(response.body) as Map<String, dynamic>;
+      return DatasetStats.fromJson(json);
+    } on SocketException {
+      throw ApiException(
+        'No se pudo conectar al servidor ($baseUrl). '
+        'Revisá que esté prendido y que el celular esté en la misma red WiFi.',
+      );
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error inesperado pidiendo el progreso del dataset: $e');
     }
   }
 
