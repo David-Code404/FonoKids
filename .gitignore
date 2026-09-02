@@ -1,0 +1,21 @@
+# Dataset y modelos entrenados: pesan mucho y no van al repo, pero quedan
+# en disco (data/ y models/ existen localmente, solo no se versionan).
+/data/
+/models/
+
+# Gráficas generadas por scripts/train.py
+/outputs/*.png
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Editor / OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
