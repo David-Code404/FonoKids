@@ -85,6 +85,31 @@ class DatasetStats {
   }
 }
 
+/// Una sesión de grabación (fecha + frase + persona), tal como la devuelve
+/// GET /dataset/recordings -- para la pantalla de Capturas.
+class Recording {
+  final String date;
+  final String word;
+  final String person;
+  final int count;
+
+  Recording({
+    required this.date,
+    required this.word,
+    required this.person,
+    required this.count,
+  });
+
+  factory Recording.fromJson(Map<String, dynamic> json) {
+    return Recording(
+      date: json['date'] as String,
+      word: json['word'] as String,
+      person: json['person'] as String,
+      count: json['count'] as int,
+    );
+  }
+}
+
 /// Excepción específica para errores de red/servidor, para poder mostrar
 /// mensajes claros en la UI en vez de un crash o un error genérico.
 class ApiException implements Exception {
@@ -146,6 +171,30 @@ class ApiClient {
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException('Error inesperado pidiendo el progreso del dataset: $e');
+    }
+  }
+
+  /// Pide las sesiones de grabación (fecha + frase + persona) para la
+  /// pantalla de Capturas.
+  static Future<List<Recording>> getRecordings(String baseUrl) async {
+    final uri = Uri.parse('${_normalize(baseUrl)}/dataset/recordings');
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw ApiException('El servidor respondió con error ${response.statusCode}.');
+      }
+      final Map<String, dynamic> json = jsonDecode(response.body) as Map<String, dynamic>;
+      return (json['recordings'] as List<dynamic>)
+          .map((r) => Recording.fromJson(r as Map<String, dynamic>))
+          .toList();
+    } on SocketException {
+      throw ApiException(
+        'No se pudo conectar al servidor ($baseUrl). '
+        'Revisá que esté prendido y que el celular esté en la misma red WiFi.',
+      );
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException('Error inesperado pidiendo las grabaciones: $e');
     }
   }
 

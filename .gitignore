@@ -2,6 +2,7 @@
 # en disco (data/ y models/ existen localmente, solo no se versionan).
 /data/
 /models/
+/prueba/
 
 # Gráficas generadas por scripts/train.py
 /outputs/*.png

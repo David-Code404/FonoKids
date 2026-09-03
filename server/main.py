@@ -16,6 +16,8 @@ import sys
 import json
 import shutil
 import tempfile
+from collections import defaultdict
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -29,7 +31,7 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
 from train import VisualSpeechTransformer, safe_torch_load  # noqa: E402
-from extraer_landmarks_mediapipe import (  # noqa: E402
+from extraer_landmarks_npy import (  # noqa: E402
     build_landmarker,
     landmarks_to_pixels,
     get_mouth_crop,
@@ -156,6 +158,47 @@ def dataset_stats():
         "total_processed": total_processed,
         "words": rows,
     }
+
+
+def _parse_clip_filename(word, filename):
+    """De '<palabra>_<persona>_0001.avi' saca la persona, o None si el clip
+    es viejo y no tiene persona en el nombre ('<palabra>_0001.avi')."""
+    stem = filename[:-4]  # sin ".avi"
+    prefix = word + "_"
+    rest = stem[len(prefix):] if stem.lower().startswith(prefix.lower()) else stem
+    if "_" in rest:
+        person, _seq = rest.rsplit("_", 1)
+        return person
+    return None
+
+
+@app.get("/dataset/recordings")
+def dataset_recordings():
+    """Sesiones de grabación agrupadas por fecha + frase + persona, para la
+    pantalla de Capturas (sin imágenes, solo fecha/frase/persona)."""
+    if not os.path.isdir(SESSIONS_DIR):
+        return {"recordings": []}
+
+    grouped = defaultdict(int)
+    for word in os.listdir(SESSIONS_DIR):
+        clips_dir = os.path.join(SESSIONS_DIR, word, "clips")
+        if not os.path.isdir(clips_dir):
+            continue
+        for filename in os.listdir(clips_dir):
+            if not filename.lower().endswith(".avi"):
+                continue
+            path = os.path.join(clips_dir, filename)
+            person = _parse_clip_filename(word, filename) or "desconocido"
+            date = datetime.fromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d")
+            grouped[(date, word, person)] += 1
+
+    recordings = [
+        {"date": date, "word": word, "person": person, "count": count}
+        for (date, word, person), count in grouped.items()
+    ]
+    recordings.sort(key=lambda r: r["date"], reverse=True)
+
+    return {"recordings": recordings}
 
 
 @app.post("/predict")

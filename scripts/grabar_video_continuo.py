@@ -15,18 +15,20 @@ Controles:
     Q -> Sale del programa
 
 Salida:
-    sesiones_continuas/<palabra>/clips/<palabra>_0001.avi, 0002.avi, ...
+    sesiones_continuas/<palabra>/clips/<palabra>_<persona>_0001.avi, 0002.avi, ...
+    (la persona sirve para agrupar las grabaciones por fecha/persona en la app)
 
 Después corré:
-    python extraer_landmarks_mediapipe.py <palabra>
+    python extraer_landmarks_npy.py <palabra>
 """
 import os
+import sys
+import unicodedata
 
 import cv2
 import numpy as np
-import mediapipe as mp
 
-from extraer_landmarks_mediapipe import build_landmarker, landmarks_to_pixels, LIP_INDICES
+from extraer_landmarks_npy import build_landmarker, detect_frame_landmarks, LIP_INDICES
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
@@ -41,12 +43,35 @@ MOUTH_WINDOW = "SpeakShadow - Boca (preview)"
 
 
 def ask_word():
+    # Normalización NFC: así "á" (precompuesto) y "a"+tilde combinante no
+    # generan dos carpetas/labels distintas para la "misma" palabra.
     while True:
         word = input("\n¿Qué palabra vas a grabar?: ").strip().lower().replace(" ", "_")
+        word = unicodedata.normalize("NFC", word)
         word = "".join(c for c in word if c.isalnum() or c == "_")
         if word:
             return word
         print("Vacío, probá de nuevo.")
+
+
+def ask_person():
+    # Sin "_" a propósito: el nombre de archivo es <palabra>_<persona>_0001.avi
+    # y el servidor separa la persona del número de toma buscando el último "_".
+    while True:
+        person = input("¿Quién va a grabar (nombre o apodo)?: ").strip().lower().replace(" ", "-")
+        person = "".join(c for c in person if c.isalnum() or c == "-")
+        if person:
+            return person
+        print("Vacío, probá de nuevo.")
+
+
+def open_camera(index):
+    """Fuerza DirectShow en Windows -- sin esto, cv2.VideoCapture puede
+    elegir un backend equivocado ('obsensor') que tira 'Camera index out
+    of range' incluso con una webcam normal conectada y andando."""
+    if sys.platform == "win32":
+        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    return cv2.VideoCapture(index)
 
 
 def count_existing_clips(clips_dir):
@@ -106,11 +131,12 @@ def draw_overlay(frame, recording, word, n_saved, mouth_box):
 
 def main():
     word = ask_word()
+    person = ask_person()
     clips_dir = os.path.join(SESSIONS_DIR, word, "clips")
     os.makedirs(clips_dir, exist_ok=True)
     n_saved = count_existing_clips(clips_dir)
 
-    cap = cv2.VideoCapture(CAM_INDEX)
+    cap = open_camera(CAM_INDEX)
     if not cap.isOpened():
         print("No se pudo abrir la cámara.")
         return
@@ -152,11 +178,9 @@ def main():
             writer.write(frame)
 
         if frame_idx % LIVE_DETECT_EVERY == 0:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = landmarker.detect_for_video(mp_image, timestamp_ms)
-            timestamp_ms += frame_ms * LIVE_DETECT_EVERY
-            landmarks_px = landmarks_to_pixels(result, frame.shape[1], frame.shape[0])
+            landmarks_px, timestamp_ms = detect_frame_landmarks(
+                landmarker, frame, timestamp_ms, frame_ms=frame_ms * LIVE_DETECT_EVERY
+            )
             last_mouth_box = compute_mouth_box(landmarks_px, frame.shape) if landmarks_px is not None else None
 
         display = draw_overlay(frame.copy(), recording, word, n_saved, last_mouth_box)
@@ -167,7 +191,7 @@ def main():
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord('s') and not recording:
-            out_path = os.path.join(clips_dir, f"{word}_{n_saved + 1:04d}.avi")
+            out_path = os.path.join(clips_dir, f"{word}_{person}_{n_saved + 1:04d}.avi")
             writer = cv2.VideoWriter(out_path, fourcc, FPS, FRAME_SIZE)
             recording = True
             print(f"-> Grabando toma #{n_saved + 1}...")
@@ -191,7 +215,7 @@ def main():
     cv2.destroyAllWindows()
     print(f"\nListo. Total de tomas de '{word}': {n_saved}")
     print(f"Guardadas en: {clips_dir}")
-    print(f"Ahora corré: python extraer_landmarks_mediapipe.py {word}")
+    print(f"Ahora corré: python extraer_landmarks_npy.py {word}")
 
 
 if __name__ == "__main__":

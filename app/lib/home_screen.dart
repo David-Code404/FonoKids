@@ -5,7 +5,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
-import 'dataset_dashboard_screen.dart';
+import 'app_theme.dart';
 import 'settings_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -212,28 +212,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _connectionChip(),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.bar_chart, color: Colors.white, size: 28),
-                tooltip: 'Progreso del dataset',
-                onPressed: _openDashboard,
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings, color: Colors.white, size: 28),
-                onPressed: _openSettings,
-              ),
-            ],
+          IconButton(
+            icon: const Icon(Icons.settings, color: Colors.white, size: 28),
+            onPressed: _openSettings,
           ),
         ],
-      ),
-    );
-  }
-
-  void _openDashboard() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => DatasetDashboardScreen(serverUrl: _serverUrl),
       ),
     );
   }
@@ -243,36 +226,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     String label;
     switch (_connState) {
       case _ConnState.ok:
-        color = Colors.greenAccent;
+        color = AppColors.accent2;
         label = 'Servidor OK';
         break;
       case _ConnState.fail:
-        color = Colors.redAccent;
+        color = AppColors.danger;
         label = 'Sin conexión';
         break;
       case _ConnState.unknown:
-        color = Colors.grey;
+        color = AppColors.textMuted;
         label = 'Conectando...';
         break;
     }
     return GestureDetector(
       onTap: _refreshConnection,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.black54,
+          color: Colors.black.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 10,
-              height: 10,
+              width: 8,
+              height: 8,
               decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
             const SizedBox(width: 8),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+            Text(label,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 12.5, fontWeight: FontWeight.w600)),
           ],
         ),
       ),
@@ -308,7 +294,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.orange.shade800.withValues(alpha: 0.92),
+        color: AppColors.danger.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -331,27 +317,40 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     final pct = ((result.prob ?? 0) * 100).toStringAsFixed(1);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.95),
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
-        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 12)],
+        border: Border.all(color: AppColors.border),
+        boxShadow: const [BoxShadow(color: Colors.black45, blurRadius: 16)],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            result.word ?? '?',
+            result.word?.replaceAll('_', ' ') ?? '?',
             style: const TextStyle(
-              fontSize: 28,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
+              fontSize: 26,
+              fontWeight: FontWeight.w800,
+              color: AppColors.textPrimary,
+              letterSpacing: -0.3,
             ),
           ),
-          const SizedBox(height: 6),
-          Text(
-            'Confianza: $pct%',
-            style: const TextStyle(fontSize: 14, color: Colors.black54),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppColors.accent2.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'Confianza $pct%',
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: AppColors.accent2,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -367,7 +366,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         height: 78,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          border: Border.all(color: Colors.white, width: 4),
+          border: Border.all(
+            color: _recording ? AppColors.danger : Colors.white,
+            width: 4,
+          ),
           color: Colors.transparent,
         ),
         padding: const EdgeInsets.all(6),
@@ -381,7 +383,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 decoration: BoxDecoration(
                   shape: _recording ? BoxShape.rectangle : BoxShape.circle,
                   borderRadius: _recording ? BorderRadius.circular(8) : null,
-                  color: Colors.redAccent,
+                  color: AppColors.danger,
                 ),
               ),
       ),
