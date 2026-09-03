@@ -18,6 +18,14 @@ torch.manual_seed(SEED)
 np.random.seed(SEED)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# =====================================================================
+# CAMBIÁ ESTA RUTA si querés entrenar con otra carpeta de dataset .pt
+# (recortes de boca). Por defecto usa el dataset normal de esta PC
+# (data/dataset_pt).
+# =====================================================================
+RUTA_DATASET = os.path.join(BASE_DIR, "data", "dataset_pt")
+
 OUTPUTS_DIR = os.path.join(BASE_DIR, "outputs")
 MODELS_DIR = os.path.join(BASE_DIR, "models")
 os.makedirs(OUTPUTS_DIR, exist_ok=True)
@@ -297,18 +305,18 @@ def load_class_names(data_dir, dataset):
 
 
 def run_training():
-    MI_RUTA_DE_LANDMARKS = os.path.join(BASE_DIR, "data", "dataset_pt")
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Entrenando en: {device}")
 
-    dataset = FolderLipReadingDataset(data_dir=MI_RUTA_DE_LANDMARKS, max_frames=25)
+    dataset = FolderLipReadingDataset(data_dir=RUTA_DATASET, max_frames=25)
     if len(dataset) == 0:
-        print(f"No hay archivos .pt en {MI_RUTA_DE_LANDMARKS}. Grabá tu dataset primero "
-              "(grabar_video_continuo.py -> recortar_video_palabras.py -> extraer_landmarks_mediapipe.py).")
+        print(f"No hay archivos .pt en {RUTA_DATASET}. Este pipeline (recortes de "
+              "boca) ya no tiene script de extracción propio -- usá el dataset .pt que ya "
+              "tengas, o pasate al pipeline de landmarks puros (extraer_landmarks_npy.py + "
+              "train_landmarks_transformer.py).")
         return
 
-    class_names = load_class_names(MI_RUTA_DE_LANDMARKS, dataset)
+    class_names = load_class_names(RUTA_DATASET, dataset)
     num_classes = len(class_names)
     print(f"Clases detectadas ({num_classes}): {class_names}")
 

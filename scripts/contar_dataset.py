@@ -62,8 +62,8 @@ def main():
 
     if total_pt < total_clips:
         pendientes = total_clips - total_pt
-        print(f"\n[AVISO] Tenés {pendientes} clips grabados que todavía no procesaste con "
-              "extraer_landmarks_mediapipe.py.")
+        print(f"\n[AVISO] Tenés {pendientes} clips grabados que todavía no tienen .pt "
+              "(recorte de boca) generado.")
 
 
 if __name__ == "__main__":

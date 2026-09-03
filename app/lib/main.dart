@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'home_screen.dart';
+import 'app_theme.dart';
+import 'main_tab_screen.dart';
 
 void main() {
   runApp(const SpeakShadowApp());
@@ -14,12 +15,8 @@ class SpeakShadowApp extends StatelessWidget {
     return MaterialApp(
       title: 'SpeakShadow',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorSchemeSeed: Colors.deepPurple,
-        useMaterial3: true,
-        brightness: Brightness.dark,
-      ),
-      home: const HomeScreen(),
+      theme: buildAppTheme(),
+      home: const MainTabScreen(),
     );
   }
 }

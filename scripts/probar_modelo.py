@@ -2,12 +2,14 @@
 probar_modelo.py
 -----------------
 Prende la cámara, grabás una toma (C/S, igual que grabar_video_continuo.py)
-y el modelo entrenado (mejor_modelo_speakshadow.pt, bajado de Colab) te dice
-qué palabra cree que dijiste.
+y el modelo entrenado (mejor_modelo_landmarks_conformer.pth, bajado de
+Colab o entrenado local con train_landmarks_transformer.py) te dice qué
+frase cree que dijiste.
 
-Usa MediaPipe Face Landmarker para el recorte de boca -- el MISMO método que
-extraer_landmarks_mediapipe.py, para que la predicción sea consistente con
-cómo se entrenó.
+Usa MediaPipe Face Landmarker + la misma normalización de landmarks que
+extraer_landmarks_npy.py, para que la predicción sea consistente con cómo
+se entrenó (pipeline de landmarks puros + Conformer, sin recorte de imagen
+ni ResNet).
 
 IMPORTANTE: para saber si el modelo realmente aprendió a leer labios (y no
 memorizó detalles de la sesión de grabación), probalo con tomas grabadas
@@ -22,113 +24,112 @@ Uso:
     python probar_modelo.py
 """
 import os
-import json
+import sys
 
 import cv2
-import numpy as np
 import torch
 
-from train import VisualSpeechTransformer, safe_torch_load
-from extraer_landmarks_mediapipe import build_landmarker, landmarks_to_pixels, get_mouth_crop
+from train_landmarks_transformer import LipReadingConformer, make_padding_mask
+from extraer_landmarks_npy import (
+    build_landmarker,
+    detect_frame_landmarks,
+    normalize_lip_landmarks,
+    fill_missing_frames,
+    add_dynamics,
+)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset_pt")
-LABEL_MAP_PATH = os.path.join(DATASET_DIR, "label_map.json")
-MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_speakshadow.pt")
+MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
 
-CAM_INDEX = 0
+MAX_CAMERAS_TO_CHECK = 5  # cuántos índices probar al buscar cámaras conectadas
 FRAME_SIZE = (640, 480)
-MAX_FRAMES = 25
 MIN_FRAMES_VALID = 15   # menos que esto = probablemente no dijiste la frase completa
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
 MAIN_WINDOW = "SpeakShadow - Probar modelo"
 
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
-
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-def load_class_names():
-    if not os.path.exists(LABEL_MAP_PATH):
-        raise FileNotFoundError(f"No encontré {LABEL_MAP_PATH}.")
-    with open(LABEL_MAP_PATH, "r", encoding="utf-8") as f:
-        label_map = json.load(f)
-    num_classes = max(label_map.values()) + 1
-    names = ["?"] * num_classes
-    for word, idx in label_map.items():
-        names[idx] = word
-    return names
+def safe_torch_load(path):
+    try:
+        return torch.load(path, weights_only=True)
+    except Exception:
+        return torch.load(path, weights_only=False)
 
 
-def load_model(num_classes):
+def load_model():
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(
-            f"No encontré {MODEL_PATH}. Bajalo de Colab (/content/mejor_modelo_speakshadow.pt) "
-            "y ponelo en la carpeta models/."
+            f"No encontré {MODEL_PATH}. Entrenalo con train_landmarks_transformer.py "
+            "o bajalo de Colab (entrenar_landmarks_colab.ipynb) y ponelo en models/."
         )
-    model = VisualSpeechTransformer(num_classes=num_classes).to(DEVICE)
-    model.load_state_dict(safe_torch_load(MODEL_PATH))
+    checkpoint = safe_torch_load(MODEL_PATH)
+    class_names = checkpoint["class_names"]
+    max_frames = checkpoint["max_frames"]
+    input_dim = checkpoint.get("input_dim", 240)
+
+    model = LipReadingConformer(num_classes=len(class_names), input_dim=input_dim).to(DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    return model
+    return model, class_names, max_frames
 
 
-def preprocess_sequence(crops):
-    sequence = np.stack(crops, axis=0)[:, :, :, ::-1].copy()  # BGR -> RGB
-    sequence = torch.from_numpy(sequence).permute(0, 3, 1, 2).contiguous().float()
-    sequence = sequence / 255.0
-    sequence = (sequence - IMAGENET_MEAN) / IMAGENET_STD
+def preprocess_sequence(positions, max_frames):
+    """positions: (T, 80) ya continuo (sin huecos, ver fill_missing_frames).
+    Le agrega velocidad/aceleración -> (T, 240), y padea/trunca a max_frames,
+    igual que en el entrenamiento."""
+    sequence_np = add_dynamics(positions)  # (T, 240)
+    sequence = torch.from_numpy(sequence_np).float()
 
     T = sequence.shape[0]
-    if T < MAX_FRAMES:
-        padding = torch.zeros((MAX_FRAMES - T,) + sequence.shape[1:], dtype=sequence.dtype)
+    real_length = min(T, max_frames)
+    if T < max_frames:
+        padding = torch.zeros((max_frames - T,) + sequence.shape[1:], dtype=sequence.dtype)
         sequence = torch.cat([sequence, padding], dim=0)
-    elif T > MAX_FRAMES:
-        sequence = sequence[:MAX_FRAMES]
+    elif T > max_frames:
+        sequence = sequence[:max_frames]
 
-    return sequence.unsqueeze(0)  # (1, T, 3, H, W)
+    mask = make_padding_mask(torch.tensor([real_length]), max_frames, sequence.device)
+    return sequence.unsqueeze(0), mask  # (1, T, 240), (1, T)
 
 
-def predict_clip(model, landmarker, frames, class_names, timestamp_ms):
+def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_ms):
     """Devuelve (resultado_dict_o_None, timestamp_ms_actualizado).
     resultado_dict tiene 'valid': False + 'reason' si la toma no vale
-    (muy corta o cara mal detectada) -- en ese caso NO se corre el modelo."""
+    (muy corta o cara mal detectada) -- en ese caso NO se corre el modelo.
+
+    Igual que extraer_landmarks_npy.py: se guarda un valor por CADA frame
+    (None si no se detectó cara) y se rellena con bfill/ffill, en vez de
+    saltear frames -- así la predicción usa exactamente la misma
+    continuidad temporal con la que se entrenó."""
     total = len(frames)
 
     if total < MIN_FRAMES_VALID:
         return {"valid": False, "reason": f"toma muy corta ({total} frames, "
                 f"minimo {MIN_FRAMES_VALID}) -- probablemente no dijiste la frase completa"}, timestamp_ms
 
-    crops = []
-    last_valid_crop = None
+    positions = []
     detected = 0
     frame_ms = 40  # ~25 fps
 
     for frame in frames:
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        import mediapipe as mp
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-        result = landmarker.detect_for_video(mp_image, timestamp_ms)
-        timestamp_ms += frame_ms
+        landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
+        vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
 
-        landmarks_px = landmarks_to_pixels(result, frame.shape[1], frame.shape[0])
-        crop = get_mouth_crop(frame, landmarks_px) if landmarks_px is not None else None
-
-        if crop is not None:
+        if vector is not None:
             detected += 1
-            last_valid_crop = crop
-            crops.append(crop)
-        elif last_valid_crop is not None:
-            crops.append(last_valid_crop)
+        positions.append(vector)
 
     detection_rate = detected / total
-    if not crops or detection_rate < MIN_DETECTION_RATE_VALID:
+    filled = fill_missing_frames(positions)
+    if filled is None or detection_rate < MIN_DETECTION_RATE_VALID:
         return {"valid": False, "reason": f"cara detectada solo en {detected}/{total} frames "
                 f"({detection_rate*100:.0f}%) -- encuadre malo, repetí la toma"}, timestamp_ms
 
-    sequence = preprocess_sequence(crops).to(DEVICE)
+    sequence, mask = preprocess_sequence(filled, max_frames)
+    sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
     with torch.no_grad():
-        logits = model(sequence)
+        logits = model(sequence, src_key_padding_mask=mask)
         probs = torch.softmax(logits, dim=1)[0]
 
     top_idx = int(torch.argmax(probs).item())
@@ -142,6 +143,61 @@ def predict_clip(model, landmarker, frames, class_names, timestamp_ms):
         "total": total,
         "all_probs": all_probs,
     }, timestamp_ms
+
+
+def open_camera(index):
+    """Abre una cámara con el backend correcto según el sistema operativo.
+
+    En Windows, cv2.VideoCapture(index) SIN backend explícito a veces elige
+    un backend equivocado (ej. "obsensor", pensado para cámaras de
+    profundidad) que tira 'Camera index out of range' incluso con webcams
+    normales conectadas -- por eso acá se fuerza DirectShow (CAP_DSHOW),
+    que es el backend está­ndar y confiable para webcams en Windows."""
+    if sys.platform == "win32":
+        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    return cv2.VideoCapture(index)
+
+
+def list_available_cameras(max_check=MAX_CAMERAS_TO_CHECK):
+    """Prueba abrir varios índices de cámara y devuelve los que sí
+    entregan imagen -- así detecta tanto la cámara integrada de la PC como
+    cualquier webcam USB conectada, sin asumir cuál es el índice 0."""
+    found = []
+    for i in range(max_check):
+        cap = open_camera(i)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                found.append(i)
+        cap.release()
+    return found
+
+
+def choose_camera():
+    """Si hay una sola cámara, la usa directo. Si hay varias (ej. cámara
+    integrada + webcam externa), te deja elegir cuál."""
+    print("Buscando cámaras disponibles...")
+    cameras = list_available_cameras()
+    if not cameras:
+        print("No encontré ninguna cámara conectada.")
+        return None
+
+    if len(cameras) == 1:
+        print(f"Encontré 1 cámara (índice {cameras[0]}), la uso.")
+        return cameras[0]
+
+    print(f"Encontré {len(cameras)} cámaras: {cameras}")
+    print("(el índice 0 suele ser la cámara integrada de la PC/notebook; "
+          "los demás índices suelen ser webcams USB externas)")
+    while True:
+        choice = input(f"¿Cuál querés usar? (número de índice, ej. {cameras[0]}): ").strip()
+        try:
+            idx = int(choice)
+            if idx in cameras:
+                return idx
+        except ValueError:
+            pass
+        print(f"Opción inválida -- elegí uno de {cameras}.")
 
 
 def draw_overlay(frame, recording, last_result):
@@ -168,17 +224,20 @@ def main():
     else:
         print(f"GPU detectada: {torch.cuda.get_device_name(0)}")
 
-    class_names = load_class_names()
+    model, class_names, max_frames = load_model()
     print(f"Clases del modelo: {class_names}")
-    model = load_model(num_classes=len(class_names))
     print(f"Modelo cargado en {DEVICE}: {MODEL_PATH}")
 
     print("Cargando MediaPipe Face Landmarker...")
     landmarker = build_landmarker()
 
-    cap = cv2.VideoCapture(CAM_INDEX)
+    cam_index = choose_camera()
+    if cam_index is None:
+        return
+
+    cap = open_camera(cam_index)
     if not cap.isOpened():
-        print("No se pudo abrir la cámara.")
+        print(f"No se pudo abrir la cámara (índice {cam_index}).")
         return
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_SIZE[0])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_SIZE[1])
@@ -207,7 +266,7 @@ def main():
             recording = False
             print(f"-> Prediciendo sobre {len(frames_buffer)} frames...")
 
-            result, timestamp_ms = predict_clip(model, landmarker, frames_buffer, class_names, timestamp_ms)
+            result, timestamp_ms = predict_clip(model, landmarker, frames_buffer, class_names, max_frames, timestamp_ms)
             frames_buffer = []
 
             if not result["valid"]:
