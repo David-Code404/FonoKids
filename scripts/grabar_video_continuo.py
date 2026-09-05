@@ -15,25 +15,36 @@ Controles:
     Q -> Sale del programa
 
 Salida:
-    sesiones_continuas/<palabra>/clips/<palabra>_<persona>_0001.avi, 0002.avi, ...
-    (la persona sirve para agrupar las grabaciones por fecha/persona en la app)
+    sesiones_continuas/<palabra>/clips/<palabra>_0001.avi, 0002.avi, ...
 
 Después corré:
     python extraer_landmarks_npy.py <palabra>
 """
 import os
-import sys
 import unicodedata
 
 import cv2
 import numpy as np
 
-from extraer_landmarks_npy import build_landmarker, detect_frame_landmarks, LIP_INDICES
+from extraer_landmarks_npy import (
+    _build_mediapipe_landmarker,
+    _detect_mediapipe,
+    LIP_INDICES,
+    choose_camera,
+    open_camera,
+)
+
+# El preview en vivo SIEMPRE usa MediaPipe (rápido, ~tiempo real), sin
+# importar qué DETECTOR_BACKEND esté elegido para la extracción real -- acá
+# el recuadro de boca es solo una ayuda visual para encuadrar mientras
+# grabás, no hace falta la precisión de HRNet (que a ~3 fps trababa la
+# vista en vivo y afectaba el timing de la grabación).
+build_landmarker = _build_mediapipe_landmarker
+detect_frame_landmarks = _detect_mediapipe
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 
-CAM_INDEX = 0
 FPS = 25
 FRAME_SIZE = (640, 480)
 LIVE_DETECT_EVERY = 2      # correr MediaPipe cada N frames (rendimiento en vivo)
@@ -52,26 +63,6 @@ def ask_word():
         if word:
             return word
         print("Vacío, probá de nuevo.")
-
-
-def ask_person():
-    # Sin "_" a propósito: el nombre de archivo es <palabra>_<persona>_0001.avi
-    # y el servidor separa la persona del número de toma buscando el último "_".
-    while True:
-        person = input("¿Quién va a grabar (nombre o apodo)?: ").strip().lower().replace(" ", "-")
-        person = "".join(c for c in person if c.isalnum() or c == "-")
-        if person:
-            return person
-        print("Vacío, probá de nuevo.")
-
-
-def open_camera(index):
-    """Fuerza DirectShow en Windows -- sin esto, cv2.VideoCapture puede
-    elegir un backend equivocado ('obsensor') que tira 'Camera index out
-    of range' incluso con una webcam normal conectada y andando."""
-    if sys.platform == "win32":
-        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    return cv2.VideoCapture(index)
 
 
 def count_existing_clips(clips_dir):
@@ -131,14 +122,17 @@ def draw_overlay(frame, recording, word, n_saved, mouth_box):
 
 def main():
     word = ask_word()
-    person = ask_person()
     clips_dir = os.path.join(SESSIONS_DIR, word, "clips")
     os.makedirs(clips_dir, exist_ok=True)
     n_saved = count_existing_clips(clips_dir)
 
-    cap = open_camera(CAM_INDEX)
+    cam_index = choose_camera()
+    if cam_index is None:
+        return
+
+    cap = open_camera(cam_index)
     if not cap.isOpened():
-        print("No se pudo abrir la cámara.")
+        print(f"No se pudo abrir la cámara (índice {cam_index}).")
         return
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_SIZE[0])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_SIZE[1])
@@ -153,6 +147,16 @@ def main():
         cv2.imshow(MAIN_WINDOW, loading_frame)
         cv2.waitKey(1)
 
+    # La cámara a veces no entrega EXACTAMENTE el tamaño pedido (más común
+    # todavía con DirectShow) -- si VideoWriter se abre con un tamaño que no
+    # coincide con el de los frames reales, graba en silencio un archivo
+    # vacío/corrupto (sin tirar ningún error). Por eso se usa el tamaño REAL
+    # del primer frame leído, no FRAME_SIZE a ciegas.
+    real_frame_size = (frame.shape[1], frame.shape[0]) if ok else FRAME_SIZE
+    if real_frame_size != FRAME_SIZE:
+        print(f"[AVISO] La cámara entrega {real_frame_size} en vez de {FRAME_SIZE} -- "
+              "se usa el tamaño real para que los clips no queden corruptos.")
+
     print("Cargando MediaPipe Face Landmarker (para el preview en vivo)...")
     landmarker = build_landmarker()
 
@@ -163,56 +167,82 @@ def main():
     timestamp_ms = 0
     frame_ms = int(1000 / FPS)
     last_mouth_box = None
+    lecturas_fallidas_seguidas = 0
+    MAX_LECTURAS_FALLIDAS = 30  # ~1 segundo a 30fps -- ahí sí asumimos que la cámara se desconectó
 
     print(f"\nPalabra: '{word}' (ya tenés {n_saved} tomas guardadas).")
     print("S = grabar toma | A = detener y guardar | Q = salir")
 
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            print("No se pudo leer la cámara.")
-            break
-        frame_idx += 1
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                lecturas_fallidas_seguidas += 1
+                if lecturas_fallidas_seguidas == 1:
+                    print("[AVISO] La cámara falló al leer un frame -- reintentando "
+                          "(la toma en curso NO se pierde)...")
+                if lecturas_fallidas_seguidas >= MAX_LECTURAS_FALLIDAS:
+                    print("La cámara dejó de responder por más de 1 segundo, cierro el programa.")
+                    break
+                cv2.waitKey(10)
+                continue
+            lecturas_fallidas_seguidas = 0
+            frame_idx += 1
 
-        if recording and writer is not None:
-            writer.write(frame)
-
-        if frame_idx % LIVE_DETECT_EVERY == 0:
-            landmarks_px, timestamp_ms = detect_frame_landmarks(
-                landmarker, frame, timestamp_ms, frame_ms=frame_ms * LIVE_DETECT_EVERY
-            )
-            last_mouth_box = compute_mouth_box(landmarks_px, frame.shape) if landmarks_px is not None else None
-
-        display = draw_overlay(frame.copy(), recording, word, n_saved, last_mouth_box)
-        mouth_preview = build_mouth_preview(frame, last_mouth_box, recording=recording)
-
-        cv2.imshow(MAIN_WINDOW, display)
-        cv2.imshow(MOUTH_WINDOW, mouth_preview)
-        key = cv2.waitKey(1) & 0xFF
-
-        if key == ord('s') and not recording:
-            out_path = os.path.join(clips_dir, f"{word}_{person}_{n_saved + 1:04d}.avi")
-            writer = cv2.VideoWriter(out_path, fourcc, FPS, FRAME_SIZE)
-            recording = True
-            print(f"-> Grabando toma #{n_saved + 1}...")
-
-        elif key == ord('a') and recording:
-            recording = False
-            writer.release()
-            writer = None
-            n_saved += 1
-            print(f"-> Guardada toma #{n_saved}. Apretá S para grabar otra.")
-
-        elif key == ord('q'):
             if recording and writer is not None:
-                writer.release()
-                n_saved += 1
-                print(f"-> Toma en curso guardada como #{n_saved} antes de salir.")
-            break
+                writer.write(frame)
 
-    landmarker.close()
-    cap.release()
-    cv2.destroyAllWindows()
+            if frame_idx % LIVE_DETECT_EVERY == 0:
+                landmarks_px, timestamp_ms = detect_frame_landmarks(
+                    landmarker, frame, timestamp_ms, frame_ms=frame_ms * LIVE_DETECT_EVERY
+                )
+                last_mouth_box = compute_mouth_box(landmarks_px, frame.shape) if landmarks_px is not None else None
+
+            display = draw_overlay(frame.copy(), recording, word, n_saved, last_mouth_box)
+            mouth_preview = build_mouth_preview(frame, last_mouth_box, recording=recording)
+
+            cv2.imshow(MAIN_WINDOW, display)
+            cv2.imshow(MOUTH_WINDOW, mouth_preview)
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('s') and not recording:
+                out_path = os.path.join(clips_dir, f"{word}_{n_saved + 1:04d}.avi")
+                writer = cv2.VideoWriter(out_path, fourcc, FPS, real_frame_size)
+                if not writer.isOpened():
+                    print(f"[ERROR] No se pudo crear el archivo de video en {out_path} "
+                          "-- revisá que la carpeta exista y tengas permisos de escritura.")
+                    writer = None
+                    continue
+                recording = True
+                print(f"-> Grabando toma #{n_saved + 1}...")
+
+            elif key == ord('a') and recording:
+                recording = False
+                if writer is not None:
+                    writer.release()
+                    writer = None
+                n_saved += 1
+                print(f"-> Guardada toma #{n_saved}. Apretá S para grabar otra.")
+
+            elif key == ord('q'):
+                if recording and writer is not None:
+                    writer.release()
+                    writer = None
+                    n_saved += 1
+                    print(f"-> Toma en curso guardada como #{n_saved} antes de salir.")
+                break
+    finally:
+        # Pase lo que pase (error, cámara desconectada, Ctrl+C) la toma en
+        # curso se cierra bien -- si no, el .avi queda sin el header/index
+        # final y no se puede leer después (esto era el bug real).
+        if writer is not None:
+            writer.release()
+            n_saved += 1
+            print(f"-> Toma en curso guardada como #{n_saved} antes de cerrar.")
+        landmarker.close()
+        cap.release()
+        cv2.destroyAllWindows()
+
     print(f"\nListo. Total de tomas de '{word}': {n_saved}")
     print(f"Guardadas en: {clips_dir}")
     print(f"Ahora corré: python extraer_landmarks_npy.py {word}")

@@ -410,7 +410,8 @@ def build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs=5):
 # ENTRENAMIENTO PRINCIPAL
 # =====================================================================
 def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
-          val_ratio=0.2, early_stopping_patience=15, warmup_epochs=5):
+          val_ratio=0.2, early_stopping_patience=15, warmup_epochs=5,
+          label_smoothing=0.1):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Entrenando en: {device}")
 
@@ -426,7 +427,11 @@ def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
           f"Val: {len(val_loader.dataset)}")
 
     model = LipReadingConformer(num_classes=num_classes, input_dim=input_dim).to(device)
-    criterion = nn.CrossEntropyLoss()
+    # Label smoothing: en vez de pedirle al modelo 100% de confianza en la
+    # clase correcta y 0% en el resto, le pide un poco menos (ej. 90%/10%
+    # repartido) -- reduce sobreconfianza y sobreajuste, más notorio cuantas
+    # más clases hay (acá van a ser 57).
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs)
     early_stopping = EarlyStopping(patience=early_stopping_patience, min_delta=0.001)
