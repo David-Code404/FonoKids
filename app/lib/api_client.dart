@@ -157,7 +157,7 @@ class ApiClient {
   static Future<DatasetStats> getDatasetStats(String baseUrl) async {
     final uri = Uri.parse('${_normalize(baseUrl)}/dataset/stats');
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final response = await http.get(uri).timeout(const Duration(seconds: 3));
       if (response.statusCode != 200) {
         throw ApiException('El servidor respondió con error ${response.statusCode}.');
       }
@@ -179,7 +179,7 @@ class ApiClient {
   static Future<List<Recording>> getRecordings(String baseUrl) async {
     final uri = Uri.parse('${_normalize(baseUrl)}/dataset/recordings');
     try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+      final response = await http.get(uri).timeout(const Duration(seconds: 3));
       if (response.statusCode != 200) {
         throw ApiException('El servidor respondió con error ${response.statusCode}.');
       }
