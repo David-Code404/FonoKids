@@ -90,6 +90,8 @@ MIN_DETECTION_CONFIDENCE = 0.7
 ROI_SIZE = 112
 MOUTH_MARGIN_RATIO = 1.3
 
+MAX_CAMERAS_TO_CHECK = 5  # cuántos índices probar al buscar cámaras conectadas
+
 # Épsilon para evitar división por cero/NaN al normalizar por la distancia
 # interocular (ej. si el detector devuelve landmarks degenerados).
 SCALE_EPSILON = 1e-6
@@ -333,6 +335,22 @@ def normalize_lip_landmarks(landmarks_px):
     return normalized.astype(np.float32).flatten()  # (80,)
 
 
+# Salto máximo plausible entre dos frames CONSECUTIVOS (en unidades
+# normalizadas por distancia interocular). Un salto más grande que esto casi
+# seguro es un glitch del detector (ej. enganchó mal un punto por un
+# instante), no un movimiento real de labios -- se descarta como si no se
+# hubiera detectado, y bfill/ffill + suavizado lo tapan.
+OUTLIER_MAX_JUMP = 0.15
+
+
+def is_outlier(vector, last_valid_vector):
+    """True si `vector` saltó de forma implausible respecto al último frame
+    válido -- indica un glitch de detección, no movimiento real."""
+    if last_valid_vector is None:
+        return False
+    return float(np.abs(vector - last_valid_vector).max()) > OUTLIER_MAX_JUMP
+
+
 # =====================================================================
 # Continuidad temporal: bfill/ffill sobre la lista de posiciones del clip
 # =====================================================================
@@ -341,9 +359,15 @@ def fill_missing_frames(positions):
     None (frame sin cara detectada). Devuelve (T, 80) SIN ningún None:
 
         - bfill: los frames iniciales sin detección se rellenan con la
-          primera posición válida (no se desfasa el tiempo).
-        - ffill: cualquier frame posterior sin detección (intermedio o
-          al final) se rellena con la última posición válida.
+          primera posición válida (no se desfasa el tiempo, y no hay
+          ningún frame "anterior" real con el que interpolar).
+        - Huecos EN EL MEDIO (con un frame válido antes y otro después):
+          interpolación LINEAL entre esos dos puntos -- más preciso que
+          copiar un solo valor, porque asume que la boca se movió gradual
+          entre A y B, en vez de quedarse congelada.
+        - ffill: los huecos al FINAL (sin ningún frame válido después) se
+          rellenan con la última posición válida -- no hay "después" real
+          con el que interpolar, copiar es lo único posible.
 
     Devuelve None si NINGÚN frame del clip tiene una posición válida
     (no hay nada de donde rellenar)."""
@@ -352,22 +376,52 @@ def fill_missing_frames(positions):
         return None
 
     primer_valido = primeros_validos[0]
+    ultimo_valido_idx = primeros_validos[-1]
     relleno = list(positions)  # copia, no mutamos el original
 
     # bfill: todo lo anterior al primer frame válido copia ESE valor.
     for i in range(primer_valido):
         relleno[i] = relleno[primer_valido]
 
-    # ffill: a partir del primer válido, cualquier hueco copia el último
-    # valor válido visto hasta ahora.
-    ultimo_valido = relleno[primer_valido]
-    for i in range(primer_valido, len(relleno)):
-        if relleno[i] is None:
-            relleno[i] = ultimo_valido
+    # Interpolación lineal para huecos entre el primer y el último válido.
+    i = primer_valido
+    while i < ultimo_valido_idx:
+        if relleno[i + 1] is None:
+            j = i + 1
+            while relleno[j] is None:
+                j += 1
+            inicio, fin = relleno[i], relleno[j]
+            pasos = j - i
+            for k in range(1, pasos):
+                t = k / pasos
+                relleno[i + k] = (1 - t) * inicio + t * fin
+            i = j
         else:
-            ultimo_valido = relleno[i]
+            i += 1
+
+    # ffill: los huecos después del último frame válido copian ese valor.
+    for i in range(ultimo_valido_idx + 1, len(relleno)):
+        relleno[i] = relleno[ultimo_valido_idx]
 
     return np.stack(relleno, axis=0).astype(np.float32)  # (T, 80)
+
+
+# Peso del suavizado exponencial (EMA): más chico = más suave (pero más
+# "atraso" respecto al movimiento real). 0.4 amortigua el jitter frame a
+# frame del detector sin borrar el movimiento real de la boca.
+SMOOTHING_ALPHA = 0.4
+
+
+def smooth_positions(positions, alpha=SMOOTHING_ALPHA):
+    """Suavizado exponencial (EMA) sobre la posición YA continua (sin None,
+    ver fill_missing_frames), aplicado ANTES de calcular velocidad/
+    aceleración -- derivar amplifica el ruido/jitter del detector, así que
+    suavizar la posición primero da una dinámica mucho más limpia."""
+    smoothed = np.empty_like(positions)
+    smoothed[0] = positions[0]
+    for t in range(1, positions.shape[0]):
+        smoothed[t] = alpha * positions[t] + (1 - alpha) * smoothed[t - 1]
+    return smoothed.astype(np.float32)
 
 
 # =====================================================================
@@ -408,6 +462,7 @@ def process_clip(landmarker, video_path, start_timestamp_ms):
 
     positions = []  # (80,) o None por frame -- SIN descartar ninguno
     detected, total = 0, 0
+    last_valid_vector = None  # para chequeo de outliers, no se usa como relleno
     timestamp_ms = start_timestamp_ms
 
     while True:
@@ -419,8 +474,15 @@ def process_clip(landmarker, video_path, start_timestamp_ms):
         landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
         vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
 
+        if vector is not None and is_outlier(vector, last_valid_vector):
+            # Glitch de detección (salto implausible) -- se trata como "no
+            # detectado" para que bfill/ffill lo rellene en vez de meter
+            # ruido en la secuencia.
+            vector = None
+
         if vector is not None:
             detected += 1
+            last_valid_vector = vector
         positions.append(vector)  # mantiene la posición del frame SIEMPRE
 
     cap.release()
@@ -430,8 +492,68 @@ def process_clip(landmarker, video_path, start_timestamp_ms):
     if filled is None:
         return None, detected, total, next_timestamp_ms
 
-    sequence = add_dynamics(filled)  # (T, 240)
+    smoothed = smooth_positions(filled)
+    sequence = add_dynamics(smoothed)  # (T, 240)
     return sequence, detected, total, next_timestamp_ms
+
+
+# =====================================================================
+# Selección de cámara -- compartida por grabar_video_continuo.py y
+# probar_modelo.py, así los dos scripts detectan/eligen cámara igual.
+# =====================================================================
+def open_camera(index):
+    """Abre una cámara con el backend correcto según el sistema operativo.
+
+    En Windows, cv2.VideoCapture(index) SIN backend explícito a veces elige
+    un backend equivocado (ej. "obsensor", pensado para cámaras de
+    profundidad) que tira 'Camera index out of range' incluso con webcams
+    normales conectadas -- por eso acá se fuerza DirectShow (CAP_DSHOW),
+    que es el backend estándar y confiable para webcams en Windows."""
+    if sys.platform == "win32":
+        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    return cv2.VideoCapture(index)
+
+
+def list_available_cameras(max_check=MAX_CAMERAS_TO_CHECK):
+    """Prueba abrir varios índices de cámara y devuelve los que sí
+    entregan imagen -- así detecta tanto la cámara integrada de la PC como
+    cualquier webcam USB conectada, sin asumir cuál es el índice 0."""
+    found = []
+    for i in range(max_check):
+        cap = open_camera(i)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                found.append(i)
+        cap.release()
+    return found
+
+
+def choose_camera():
+    """Si hay una sola cámara, la usa directo. Si hay varias (ej. cámara
+    integrada + webcam externa), te deja elegir cuál."""
+    print("Buscando cámaras disponibles...")
+    cameras = list_available_cameras()
+    if not cameras:
+        print("No encontré ninguna cámara conectada.")
+        return None
+
+    if len(cameras) == 1:
+        print(f"Encontré 1 cámara (índice {cameras[0]}), la uso.")
+        return cameras[0]
+
+    print(f"Encontré {len(cameras)} cámaras: {cameras}")
+    print("(el índice 0 suele ser la cámara integrada de la PC/notebook; "
+          "los demás índices suelen ser webcams USB externas)")
+    while True:
+        choice = input(f"¿Cuál querés usar? (número de índice, ej. {cameras[0]}): ").strip()
+        try:
+            idx = int(choice)
+            if idx in cameras:
+                return idx
+        except ValueError:
+            pass
+        print(f"Opción inválida -- elegí uno de {cameras}.")
 
 
 def find_words_to_process():

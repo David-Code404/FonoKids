@@ -30,10 +30,10 @@ import shutil
 #   RUTA_ORIGEN/asqueroso/clips/asqueroso_0001.avi, ...
 #   RUTA_ORIGEN/camba_de_mierda/clips/camba_de_mierda_0001.avi, ...
 # =====================================================================
-RUTA_ORIGEN = r"C:\Users\davit\Downloads\asqueroso-20260902T190243Z-1-001"
+RUTA_ORIGEN = r"D:\clips-20260904T181600Z-1-001\clips"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DESTINO = os.path.join(BASE_DIR, "data", "D:\SpeakShadow\prueba")
+DESTINO = os.path.join(BASE_DIR, "data", "D:\SpeakShadow\data\sesiones_continuas")
 
 
 def contar_clips_existentes(clips_dir):

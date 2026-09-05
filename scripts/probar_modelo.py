@@ -24,7 +24,7 @@ Uso:
     python probar_modelo.py
 """
 import os
-import sys
+from datetime import datetime
 
 import cv2
 import torch
@@ -35,17 +35,47 @@ from extraer_landmarks_npy import (
     detect_frame_landmarks,
     normalize_lip_landmarks,
     fill_missing_frames,
+    smooth_positions,
     add_dynamics,
+    is_outlier,
+    open_camera,
+    list_available_cameras,
+    choose_camera,
+    _build_mediapipe_landmarker,
+    _detect_mediapipe,
 )
+
+# Puntos de referencia SOLO para dibujar el overlay en vivo (esquema de 478
+# puntos de MediaPipe) -- independiente de qué DETECTOR_BACKEND se use para
+# la extracción/predicción real. Se usa MediaPipe acá porque es rápido
+# (HRNet a ~3fps trabaría la vista en vivo, igual que en grabar_video_
+# continuo.py).
+PREVIEW_LIP_INDICES = sorted({
+    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
+    185, 40, 39, 37, 0, 267, 269, 270, 409,
+    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308,
+    191, 80, 81, 82, 13, 312, 311, 310, 415,
+})
+PREVIEW_RIGHT_EYE_OUTER, PREVIEW_LEFT_EYE_OUTER = 33, 263
+LIVE_DETECT_EVERY = 2  # correr el detector del preview cada N frames
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
+CAPTURAS_DIR = os.path.join(BASE_DIR, "capturas")
 
-MAX_CAMERAS_TO_CHECK = 5  # cuántos índices probar al buscar cámaras conectadas
 FRAME_SIZE = (640, 480)
 MIN_FRAMES_VALID = 15   # menos que esto = probablemente no dijiste la frase completa
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
 MAIN_WINDOW = "SpeakShadow - Probar modelo"
+
+# El modelo SIEMPRE tiene que elegir una de las 57 frases (es un clasificador
+# de conjunto cerrado, no sabe decir "no sé") -- así que si decís algo que no
+# es ninguna frase de riesgo (ej. "hola", "adiós"), igual te va a devolver
+# la frase que más se le pareció, con confianza baja. Este umbral es lo que
+# distingue "SÍ es una frase conocida" de "no es nada, no hacer caso":
+# si no lo supera, se trata como que NO se dijo ninguna frase de riesgo.
+MIN_RISK_PROB = 0.40      # la clase top tiene que superar esto
+MIN_RISK_MARGIN = 0.15    # y sacarle esta diferencia mínima a la 2da opción
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -76,9 +106,10 @@ def load_model():
 
 def preprocess_sequence(positions, max_frames):
     """positions: (T, 80) ya continuo (sin huecos, ver fill_missing_frames).
-    Le agrega velocidad/aceleración -> (T, 240), y padea/trunca a max_frames,
-    igual que en el entrenamiento."""
-    sequence_np = add_dynamics(positions)  # (T, 240)
+    Suaviza (igual que el extractor) y le agrega velocidad/aceleración ->
+    (T, 240), y padea/trunca a max_frames, igual que en el entrenamiento."""
+    smoothed = smooth_positions(positions)
+    sequence_np = add_dynamics(smoothed)  # (T, 240)
     sequence = torch.from_numpy(sequence_np).float()
 
     T = sequence.shape[0]
@@ -110,14 +141,19 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
 
     positions = []
     detected = 0
+    last_valid_vector = None
     frame_ms = 40  # ~25 fps
 
     for frame in frames:
         landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
         vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
 
+        if vector is not None and is_outlier(vector, last_valid_vector):
+            vector = None  # glitch de detección, se rellena en vez de aceptarlo
+
         if vector is not None:
             detected += 1
+            last_valid_vector = vector
         positions.append(vector)
 
     detection_rate = detected / total
@@ -132,72 +168,41 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
         logits = model(sequence, src_key_padding_mask=mask)
         probs = torch.softmax(logits, dim=1)[0]
 
-    top_idx = int(torch.argmax(probs).item())
-    top_prob = float(probs[top_idx].item())
+    sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+    top_idx = int(sorted_idx[0].item())
+    top_prob = float(sorted_probs[0].item())
+    second_prob = float(sorted_probs[1].item()) if len(sorted_probs) > 1 else 0.0
+    margin = top_prob - second_prob
+    es_frase_de_riesgo = top_prob >= MIN_RISK_PROB and margin >= MIN_RISK_MARGIN
+
     all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
     return {
         "valid": True,
         "word": class_names[top_idx],
         "prob": top_prob,
+        "es_frase_de_riesgo": es_frase_de_riesgo,
         "detected": detected,
         "total": total,
         "all_probs": all_probs,
     }, timestamp_ms
 
 
-def open_camera(index):
-    """Abre una cámara con el backend correcto según el sistema operativo.
-
-    En Windows, cv2.VideoCapture(index) SIN backend explícito a veces elige
-    un backend equivocado (ej. "obsensor", pensado para cámaras de
-    profundidad) que tira 'Camera index out of range' incluso con webcams
-    normales conectadas -- por eso acá se fuerza DirectShow (CAP_DSHOW),
-    que es el backend está­ndar y confiable para webcams en Windows."""
-    if sys.platform == "win32":
-        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    return cv2.VideoCapture(index)
-
-
-def list_available_cameras(max_check=MAX_CAMERAS_TO_CHECK):
-    """Prueba abrir varios índices de cámara y devuelve los que sí
-    entregan imagen -- así detecta tanto la cámara integrada de la PC como
-    cualquier webcam USB conectada, sin asumir cuál es el índice 0."""
-    found = []
-    for i in range(max_check):
-        cap = open_camera(i)
-        if cap.isOpened():
-            ok, _ = cap.read()
-            if ok:
-                found.append(i)
-        cap.release()
-    return found
-
-
-def choose_camera():
-    """Si hay una sola cámara, la usa directo. Si hay varias (ej. cámara
-    integrada + webcam externa), te deja elegir cuál."""
-    print("Buscando cámaras disponibles...")
-    cameras = list_available_cameras()
-    if not cameras:
-        print("No encontré ninguna cámara conectada.")
-        return None
-
-    if len(cameras) == 1:
-        print(f"Encontré 1 cámara (índice {cameras[0]}), la uso.")
-        return cameras[0]
-
-    print(f"Encontré {len(cameras)} cámaras: {cameras}")
-    print("(el índice 0 suele ser la cámara integrada de la PC/notebook; "
-          "los demás índices suelen ser webcams USB externas)")
-    while True:
-        choice = input(f"¿Cuál querés usar? (número de índice, ej. {cameras[0]}): ").strip()
-        try:
-            idx = int(choice)
-            if idx in cameras:
-                return idx
-        except ValueError:
-            pass
-        print(f"Opción inválida -- elegí uno de {cameras}.")
+def draw_landmarks_points(frame, landmarks_px):
+    """Dibuja los puntos de MediaPipe sobre el frame, igual que la imagen de
+    referencia: rojo = resto de la malla facial (no se usa), amarillo =
+    esquinas de los ojos (referencia de normalización), verde = los 40
+    puntos de labios (los únicos que ve el modelo)."""
+    if landmarks_px is None:
+        return frame
+    for i, (x, y) in enumerate(landmarks_px):
+        if i in PREVIEW_LIP_INDICES:
+            color, radius = (0, 255, 0), 3
+        elif i in (PREVIEW_RIGHT_EYE_OUTER, PREVIEW_LEFT_EYE_OUTER):
+            color, radius = (0, 255, 255), 4
+        else:
+            color, radius = (0, 0, 255), 1
+        cv2.circle(frame, (int(x), int(y)), radius, color, -1)
+    return frame
 
 
 def draw_overlay(frame, recording, last_result):
@@ -218,6 +223,37 @@ def draw_overlay(frame, recording, last_result):
     return frame
 
 
+def save_capture(frame_bgr, landmarks_px, word, prob):
+    """Guarda una foto (.jpg) del frame con un recuadro alrededor de la cara
+    y la frase detectada escrita arriba -- una captura de "quién dijo qué"
+    para cada predicción, en CAPTURAS_DIR."""
+    os.makedirs(CAPTURAS_DIR, exist_ok=True)
+    frame_out = frame_bgr.copy()
+    h, w = frame_out.shape[:2]
+
+    if landmarks_px is not None:
+        x1, y1 = landmarks_px[:, 0].min(), landmarks_px[:, 1].min()
+        x2, y2 = landmarks_px[:, 0].max(), landmarks_px[:, 1].max()
+        margin = int(0.25 * max(x2 - x1, y2 - y1))
+        x1 = max(0, int(x1) - margin)
+        y1 = max(0, int(y1) - margin)
+        x2 = min(w - 1, int(x2) + margin)
+        y2 = min(h - 1, int(y2) + margin)
+        cv2.rectangle(frame_out, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        label_y = max(25, y1 - 12)
+    else:
+        label_y = 30
+
+    texto = f"{word.replace('_', ' ')} ({prob*100:.0f}%)"
+    safe_texto = texto.encode("ascii", "replace").decode("ascii")
+    cv2.putText(frame_out, safe_texto, (10, label_y), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = os.path.join(CAPTURAS_DIR, f"{word}_{timestamp}.jpg")
+    cv2.imwrite(out_path, frame_out)
+    return out_path
+
+
 def main():
     if DEVICE != "cuda":
         print("[AVISO] No se detectó GPU (CUDA) -- corriendo en CPU, va a ser mucho más lento.")
@@ -228,8 +264,11 @@ def main():
     print(f"Clases del modelo: {class_names}")
     print(f"Modelo cargado en {DEVICE}: {MODEL_PATH}")
 
-    print("Cargando MediaPipe Face Landmarker...")
+    print("Cargando detector de landmarks...")
     landmarker = build_landmarker()
+
+    print("Cargando MediaPipe para el preview en vivo (rápido, solo visual)...")
+    preview_landmarker = _build_mediapipe_landmarker()
 
     cam_index = choose_camera()
     if cam_index is None:
@@ -244,6 +283,9 @@ def main():
 
     recording, frames_buffer, last_result = False, [], None
     timestamp_ms = 0
+    preview_timestamp_ms = 0
+    frame_idx = 0
+    last_preview_landmarks = None
 
     print("Cámara iniciada. C=grabar, S=detener y predecir, Q=salir.")
 
@@ -251,11 +293,18 @@ def main():
         ok, frame = cap.read()
         if not ok:
             break
+        frame_idx += 1
 
         if recording:
             frames_buffer.append(frame.copy())
 
-        cv2.imshow(MAIN_WINDOW, draw_overlay(frame.copy(), recording, last_result))
+        if frame_idx % LIVE_DETECT_EVERY == 0:
+            last_preview_landmarks, preview_timestamp_ms = _detect_mediapipe(
+                preview_landmarker, frame, preview_timestamp_ms, frame_ms=40 * LIVE_DETECT_EVERY
+            )
+
+        display = draw_landmarks_points(frame.copy(), last_preview_landmarks)
+        cv2.imshow(MAIN_WINDOW, draw_overlay(display, recording, last_result))
         key = cv2.waitKey(1) & 0xFF
 
         if key == ord('c') and not recording:
@@ -266,6 +315,7 @@ def main():
             recording = False
             print(f"-> Prediciendo sobre {len(frames_buffer)} frames...")
 
+            frame_medio = frames_buffer[len(frames_buffer) // 2] if frames_buffer else None
             result, timestamp_ms = predict_clip(model, landmarker, frames_buffer, class_names, max_frames, timestamp_ms)
             frames_buffer = []
 
@@ -274,15 +324,33 @@ def main():
                 last_result = None
                 continue
 
-            last_result = (result["word"], result["prob"])
             print(f"  Cara detectada en {result['detected']}/{result['total']} frames")
+
+            if not result["es_frase_de_riesgo"]:
+                # No es ninguna de las 57 frases conocidas (ej. dijiste "hola",
+                # "adiós", algo normal) -- no se guarda captura, no se alerta,
+                # no se hace nada. El modelo SIEMPRE tiene que elegir una clase
+                # internamente, pero acá se descarta por baja confianza/margen.
+                print(f"  -> No es ninguna frase de riesgo conocida (más parecido: "
+                      f"'{result['word']}' con {result['prob']*100:.1f}%, pero no supera el umbral) "
+                      "-- no se hace nada.")
+                last_result = None
+                continue
+
+            last_result = (result["word"], result["prob"])
             print(f"  -> Predicción: '{result['word']}' con {result['prob']*100:.1f}% de confianza")
+
+            if frame_medio is not None:
+                landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame_medio, timestamp_ms)
+                capture_path = save_capture(frame_medio, landmarks_px, result["word"], result["prob"])
+                print(f"  Captura guardada: {capture_path}")
             print(f"  Probabilidades: { {k: round(v,3) for k,v in result['all_probs'].items()} }")
 
         elif key == ord('q'):
             break
 
     landmarker.close()
+    preview_landmarker.close()
     cap.release()
     cv2.destroyAllWindows()
 

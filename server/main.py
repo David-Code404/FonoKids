@@ -79,11 +79,15 @@ def load_class_names():
 
 @app.on_event("startup")
 def load_everything():
+    # El modelo viejo (recortes de boca) es opcional -- si falta, el server
+    # igual arranca y sirve /dataset/stats, /dataset/recordings, etc. Solo
+    # /predict (la predicción en vivo con este pipeline viejo) queda
+    # deshabilitado y avisa por qué, en vez de tirar abajo TODO el server.
     if not os.path.exists(MODEL_PATH):
-        raise RuntimeError(
-            f"No encontré {MODEL_PATH}. Entrená el modelo (scripts/train.py) o bajalo "
-            "de Colab y ponelo en la carpeta models/ antes de levantar el servidor."
-        )
+        print(f"[AVISO] No encontré {MODEL_PATH} -- /predict (pipeline viejo) queda "
+              "deshabilitado. El resto del server (dashboard, stats) funciona igual.")
+        return
+
     class_names = load_class_names()
     model = VisualSpeechTransformer(num_classes=len(class_names)).to(DEVICE)
     model.load_state_dict(safe_torch_load(MODEL_PATH))
