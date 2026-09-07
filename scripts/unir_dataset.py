@@ -22,6 +22,7 @@ landmarks incluyan también los clips nuevos.
 """
 import os
 import shutil
+import unicodedata
 
 # =====================================================================
 # CAMBIÁ ESTA RUTA por donde copiaste los datos de la otra PC.
@@ -30,10 +31,10 @@ import shutil
 #   RUTA_ORIGEN/asqueroso/clips/asqueroso_0001.avi, ...
 #   RUTA_ORIGEN/camba_de_mierda/clips/camba_de_mierda_0001.avi, ...
 # =====================================================================
-RUTA_ORIGEN = r"D:\clips-20260904T181600Z-1-001\clips"
+RUTA_ORIGEN = r"D:\SpeakShadow\data\sesiones_continuas\estupido"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DESTINO = os.path.join(BASE_DIR, "data", "D:\SpeakShadow\data\sesiones_continuas")
+DESTINO = os.path.join(BASE_DIR, "data", r"D:\SpeakShadow\data\sesiones_continuas\estúpido")
 
 
 def contar_clips_existentes(clips_dir):
@@ -54,7 +55,12 @@ def sacar_persona(word, filename):
     return None
 
 
-def unir_palabra(word, origen_clips, destino_clips):
+def unir_palabra(word, origen_clips, destino_clips, word_origen=None):
+    """word: nombre final (canónico) con el que se van a guardar los clips.
+    word_origen: nombre de la palabra TAL COMO está en los archivos de
+    origen (puede ser distinto a `word`, ej. al unir 'imbecil' -> 'imbécil').
+    Si no se pasa, se asume igual a `word` (caso normal de unir otra PC)."""
+    word_origen = word_origen or word
     os.makedirs(destino_clips, exist_ok=True)
     siguiente = contar_clips_existentes(destino_clips) + 1
 
@@ -64,7 +70,7 @@ def unir_palabra(word, origen_clips, destino_clips):
 
     copiados = 0
     for filename in archivos:
-        persona = sacar_persona(word, filename)
+        persona = sacar_persona(word_origen, filename)
         sufijo = f"{persona}_" if persona else ""
         nuevo_nombre = f"{word}_{sufijo}{siguiente:04d}.avi"
 
@@ -76,6 +82,66 @@ def unir_palabra(word, origen_clips, destino_clips):
         copiados += 1
 
     return copiados
+
+
+def _sin_acentos(texto):
+    return "".join(
+        c for c in unicodedata.normalize("NFD", texto) if unicodedata.category(c) != "Mn"
+    ).lower()
+
+
+def unir_duplicados_por_acento(base_dir):
+    """Busca carpetas de palabra que son la MISMA palabra pero escrita con y
+    sin tilde (ej. 'imbecil' e 'imbécil') y las une en una sola, quedándose
+    con la versión CON tilde (bien escrita) como carpeta final.
+
+    NO DESTRUCTIVO: copia los clips de la carpeta sin tilde hacia la que
+    tiene tilde (renumerando para no pisar nada) y no borra la carpeta sin
+    tilde -- una vez que verifiques que todo se copió bien, podés borrarla
+    vos a mano si querés.
+    """
+    if not os.path.isdir(base_dir):
+        print(f"No encontré la carpeta: {base_dir}")
+        return
+
+    palabras = sorted(d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)))
+
+    grupos = {}
+    for palabra in palabras:
+        clave = _sin_acentos(palabra)
+        grupos.setdefault(clave, []).append(palabra)
+
+    duplicados = {k: v for k, v in grupos.items() if len(v) > 1}
+    if not duplicados:
+        print("No encontré carpetas duplicadas por acento.")
+        return
+
+    print(f"Encontré {len(duplicados)} palabras con carpetas duplicadas por acento:\n")
+
+    total = 0
+    for clave, variantes in duplicados.items():
+        # La canónica es la que tiene alguna tilde/ñ (la bien escrita). Si
+        # ninguna tiene o las dos tienen, nos quedamos con la más larga
+        # (raro, pero evita romper si hay un caso raro).
+        con_tilde = [v for v in variantes if v != _sin_acentos(v)]
+        canonica = con_tilde[0] if con_tilde else max(variantes, key=len)
+        otras = [v for v in variantes if v != canonica]
+
+        print(f"[{clave}] {variantes} -> se unen en '{canonica}'")
+        for otra in otras:
+            origen_clips = os.path.join(base_dir, otra, "clips")
+            destino_clips = os.path.join(base_dir, canonica, "clips")
+            if not os.path.isdir(origen_clips):
+                print(f"  '{otra}' no tiene carpeta 'clips', se omite.")
+                continue
+            copiados = unir_palabra(canonica, origen_clips, destino_clips, word_origen=otra)
+            total += copiados
+            print(f"  {copiados} clips copiados de '{otra}' -> '{canonica}'")
+
+    print(f"\n=== TOTAL: {total} clips unidos por duplicado de acento ===")
+    print("Las carpetas viejas (sin tilde) NO se borraron -- una vez que verifiques")
+    print("que todo se copió bien, podés borrarlas vos a mano si querés.")
+    print("Ahora corré: python extraer_landmarks_npy.py  (para procesar los clips nuevos)")
 
 
 def main():
@@ -110,4 +176,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "acentos":
+        # python unir_dataset.py acentos
+        # Busca y une TODAS las carpetas duplicadas por tilde en
+        # sesiones_continuas de una sola vez (no hace falta editar
+        # RUTA_ORIGEN/DESTINO a mano para cada par).
+        SESIONES_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
+        unir_duplicados_por_acento(SESIONES_DIR)
+    else:
+        main()
