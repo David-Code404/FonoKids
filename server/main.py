@@ -3,8 +3,13 @@ server/main.py
 ---------------
 API HTTP para la app de Flutter. Recibe un video corto (grabado desde el
 celular), corre EXACTAMENTE el mismo pipeline que probar_modelo.py
-(MediaPipe Face Landmarker -> recorte de boca -> VisualSpeechTransformer)
-y devuelve la palabra predicha en JSON.
+(HRNet -> landmarks de labios -> TCN + Conformer) y devuelve la palabra
+predicha en JSON.
+
+La detección de landmarks corre en BATCH (todo el clip al GPU de una sola
+vez, ver detect_landmarks_batch en extraer_landmarks_npy.py) en vez de
+frame por frame -- es lo que hace que /predict responda en segundos y no
+en 15-20s con HRNet.
 
 Uso:
     python server/main.py
@@ -13,14 +18,12 @@ Uso:
 """
 import os
 import sys
-import json
 import shutil
 import tempfile
 from collections import defaultdict
 from datetime import datetime
 
 import cv2
-import numpy as np
 import torch
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,27 +33,39 @@ SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 
-from train import VisualSpeechTransformer, safe_torch_load  # noqa: E402
+from train_landmarks_transformer import LipReadingConformer, make_padding_mask  # noqa: E402
 from extraer_landmarks_npy import (  # noqa: E402
     build_landmarker,
-    landmarks_to_pixels,
-    get_mouth_crop,
+    detect_landmarks_batch,
+    normalize_lip_landmarks,
+    fill_missing_frames,
+    smooth_positions,
+    add_dynamics,
+    is_outlier,
 )
 
 DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset_pt")
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
-LABEL_MAP_PATH = os.path.join(DATASET_DIR, "label_map.json")
-MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_speakshadow.pt")
+MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
 GOAL_PER_WORD = 500
 
-MAX_FRAMES = 25
-MIN_FRAMES_VALID = 15          # menos que esto = probablemente no se dijo la frase completa
+MIN_FRAMES_VALID = 15           # menos que esto = probablemente no se dijo la frase completa
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
-FRAME_MS = 40  # ~25 fps, para los timestamps que exige MediaPipe en modo VIDEO
 
-IMAGENET_MEAN = torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1)
-IMAGENET_STD = torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1)
+# Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
+# entrenadas (no sabe decir "no sé"), así que esto es lo que distingue
+# "sí es una frase de riesgo conocida" de "no es nada, no hacer caso".
+MIN_RISK_PROB = 0.40
+MIN_RISK_MARGIN = 0.15
+
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def safe_torch_load(path):
+    try:
+        return torch.load(path, weights_only=True)
+    except Exception:
+        return torch.load(path, weights_only=False)
 
 app = FastAPI(title="SpeakShadow API")
 app.add_middleware(
@@ -62,64 +77,61 @@ app.add_middleware(
 
 # Estado global: modelo y landmarker se cargan UNA sola vez al arrancar,
 # no en cada request (cargar el modelo por request sería lentísimo).
-_state = {"model": None, "landmarker": None, "class_names": None, "timestamp_ms": 0}
-
-
-def load_class_names():
-    if not os.path.exists(LABEL_MAP_PATH):
-        raise FileNotFoundError(f"No encontré {LABEL_MAP_PATH}.")
-    with open(LABEL_MAP_PATH, "r", encoding="utf-8") as f:
-        label_map = json.load(f)
-    num_classes = max(label_map.values()) + 1
-    names = ["?"] * num_classes
-    for word, idx in label_map.items():
-        names[idx] = word
-    return names
+_state = {"model": None, "landmarker": None, "class_names": None, "max_frames": None}
 
 
 @app.on_event("startup")
 def load_everything():
-    # El modelo viejo (recortes de boca) es opcional -- si falta, el server
-    # igual arranca y sirve /dataset/stats, /dataset/recordings, etc. Solo
-    # /predict (la predicción en vivo con este pipeline viejo) queda
+    # El modelo es opcional -- si falta, el server igual arranca y sirve
+    # /dataset/stats, /dataset/recordings, etc. Solo /predict queda
     # deshabilitado y avisa por qué, en vez de tirar abajo TODO el server.
     if not os.path.exists(MODEL_PATH):
-        print(f"[AVISO] No encontré {MODEL_PATH} -- /predict (pipeline viejo) queda "
-              "deshabilitado. El resto del server (dashboard, stats) funciona igual.")
+        print(f"[AVISO] No encontré {MODEL_PATH} -- /predict queda deshabilitado. "
+              "Entrenalo con train_landmarks_transformer.py o bajalo de Colab. "
+              "El resto del server (dashboard, stats) funciona igual.")
         return
 
-    class_names = load_class_names()
-    model = VisualSpeechTransformer(num_classes=len(class_names)).to(DEVICE)
-    model.load_state_dict(safe_torch_load(MODEL_PATH))
+    checkpoint = safe_torch_load(MODEL_PATH)
+    class_names = checkpoint["class_names"]
+    max_frames = checkpoint["max_frames"]
+    input_dim = checkpoint.get("input_dim", 240)
+
+    model = LipReadingConformer(num_classes=len(class_names), input_dim=input_dim).to(DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    print("Cargando MediaPipe Face Landmarker...")
+    print("Cargando detector de landmarks (HRNet/FAN)...")
     landmarker = build_landmarker()
 
-    _state.update(model=model, landmarker=landmarker, class_names=class_names)
+    _state.update(model=model, landmarker=landmarker, class_names=class_names, max_frames=max_frames)
     print(f"Listo. Device: {DEVICE}. Clases ({len(class_names)}): {class_names}")
 
 
 @app.on_event("shutdown")
 def cleanup():
-    if _state["landmarker"] is not None:
-        _state["landmarker"].close()
+    landmarker = _state["landmarker"]
+    if landmarker is not None and hasattr(landmarker, "close"):
+        landmarker.close()
 
 
-def preprocess_sequence(crops):
-    sequence = np.stack(crops, axis=0)[:, :, :, ::-1].copy()  # BGR -> RGB
-    sequence = torch.from_numpy(sequence).permute(0, 3, 1, 2).contiguous().float()
-    sequence = sequence / 255.0
-    sequence = (sequence - IMAGENET_MEAN) / IMAGENET_STD
+def preprocess_sequence(positions, max_frames):
+    """positions: (T, N) ya continuo (sin huecos, ver fill_missing_frames).
+    Suaviza y le agrega velocidad/aceleración, después padea/trunca a
+    max_frames -- igual que en el entrenamiento y en probar_modelo.py."""
+    smoothed = smooth_positions(positions)
+    sequence_np = add_dynamics(smoothed)
+    sequence = torch.from_numpy(sequence_np).float()
 
     T = sequence.shape[0]
-    if T < MAX_FRAMES:
-        padding = torch.zeros((MAX_FRAMES - T,) + sequence.shape[1:], dtype=sequence.dtype)
+    real_length = min(T, max_frames)
+    if T < max_frames:
+        padding = torch.zeros((max_frames - T,) + sequence.shape[1:], dtype=sequence.dtype)
         sequence = torch.cat([sequence, padding], dim=0)
-    elif T > MAX_FRAMES:
-        sequence = sequence[:MAX_FRAMES]
+    elif T > max_frames:
+        sequence = sequence[:max_frames]
 
-    return sequence.unsqueeze(0)  # (1, T, 3, H, W)
+    mask = make_padding_mask(torch.tensor([real_length]), max_frames, sequence.device)
+    return sequence.unsqueeze(0), mask  # (1, T, N), (1, T)
 
 
 @app.get("/health")
@@ -213,6 +225,7 @@ async def predict(file: UploadFile = File(...)):
     landmarker = _state["landmarker"]
     model = _state["model"]
     class_names = _state["class_names"]
+    max_frames = _state["max_frames"]
 
     suffix = os.path.splitext(file.filename or "")[1] or ".mp4"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
@@ -240,55 +253,52 @@ async def predict(file: UploadFile = File(...)):
                           "-- probablemente no se dijo la frase completa",
             }
 
-        crops = []
-        last_valid_crop = None
+        # Detección en BATCH: todo el clip al GPU de una sola vez en vez de
+        # frame por frame -- ver detect_landmarks_batch en
+        # extraer_landmarks_npy.py para el detalle de por qué es más rápido.
+        landmarks_por_frame = detect_landmarks_batch(landmarker, frames)
+
+        positions = []
         detected = 0
-        timestamp_ms = _state["timestamp_ms"]
-
-        import mediapipe as mp  # import local: evita cargarlo si el modelo no está listo
-
-        for frame in frames:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            result = landmarker.detect_for_video(mp_image, timestamp_ms)
-            timestamp_ms += FRAME_MS
-
-            landmarks_px = landmarks_to_pixels(result, frame.shape[1], frame.shape[0])
-            crop = get_mouth_crop(frame, landmarks_px) if landmarks_px is not None else None
-
-            if crop is not None:
+        last_valid_vector = None
+        for landmarks_px in landmarks_por_frame:
+            vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
+            if vector is not None and is_outlier(vector, last_valid_vector):
+                vector = None  # glitch de detección, se rellena en vez de aceptarlo
+            if vector is not None:
                 detected += 1
-                last_valid_crop = crop
-                crops.append(crop)
-            elif last_valid_crop is not None:
-                crops.append(last_valid_crop)
-
-        # Margen extra para que el próximo request arranque siempre con timestamp mayor
-        # (MediaPipe en modo VIDEO exige timestamps siempre crecientes durante toda la
-        # vida del landmarker, no solo dentro de un video).
-        _state["timestamp_ms"] = timestamp_ms + FRAME_MS * 5
+                last_valid_vector = vector
+            positions.append(vector)
 
         detection_rate = detected / total if total else 0
-        if not crops or detection_rate < MIN_DETECTION_RATE_VALID:
+        filled = fill_missing_frames(positions)
+        if filled is None or detection_rate < MIN_DETECTION_RATE_VALID:
             return {
                 "valid": False,
                 "reason": f"cara detectada solo en {detected}/{total} frames "
                           f"({detection_rate*100:.0f}%) -- encuadre malo, repetí la toma",
             }
 
-        sequence = preprocess_sequence(crops).to(DEVICE)
+        sequence, mask = preprocess_sequence(filled, max_frames)
+        sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
         with torch.no_grad():
-            logits = model(sequence)
+            logits = model(sequence, src_key_padding_mask=mask)
             probs = torch.softmax(logits, dim=1)[0]
 
-        top_idx = int(torch.argmax(probs).item())
-        top_prob = float(probs[top_idx].item())
+        sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+        top_idx = int(sorted_idx[0].item())
+        top_prob = float(sorted_probs[0].item())
+        second_prob = float(sorted_probs[1].item()) if len(sorted_probs) > 1 else 0.0
+        margin = top_prob - second_prob
+        es_frase_de_riesgo = top_prob >= MIN_RISK_PROB and margin >= MIN_RISK_MARGIN
+
         all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
 
         return {
             "valid": True,
             "word": class_names[top_idx],
             "prob": top_prob,
+            "es_frase_de_riesgo": es_frase_de_riesgo,
             "detected": detected,
             "total": total,
             "all_probs": all_probs,
