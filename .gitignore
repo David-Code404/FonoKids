@@ -4,6 +4,13 @@
 /models/
 /prueba/
 
+# Fotos capturadas en vivo por probar_modelo.py -- son de personas reales,
+# no van al repo. Quedan en disco, solo no se versionan.
+/capturas/
+
+# Config local de Claude Code, no es parte del proyecto.
+/.claude/
+
 # Gráficas generadas por scripts/train.py
 /outputs/*.png
 
