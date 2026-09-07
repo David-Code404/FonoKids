@@ -24,11 +24,18 @@ Requiere haber corrido antes: python extraer_landmarks_npy.py
 """
 import os
 import math
+import time
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix
+
+try:
+    import seaborn as sns
+except ImportError:
+    sns = None
 
 from lip_reading_dataset import build_dataloaders
 
@@ -407,6 +414,111 @@ def build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs=5):
 
 
 # =====================================================================
+# REPORTE DE RESULTADOS (sección 8 del informe): accuracy top-1/top-3,
+# matriz de confusión, motor de riesgo (umbral) y latencia de inferencia.
+# Corre UNA vez al final, sobre el mejor modelo guardado. Todo dentro de
+# un try/except en train() para que, si algo de esto falla, no se pierda
+# el modelo ya entrenado y guardado -- solo se avisa qué falló.
+# =====================================================================
+def evaluate_final_report(model, val_loader, class_names, device):
+    model.eval()
+    all_preds, all_labels, all_top3_hit, all_top_probs = [], [], [], []
+    latencies_ms = []
+
+    with torch.no_grad():
+        for sequences, labels, lengths in val_loader:
+            sequences = sequences.to(device)
+            lengths_dev = lengths.to(device)
+            mask = make_padding_mask(lengths_dev, sequences.shape[1], device)
+
+            outputs = model(sequences, src_key_padding_mask=mask)
+            probs = torch.softmax(outputs, dim=1)
+
+            top1 = probs.argmax(dim=1).cpu()
+            top3 = probs.topk(min(3, probs.shape[1]), dim=1).indices.cpu()
+            top_prob = probs.max(dim=1).values.cpu()
+
+            all_preds.extend(top1.tolist())
+            all_labels.extend(labels.tolist())
+            all_top_probs.extend(top_prob.tolist())
+            for i in range(labels.size(0)):
+                all_top3_hit.append(labels[i].item() in top3[i].tolist())
+
+            # Latencia real: una muestra a la vez (batch=1), como sería en
+            # la app de verdad -- una persona graba, se manda una sola
+            # secuencia al modelo, no un lote.
+            for i in range(sequences.size(0)):
+                start = time.perf_counter()
+                _ = model(sequences[i : i + 1], src_key_padding_mask=mask[i : i + 1])
+                latencies_ms.append((time.perf_counter() - start) * 1000)
+
+    total = len(all_labels)
+    top1_acc = 100.0 * sum(p == l for p, l in zip(all_preds, all_labels)) / total
+    top3_acc = 100.0 * sum(all_top3_hit) / total
+
+    # --- Matriz de confusión ---
+    cm_path = os.path.join(BASE_DIR, "outputs", "matriz_confusion.png")
+    os.makedirs(os.path.dirname(cm_path), exist_ok=True)
+    cm = confusion_matrix(all_labels, all_preds, labels=list(range(len(class_names))))
+    plt.figure(figsize=(max(8, len(class_names) * 0.35), max(6, len(class_names) * 0.35)))
+    if sns is not None:
+        sns.heatmap(cm, xticklabels=class_names, yticklabels=class_names, cmap="Blues")
+    else:
+        plt.imshow(cm, cmap="Blues")
+        plt.xticks(range(len(class_names)), class_names)
+        plt.yticks(range(len(class_names)), class_names)
+    plt.xlabel("Predicho")
+    plt.ylabel("Real")
+    plt.title("Matriz de confusion (validacion)")
+    plt.xticks(rotation=90)
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig(cm_path)
+    plt.close()
+
+    # --- Motor de riesgo (umbral de 40%) ---
+    # Ojo: el set de validación son todo frases DE RIESGO reales, no hay
+    # ejemplos negativos (frases fuera del vocabulario) -- así que acá solo
+    # se puede medir el FALSO NEGATIVO (una frase de riesgo real que el
+    # umbral hubiera descartado por baja confianza). El FALSO POSITIVO
+    # (marcar como riesgo algo que no lo es) necesita un set de prueba con
+    # frases fuera del vocabulario, que todavía no existe.
+    umbral = 0.40
+    detectadas = sum(1 for p in all_top_probs if p >= umbral)
+    no_detectadas = total - detectadas
+
+    # --- Latencia ---
+    avg_latency_ms = sum(latencies_ms) / len(latencies_ms)
+
+    # Cada bloque es una sección de Markdown separada (## encabezado propio)
+    # en vez de un único texto plano -- así se puede pegar directo en el
+    # informe o abrir el .md y verse ya organizado por secciones.
+    secciones = [
+        f"## Resultados\n\n**Muestras de validacion:** {total}",
+        f"### Accuracy\n\n- Top-1: **{top1_acc:.2f}%**\n- Top-3: **{top3_acc:.2f}%**",
+        f"### Matriz de confusion\n\nGuardada en: `{os.path.basename(cm_path)}`",
+        (
+            f"### Motor de riesgo (umbral {umbral*100:.0f}%)\n\n"
+            f"- Frases de riesgo detectadas correctamente: **{detectadas}/{total}** "
+            f"({100.0*detectadas/total:.2f}%)\n"
+            f"- Falsos negativos (riesgo real no detectado): **{no_detectadas}** "
+            f"({100.0*no_detectadas/total:.2f}%)\n\n"
+            f"*Nota: los falsos positivos todavia no se pueden medir -- falta un "
+            f"set de prueba con frases fuera del vocabulario entrenado.*"
+        ),
+        f"### Latencia de inferencia\n\n- Promedio: **{avg_latency_ms:.2f} ms** (batch=1, {device})",
+    ]
+
+    for seccion in secciones:
+        print(seccion + "\n")
+
+    report_path = os.path.join(BASE_DIR, "outputs", "reporte_resultados.md")
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(secciones) + "\n")
+    print(f"-> Reporte guardado: {report_path}")
+
+
+# =====================================================================
 # ENTRENAMIENTO PRINCIPAL
 # =====================================================================
 def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
@@ -478,6 +590,18 @@ def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
                           history["train_acc"], history["val_acc"])
 
     print(f"\nListo. Mejor Val Loss: {best_val_loss:.4f} | Modelo en: {MODEL_PATH}")
+
+    # Reporte final (accuracy top-1/top-3, matriz de confusion, motor de
+    # riesgo, latencia) -- sobre el MEJOR checkpoint, no el de la última
+    # época. Si algo de esto falla, el modelo ya entrenado y guardado no se
+    # pierde -- solo se avisa qué falló.
+    try:
+        best_checkpoint = torch.load(MODEL_PATH, map_location=device)
+        model.load_state_dict(best_checkpoint["model_state_dict"])
+        evaluate_final_report(model, val_loader, dataset.class_names, device)
+    except Exception as e:
+        print(f"\n[AVISO] No se pudo generar el reporte de resultados: {e}")
+        print("El modelo entrenado SÍ se guardó bien, esto solo afecta al reporte de métricas.")
 
 
 if __name__ == "__main__":
