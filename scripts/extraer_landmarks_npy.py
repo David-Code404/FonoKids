@@ -145,6 +145,69 @@ def build_landmarker():
     return _build_mediapipe_landmarker()
 
 
+def detect_landmarks_batch(landmarker, frames_bgr, timestamp_ms=0, frame_ms=40):
+    """Versión en LOTE de detect_frame_landmarks: procesa un clip entero de
+    una sola vez en vez de frame por frame -- esto es lo que hace que
+    probar_modelo.py y el /predict del servidor tarden mucho menos con HRNet.
+
+    Con HRNet, la parte más pesada es la DETECCIÓN de cara (no la regresión
+    de los 68 puntos en sí). Acá se manda el clip entero al GPU como un solo
+    batch para detectar todas las caras de una, en vez de repetir la
+    detección completa por separado en cada uno de los ~25-30 frames por
+    segundo de clip. Después sí se recorre frame por frame para sacar los
+    landmarks finales (la librería `face-alignment` no expone esa parte en
+    batch), pero esa etapa es mucho más liviana.
+
+    Con MediaPipe no hay ganancia real de batchear (ya corre rápido y su
+    modo VIDEO es inherentemente secuencial, necesita timestamps crecientes
+    frame a frame) -- ahí simplemente se llama a detect_frame_landmarks()
+    en un loop, exactamente igual que antes.
+
+    Devuelve: lista de (landmarks_px o None), en el mismo orden que
+    frames_bgr -- mismo resultado que llamar detect_frame_landmarks() en un
+    loop, solo que más rápido con HRNet.
+    """
+    if DETECTOR_BACKEND != "hrnet" or not frames_bgr:
+        resultados = []
+        for frame in frames_bgr:
+            landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
+            resultados.append(landmarks_px)
+        return resultados
+
+    import torch
+
+    frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr]
+
+    try:
+        device = landmarker.face_detector.device
+        batch = torch.stack([
+            torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in frames_rgb
+        ]).to(device)
+        detected_faces = landmarker.face_detector.detect_from_batch(batch)
+    except Exception as e:
+        # Si algo del batch falla (ej. video con resoluciones distintas por
+        # frame, memoria insuficiente), caemos a frame por frame -- más
+        # lento, pero el resultado sigue siendo correcto.
+        print(f"[AVISO] Deteccion en batch fallo ({e}), usando frame por frame.")
+        detected_faces = None
+
+    resultados = []
+    for i, frame_rgb in enumerate(frames_rgb):
+        if detected_faces is None:
+            # El batch falló entero -- dejamos que detecte solo, frame a frame.
+            preds = landmarker.get_landmarks_from_image(frame_rgb)
+        else:
+            faces = detected_faces[i] if i < len(detected_faces) else []
+            if not len(faces):
+                # El batch SÍ corrió para este frame y no encontró cara --
+                # no hay que volver a detectar, es "no hay cara" de verdad.
+                resultados.append(None)
+                continue
+            preds = landmarker.get_landmarks_from_image(frame_rgb, detected_faces=faces)
+        resultados.append(preds[0].astype(np.float32) if preds else None)
+    return resultados
+
+
 def detect_frame_landmarks(landmarker, frame_bgr, timestamp_ms, frame_ms=40):
     """Detecta landmarks en UN frame (BGR, como lo da OpenCV/cv2.VideoCapture).
 
