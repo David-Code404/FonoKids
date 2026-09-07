@@ -33,6 +33,7 @@ from train_landmarks_transformer import LipReadingConformer, make_padding_mask
 from extraer_landmarks_npy import (
     build_landmarker,
     detect_frame_landmarks,
+    detect_landmarks_batch,
     normalize_lip_landmarks,
     fill_missing_frames,
     smooth_positions,
@@ -144,8 +145,14 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
     last_valid_vector = None
     frame_ms = 40  # ~25 fps
 
-    for frame in frames:
-        landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
+    # Detección en BATCH: manda el clip entero al GPU de una sola vez en vez
+    # de detectar cara por cara en cada frame -- esto es lo que hace que la
+    # predicción salga en segundos y no en 15-20s con HRNet.
+    landmarks_por_frame = detect_landmarks_batch(landmarker, frames, timestamp_ms, frame_ms)
+    if landmarks_por_frame:
+        timestamp_ms += frame_ms * len(frames)
+
+    for landmarks_px in landmarks_por_frame:
         vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
 
         if vector is not None and is_outlier(vector, last_valid_vector):
