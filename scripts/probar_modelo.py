@@ -8,8 +8,7 @@ frase cree que dijiste.
 
 Usa MediaPipe Face Landmarker + la misma normalización de landmarks que
 extraer_landmarks_npy.py, para que la predicción sea consistente con cómo
-se entrenó (pipeline de landmarks puros + Conformer, sin recorte de imagen
-ni ResNet).
+se entrenó (pipeline de landmarks puros + Conformer, 
 
 IMPORTANTE: para saber si el modelo realmente aprendió a leer labios (y no
 memorizó detalles de la sesión de grabación), probalo con tomas grabadas
@@ -25,7 +24,9 @@ Uso:
 """
 import os
 from datetime import datetime
+import torch
 
+torch.cuda.empty_cache()
 import cv2
 import torch
 
@@ -66,6 +67,7 @@ CAPTURAS_DIR = os.path.join(BASE_DIR, "capturas")
 
 FRAME_SIZE = (640, 480)
 MIN_FRAMES_VALID = 15   # menos que esto = probablemente no dijiste la frase completa
+MAX_FRAMES_BUFFER = 150  # tope de frames por toma (~6s a 25fps) para no acumular de más si te olvidás de apretar S
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
 MAIN_WINDOW = "SpeakShadow - Probar modelo"
 
@@ -171,7 +173,7 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
 
     sequence, mask = preprocess_sequence(filled, max_frames)
     sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
-    with torch.no_grad():
+    with torch.inference_mode():
         logits = model(sequence, src_key_padding_mask=mask)
         probs = torch.softmax(logits, dim=1)[0]
 
@@ -302,7 +304,7 @@ def main():
             break
         frame_idx += 1
 
-        if recording:
+        if recording and len(frames_buffer) < MAX_FRAMES_BUFFER:
             frames_buffer.append(frame.copy())
 
         if frame_idx % LIVE_DETECT_EVERY == 0:
