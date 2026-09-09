@@ -281,7 +281,7 @@ async def predict(file: UploadFile = File(...)):
 
         sequence, mask = preprocess_sequence(filled, max_frames)
         sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
-        with torch.no_grad():
+        with torch.inference_mode():
             logits = model(sequence, src_key_padding_mask=mask)
             probs = torch.softmax(logits, dim=1)[0]
 
