@@ -1,0 +1,8 @@
+torch==2.5.1
+opencv-python==4.10.0.84
+fastapi==0.137.2
+uvicorn==0.49.0
+mediapipe==1.0.1
+face-alignment==1.5.0
+numpy==2.2.6
+python-multipart

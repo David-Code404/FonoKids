@@ -80,6 +80,14 @@ RUTA_CLIPS = os.path.join(BASE_DIR, "prueba")
 # =====================================================================
 DETECTOR_BACKEND = "hrnet"
 
+# Cuántos frames se apilan juntos en cada sub-lote al detectar caras con
+# HRNet en GPU (ver detect_landmarks_batch más abajo). Confirmado en
+# producción: mandar clips largos (150+ frames, típico del modo vigilancia
+# de la app web) como un solo tensor puede COLGAR el driver de CUDA/WDDM en
+# Windows en vez de tirar un error limpio de memoria -- bajar este número
+# evita ese cuelgue. Subilo solo si tenés una GPU con mucha más VRAM.
+HRNET_BATCH_CHUNK_SIZE = 8
+
 OUT_DIR = os.path.join(BASE_DIR, "data", "landmarks_npy")
 LABEL_MAP_PATH = os.path.join(OUT_DIR, "label_map.json")
 
@@ -178,23 +186,59 @@ def detect_landmarks_batch(landmarker, frames_bgr, timestamp_ms=0, frame_ms=40):
 
     frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr]
 
+    # CRÍTICO: mandar el clip ENTERO como un solo tensor a la GPU (como se
+    # hacía antes) puede pedir DECENAS de GB en clips largos (ej. modo
+    # vigilancia, 150-190 frames) -- en una GPU de 6GB, ese pedido tan
+    # desproporcionado no siempre tira un error limpio de "out of memory":
+    # confirmado en producción, el driver de CUDA/WDDM en Windows se CUELGA
+    # (nunca vuelve, nunca lanza excepción) en vez de fallar. Por eso se
+    # procesa en sub-lotes chicos (HRNET_BATCH_CHUNK_SIZE) -- cada pedido a
+    # la GPU queda acotado a un tamaño razonable, así nunca se dispara ese
+    # cuelgue del driver, además de evitar el OOM normal en GPUs chicas.
+    device = landmarker.face_detector.device
+    chunk_size = HRNET_BATCH_CHUNK_SIZE
+    detected_faces = []
     try:
-        device = landmarker.face_detector.device
-        batch = torch.stack([
-            torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in frames_rgb
-        ]).to(device)
-        detected_faces = landmarker.face_detector.detect_from_batch(batch)
+        for start in range(0, len(frames_rgb), chunk_size):
+            chunk = frames_rgb[start:start + chunk_size]
+            batch = torch.stack([
+                torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in chunk
+            ]).to(device)
+            try:
+                chunk_faces = landmarker.face_detector.detect_from_batch(batch)
+            except torch.cuda.OutOfMemoryError:
+                # Incluso el sub-lote fue demasiado (clip de resolución muy
+                # alta) -- reintentamos ese sub-lote de a un frame por vez,
+                # sin perder lo ya detectado ni abortar el clip entero.
+                del batch
+                print(f"[AVISO] Sub-lote de {len(chunk)} frames sin memoria, "
+                      "reintentando de a un frame.")
+                chunk_faces = []
+                for frame in chunk:
+                    single = torch.from_numpy(np.ascontiguousarray(frame)).permute(2, 0, 1).unsqueeze(0).to(device)
+                    chunk_faces.extend(landmarker.face_detector.detect_from_batch(single))
+                    del single
+            detected_faces.extend(chunk_faces)
+            del batch
     except Exception as e:
-        # Si algo del batch falla (ej. video con resoluciones distintas por
-        # frame, memoria insuficiente), caemos a frame por frame -- más
-        # lento, pero el resultado sigue siendo correcto.
+        # Cualquier otra falla (ej. video con resoluciones distintas por
+        # frame) -- caemos a frame por frame para todo el clip, más lento
+        # pero el resultado sigue siendo correcto.
         print(f"[AVISO] Deteccion en batch fallo ({e}), usando frame por frame.")
         detected_faces = None
 
+    # REGRESIÓN de los 68 puntos: frame por frame con la API de alto nivel
+    # de la librería. Se intentó batchear esto también (como la detección de
+    # arriba), pero con torch.compile activado y sin Triton en Windows, un
+    # tamaño de lote nuevo dispara OTRO intento de compilación fallido por
+    # cada tamaño distinto que aparece -- probado: 59 frames tardaron 108s
+    # en vez de mejorar. Se deja como estaba (esta etapa ya es la liviana,
+    # la pesada es la detección de arriba, que sí está bien batcheada).
     resultados = []
     for i, frame_rgb in enumerate(frames_rgb):
         if detected_faces is None:
-            # El batch falló entero -- dejamos que detecte solo, frame a frame.
+            # El batch de detección falló entero -- dejamos que detecte
+            # solo, frame a frame.
             preds = landmarker.get_landmarks_from_image(frame_rgb)
         else:
             faces = detected_faces[i] if i < len(detected_faces) else []
