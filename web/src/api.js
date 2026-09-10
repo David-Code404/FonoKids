@@ -1,0 +1,141 @@
+// Cliente HTTP para server/main.py -- equivalente web de api_client.dart.
+const STORAGE_KEY = "speakshadow_server_url";
+// Por defecto, asumimos que server/main.py corre en la MISMA máquina que
+// sirve esta página (ej. "npm run dev" y "python server/main.py" en la
+// misma PC) -- evita el "Sin conexión" typico de un IP de LAN hardcodeado
+// que no coincide con la red de quien lo prueba. Si el celular entra por
+// otra IP (ej. túnel/HTTPS), el usuario lo cambia a mano en Configuración.
+export const DEFAULT_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+
+export class ApiError extends Error {}
+
+function normalize(url) {
+  const u = url.trim();
+  return u.endsWith("/") ? u.slice(0, -1) : u;
+}
+
+export function getServerUrl() {
+  return localStorage.getItem(STORAGE_KEY) || DEFAULT_URL;
+}
+
+/// URL de la foto real (frame del medio del clip) para una captura --
+/// GET /dataset/thumbnail en server/main.py. Puede devolver 404 si el clip
+/// es viejo (dataset de entrenamiento) o no tiene thumbnail_file -- la UI
+/// debe manejar el error de carga y caer al placeholder.
+export function thumbnailUrl(baseUrl, word, filename) {
+  const params = new URLSearchParams({ word, filename });
+  return `${normalize(baseUrl)}/dataset/thumbnail?${params}`;
+}
+
+export function setServerUrl(url) {
+  localStorage.setItem(STORAGE_KEY, url.trim());
+}
+
+async function withTimeout(promise, ms, timeoutMessage) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await promise(controller.signal);
+  } catch (e) {
+    if (e.name === "AbortError") {
+      throw new ApiError(timeoutMessage);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function checkHealth(baseUrl) {
+  try {
+    const res = await withTimeout(
+      (signal) => fetch(`${normalize(baseUrl)}/health`, { signal }),
+      5000,
+      "timeout"
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 20s en vez de 5s -- estas consultas son livianas (listar archivos), pero
+// comparten servidor con /predict: si justo hay una predicción corriendo,
+// pueden demorar un poco más de lo normal en contestar. Con solo 5s
+// cualquier pestañeo hacía que la app cayera a datos de muestra y pareciera
+// que "cambiaban solas" entre reales y de muestra.
+const DATASET_TIMEOUT_MS = 20000;
+
+export async function getDatasetStats(baseUrl) {
+  const res = await withTimeout(
+    (signal) => fetch(`${normalize(baseUrl)}/dataset/stats`, { signal }),
+    DATASET_TIMEOUT_MS,
+    "El servidor tardó demasiado en responder."
+  ).catch((e) => {
+    throw new ApiError(e.message || `No se pudo conectar al servidor (${baseUrl}).`);
+  });
+  if (!res.ok) throw new ApiError(`El servidor respondió con error ${res.status}.`);
+  return res.json();
+}
+
+export async function getRecordings(baseUrl) {
+  const res = await withTimeout(
+    (signal) => fetch(`${normalize(baseUrl)}/dataset/recordings`, { signal }),
+    DATASET_TIMEOUT_MS,
+    "El servidor tardó demasiado en responder."
+  ).catch((e) => {
+    throw new ApiError(e.message || `No se pudo conectar al servidor (${baseUrl}).`);
+  });
+  if (!res.ok) throw new ApiError(`El servidor respondió con error ${res.status}.`);
+  return res.json();
+}
+
+/// Envía el clip grabado (Blob) al servidor y devuelve la predicción.
+// 150s de margen -- el servidor (server/main.py) ya serializa las
+// predicciones con un semáforo (una GPU de 6GB no aguanta 2 a la vez) y el
+// front-end también las encadena de a una (ver predictQueueRef en
+// HomeScreen.jsx), así que este timeout ahora cubre el tiempo real de
+// procesamiento de ESTA request nomás, no una espera de cola. Vimos hasta
+// ~90s en el arranque en frío del servidor (compila HRNet una sola vez);
+// 150s deja margen de sobra para que eso nunca dispare este error.
+export async function predict(baseUrl, videoBlob, filename = "clip.webm") {
+  const uri = `${normalize(baseUrl)}/predict`;
+  const form = new FormData();
+  form.append("file", videoBlob, filename);
+
+  let response;
+  try {
+    response = await withTimeout(
+      (signal) => fetch(uri, { method: "POST", body: form, signal }),
+      150000,
+      "El servidor tardó demasiado en responder. Puede estar sobrecargado " +
+        "(GPU con poca memoria) -- probá de nuevo en unos segundos."
+    );
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(
+      `No se pudo conectar al servidor (${baseUrl}). ` +
+        "Revisá que esté prendido y que el dispositivo esté en la misma red WiFi."
+    );
+  }
+
+  if (!response.ok) {
+    // El servidor manda un "detail" específico y útil (ej. "se está
+    // reiniciando solo, probá de nuevo en unos segundos" en un 504) --
+    // antes se ignoraba y siempre se mostraba un mensaje genérico. Mejor
+    // mostrar el real cuando existe.
+    let detail = null;
+    try {
+      const body = await response.json();
+      detail = body?.detail || null;
+    } catch {
+      // Respuesta sin JSON (ej. error crudo del servidor web) -- seguimos
+      // con el mensaje genérico de abajo.
+    }
+    throw new ApiError(
+      detail || `El servidor respondió con error ${response.status}. Revisá que el modelo esté cargado ahí.`
+    );
+  }
+
+  return response.json();
+}

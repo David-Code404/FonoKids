@@ -27,3 +27,10 @@ venv/
 *.iml
 .DS_Store
 Thumbs.db
+
+# App web (React + Vite)
+/web/node_modules/
+/web/dist/
+
+# Entorno virtual de WSL (probado localmente, no es parte del repo)
+/.venv-wsl/
