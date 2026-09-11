@@ -4,7 +4,6 @@ import { checkHealth, getServerUrl, predict, setServerUrl as saveServerUrl, thum
 import SettingsDialog from "../components/SettingsDialog.jsx";
 import "./HomeScreen.css";
 
-const RISK_THRESHOLD = 0.4;
 // Tope de duración de una toma -- coincide con MAX_FRAMES_BUFFER de
 // probar_modelo.py (~150 frames a 25fps). Si el usuario se olvida de tocar
 // para detener, esto corta solo en vez de mandar un clip cada vez más largo.
@@ -226,31 +225,25 @@ export default function HomeScreen() {
     };
   }, []);
 
-  function registerCapture(word, prob, captureFile) {
-    const id = nextCaptureId.current++;
-    const isRisk = prob >= RISK_THRESHOLD;
-    // Foto real del momento (frame del clip guardado) -- si el servidor no
-    // pudo guardarla (ej. frase no llegó al umbral de riesgo, o falló el
-    // guardado), photoUrl queda null y el panel cae al ícono genérico.
-    const photoUrl = captureFile ? thumbnailUrl(serverUrl, word, captureFile) : null;
-    const entry = { id, word, prob, isRisk, time: new Date(), photoUrl };
-    setCaptures((prev) => [entry, ...prev]);
-
-    if (!isRisk) {
-      const fadeTimer = setTimeout(() => {
-        setFadingOutIds((prev) => new Set(prev).add(id));
-      }, 5000);
-      const removeTimer = setTimeout(() => {
-        setCaptures((prev) => prev.filter((c) => c.id !== id));
-        setFadingOutIds((prev) => {
-          const next = new Set(prev);
-          next.delete(id);
-          return next;
-        });
-        setDiscardedCount((n) => n + 1);
-      }, 5600);
-      pendingTimersRef.current.push(fadeTimer, removeTimer);
+  // isRiesgo viene DIRECTO del servidor (result.es_frase_de_riesgo) -- ahí
+  // es donde se decide de verdad (softmax + margen + distancia al centroide
+  // de la clase, ver server/main.py), no acá. Si no es riesgo, ni siquiera
+  // mostramos la palabra que el modelo creyó reconocer -- el modelo SIEMPRE
+  // tiene que elegir alguna de las 20 clases entrenadas aunque no sea
+  // ninguna de verdad, así que mostrar esa palabra "adivinada" para algo
+  // que en realidad no dijiste confunde más de lo que ayuda. Se descarta
+  // directo, sin tarjeta ni fade.
+  function registerCapture(word, prob, captureFile, isRiesgo) {
+    if (!isRiesgo) {
+      setDiscardedCount((n) => n + 1);
+      return;
     }
+    const id = nextCaptureId.current++;
+    // Foto real del momento (frame del clip guardado) -- si el servidor no
+    // pudo guardarla, photoUrl queda null y el panel cae al ícono genérico.
+    const photoUrl = captureFile ? thumbnailUrl(serverUrl, word, captureFile) : null;
+    const entry = { id, word, prob, isRisk: true, time: new Date(), photoUrl };
+    setCaptures((prev) => [entry, ...prev]);
   }
 
   function dismissCapture(id) {
@@ -293,7 +286,7 @@ export default function HomeScreen() {
           setLastError(null);
           setConnState("ok");
           if (result.valid && result.word) {
-            registerCapture(result.word, result.prob ?? 0, result.capture_file);
+            registerCapture(result.word, result.prob ?? 0, result.capture_file, !!result.es_frase_de_riesgo);
           }
         } catch (e) {
           setLastError(e.message || "Error inesperado hablando con el servidor.");
@@ -600,14 +593,23 @@ function ResultCard({ result }) {
   if (!result.valid) {
     return <div className="card error-card">⚠ {result.reason || "Toma no válida, repetí."}</div>;
   }
-  const isRisk = (result.prob ?? 0) >= RISK_THRESHOLD;
+  // La decisión de riesgo es del servidor (softmax + margen + distancia al
+  // centroide de la clase) -- no se recalcula acá. Si no es riesgo, no se
+  // muestra la palabra "adivinada": el modelo siempre elige una de las 20
+  // clases aunque no hayas dicho ninguna, así que mostrarla como si fuera
+  // un resultado real confunde más de lo que ayuda.
+  if (!result.es_frase_de_riesgo) {
+    return (
+      <div className="card result-card">
+        <div className="result-badge no-risk">Palabra desconocida -- descartada</div>
+      </div>
+    );
+  }
   const pct = ((result.prob ?? 0) * 100).toFixed(1);
   return (
     <div className="card result-card">
       <div className="result-word">{(result.word || "?").replaceAll("_", " ")}</div>
-      <div className={`result-badge ${isRisk ? "risk" : "no-risk"}`}>
-        {isRisk ? `Frase de riesgo -- ${pct}%` : `No es una frase de riesgo -- ${pct}%`}
-      </div>
+      <div className="result-badge risk">Frase de riesgo -- {pct}%</div>
     </div>
   );
 }
