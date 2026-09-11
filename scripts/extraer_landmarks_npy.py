@@ -86,7 +86,11 @@ DETECTOR_BACKEND = "hrnet"
 # de la app web) como un solo tensor puede COLGAR el driver de CUDA/WDDM en
 # Windows en vez de tirar un error limpio de memoria -- bajar este número
 # evita ese cuelgue. Subilo solo si tenés una GPU con mucha más VRAM.
-HRNET_BATCH_CHUNK_SIZE = 8
+# Bajado de 8 a 4: el cuelgue de 90s+ siguió pasando de forma intermitente
+# incluso con 8 + resize a 640px -- cada pedido más chico a la GPU reduce
+# la chance de disparar ese cuelgue del driver (a costa de más overhead por
+# sub-lote, pero eso es rápido comparado con un cuelgue de 90s).
+HRNET_BATCH_CHUNK_SIZE = 4
 
 OUT_DIR = os.path.join(BASE_DIR, "data", "landmarks_npy")
 LABEL_MAP_PATH = os.path.join(OUT_DIR, "label_map.json")

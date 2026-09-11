@@ -274,14 +274,23 @@ class LipReadingConformer(nn.Module):
             nn.Linear(64, num_classes),
         )
 
-    def forward(self, x, src_key_padding_mask=None):
-        # x: (B, T, input_dim)
+    def forward_features(self, x, src_key_padding_mask=None):
+        """Igual que forward(), pero se queda ANTES del clasificador --
+        devuelve el vector pooled (B, hidden_dim) de cada clip. Lo usa el
+        detector de frases fuera de vocabulario (ver server/main.py /
+        build_ood_centroids.py): comparar este vector contra el centroide
+        de cada clase entrenada es más confiable que confiar solo en el
+        softmax, que puede salir muy confiado incluso con una frase que el
+        modelo nunca vio (nunca aprendió a decir "no sé")."""
         x = self.input_proj(x)                 # (B, T, hidden_dim)
         x = self.tcn(x, key_padding_mask=src_key_padding_mask)
         x = self.pos_encoder(x)
         x = self.conformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
+        return masked_mean_pool(x, src_key_padding_mask)
 
-        pooled = masked_mean_pool(x, src_key_padding_mask)
+    def forward(self, x, src_key_padding_mask=None):
+        # x: (B, T, input_dim)
+        pooled = self.forward_features(x, src_key_padding_mask=src_key_padding_mask)
         return self.classifier(pooled)
 
 

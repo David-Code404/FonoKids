@@ -73,8 +73,19 @@ MAX_FRAME_WIDTH = 640
 # Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
 # entrenadas (no sabe decir "no sé"), así que esto es lo que distingue
 # "sí es una frase de riesgo conocida" de "no es nada, no hacer caso".
-MIN_RISK_PROB = 0.40
-MIN_RISK_MARGIN = 0.15
+#
+# Subido de 0.40/0.15 a 0.70/0.35: el modelo se entrenó SOLO con las 20
+# frases de bullying -- nunca vio ejemplos de habla normal ("hola qué tal"),
+# así que no tiene ninguna noción real de "esto no es bullying". Frente a
+# algo fuera de vocabulario, el softmax igual puede salir muy confiado
+# (picos artificiales en la clase más parecida) porque nunca aprendió a
+# decir "no sé" -- confirmado en producción: "hola qué tal" se marcaba
+# como frase de riesgo con el umbral viejo. Subir la barra reduce esos
+# falsos positivos (a costa de, ocasionalmente, no marcar una frase de
+# riesgo real dicha de forma poco clara -- mejor eso que alarmar con algo
+# que no era bullying).
+MIN_RISK_PROB = 0.70
+MIN_RISK_MARGIN = 0.35
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
