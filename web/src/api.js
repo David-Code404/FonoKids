@@ -90,15 +90,20 @@ export async function getRecordings(baseUrl) {
   return res.json();
 }
 
-/// Envía el clip grabado (Blob) al servidor y devuelve la predicción.
-// 150s de margen -- el servidor (server/main.py) ya serializa las
-// predicciones con un semáforo (una GPU de 6GB no aguanta 2 a la vez) y el
-// front-end también las encadena de a una (ver predictQueueRef en
-// HomeScreen.jsx), así que este timeout ahora cubre el tiempo real de
-// procesamiento de ESTA request nomás, no una espera de cola. Vimos hasta
-// ~90s en el arranque en frío del servidor (compila HRNet una sola vez);
-// 150s deja margen de sobra para que eso nunca dispare este error.
-export async function predict(baseUrl, videoBlob, filename = "clip.webm") {
+async function waitForServerBack(baseUrl, maxWaitMs = 60000) {
+  // El servidor se reinicia solo cuando /predict se cuelga (ver server/
+  // main.py, PREDICT_HARD_TIMEOUT_S) -- típicamente vuelve a responder en
+  // 20-30s. Sondeamos /health hasta que vuelva, en vez de reintentar a
+  // ciegas contra un servidor que todavía se está reiniciando.
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await checkHealth(baseUrl)) return true;
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+  return false;
+}
+
+async function predictOnce(baseUrl, videoBlob, filename) {
   const uri = `${normalize(baseUrl)}/predict`;
   const form = new FormData();
   form.append("file", videoBlob, filename);
@@ -132,10 +137,41 @@ export async function predict(baseUrl, videoBlob, filename = "clip.webm") {
       // Respuesta sin JSON (ej. error crudo del servidor web) -- seguimos
       // con el mensaje genérico de abajo.
     }
-    throw new ApiError(
+    const err = new ApiError(
       detail || `El servidor respondió con error ${response.status}. Revisá que el modelo esté cargado ahí.`
     );
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
+}
+
+/// Envía el clip grabado (Blob) al servidor y devuelve la predicción.
+//
+// Reintento automático ante un cuelgue de GPU: el servidor a veces se
+// cuelga por un problema intermitente del driver de NVIDIA/CUDA (no del
+// código ni del clip -- confirmado probando el MISMO clip varias veces:
+// unas anda, otras se cuelga) y se mata/reinicia solo en ~90s (ver
+// PREDICT_HARD_TIMEOUT_S en server/main.py). Antes, cuando pasaba eso, el
+// usuario tenía que darse cuenta del error y volver a grabar a mano. Ahora,
+// si la respuesta es justo ese 504 de "me estoy reiniciando", esperamos a
+// que el servidor vuelva a responder /health y reintentamos el MISMO clip
+// una sola vez automáticamente -- en la mayoría de los casos ya funciona
+// en el segundo intento, sin que el usuario tenga que hacer nada.
+export async function predict(baseUrl, videoBlob, filename = "clip.webm", onRetrying = null) {
+  try {
+    return await predictOnce(baseUrl, videoBlob, filename);
+  } catch (e) {
+    if (e.status !== 504) throw e;
+
+    if (onRetrying) onRetrying();
+    const back = await waitForServerBack(baseUrl);
+    if (!back) {
+      throw new ApiError(
+        "El servidor se colgó y todavía no volvió a responder -- probá de nuevo en un ratito."
+      );
+    }
+    return await predictOnce(baseUrl, videoBlob, filename);
+  }
 }

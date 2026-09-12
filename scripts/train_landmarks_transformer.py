@@ -26,6 +26,7 @@ import os
 import math
 import time
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -548,11 +549,26 @@ def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
           f"Val: {len(val_loader.dataset)}")
 
     model = LipReadingConformer(num_classes=num_classes, input_dim=input_dim).to(device)
+
+    # Peso por clase en la loss -- si alguna clase termina con más o menos
+    # muestras que el resto en train (ej. "no_es_riesgo", que junta clips de
+    # fuentes distintas), esto evita que el entrenamiento se incline a
+    # favor/en contra de ella solo por cantidad. Con clases parejas los
+    # pesos quedan cerca de 1.0 y casi no cambian nada.
+    train_labels = [dataset._label_from_path(p) for p in train_loader.dataset.file_paths]
+    class_counts = np.bincount(train_labels, minlength=num_classes).astype(np.float64)
+    class_counts[class_counts == 0] = 1.0  # evita división por cero
+    class_weights = class_counts.sum() / (num_classes * class_counts)
+    class_weights_t = torch.tensor(class_weights, dtype=torch.float32, device=device)
+    print("Pesos por clase (loss):")
+    for name, w, c in zip(dataset.class_names, class_weights, class_counts):
+        print(f"  {name:28s} {int(c):4d} muestras -- peso {w:.3f}")
+
     # Label smoothing: en vez de pedirle al modelo 100% de confianza en la
     # clase correcta y 0% en el resto, le pide un poco menos (ej. 90%/10%
     # repartido) -- reduce sobreconfianza y sobreajuste, más notorio cuantas
     # más clases hay (acá van a ser 57).
-    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing, weight=class_weights_t)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
     scheduler = build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs)
     early_stopping = EarlyStopping(patience=early_stopping_patience, min_delta=0.001)

@@ -95,6 +95,7 @@ export default function HomeScreen() {
   const [connState, setConnState] = useState("unknown"); // unknown | ok | fail
   const [lastResult, setLastResult] = useState(null);
   const [lastError, setLastError] = useState(null);
+  const [retryingPredict, setRetryingPredict] = useState(false);
   const [captures, setCaptures] = useState([]);
   const [fadingOutIds, setFadingOutIds] = useState(new Set());
   const [discardedCount, setDiscardedCount] = useState(0);
@@ -281,7 +282,8 @@ export default function HomeScreen() {
 
       const run = async () => {
         try {
-          const result = await predict(serverUrl, blob, filename);
+          const result = await predict(serverUrl, blob, filename, () => setRetryingPredict(true));
+          setRetryingPredict(false);
           setLastResult(result);
           setLastError(null);
           setConnState("ok");
@@ -289,6 +291,7 @@ export default function HomeScreen() {
             registerCapture(result.word, result.prob ?? 0, result.capture_file, !!result.es_frase_de_riesgo);
           }
         } catch (e) {
+          setRetryingPredict(false);
           setLastError(e.message || "Error inesperado hablando con el servidor.");
           setConnState("fail");
           // Si el servidor se cuelga se reinicia solo en ~20-30s (ver
@@ -543,8 +546,11 @@ export default function HomeScreen() {
         </div>
 
         <div className="status-area">
-          {lastError && <div className="card error-card">⚠ {lastError}</div>}
-          {lastResult && <ResultCard result={lastResult} />}
+          {retryingPredict && (
+            <div className="card">⏳ El servidor se colgó, esperando a que vuelva para reintentar solo...</div>
+          )}
+          {!retryingPredict && lastError && <div className="card error-card">⚠ {lastError}</div>}
+          {!retryingPredict && lastResult && <ResultCard result={lastResult} />}
         </div>
 
         <div className="record-control">

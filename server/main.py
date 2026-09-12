@@ -58,11 +58,14 @@ GOAL_PER_WORD = 500
 MIN_FRAMES_VALID = 15           # menos que esto = probablemente no se dijo la frase completa
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
 
-# Tope de frames que se mandan a detect_landmarks_batch -- ver el porqué en
-# _run_prediction_pipeline. Todos los cuelgues vistos en producción fueron
-# con clips de 120+ frames; todos los que terminaron bien tenían menos de
-# 90. 100 deja margen sin recortar demasiado la ventana temporal.
-MAX_PIPELINE_FRAMES = 100
+# NO se recortan ni saltean frames -- igual que probar_modelo.py/extraer_
+# landmarks_npy.py ("CONTINUIDAD TEMPORAL ESTRICTA"). Antes acá había un
+# tope (MAX_PIPELINE_FRAMES) que cortaba clips largos para evitar el
+# cuelgue de GPU, pero eso rompía la continuidad temporal con la que se
+# entrenó el modelo y empeoraba la predicción. El cuelgue real ya se
+# arregla con el resize (MAX_FRAME_WIDTH) + el chunking de sub-lotes en
+# detect_landmarks_batch (ver extraer_landmarks_npy.py) -- con eso ya no
+# hace falta cortar el clip.
 
 # Ancho máximo de cada frame ANTES de mandarlo a HRNet -- la cámara del
 # navegador graba en Full HD (1920px), muchísimo más de lo necesario para
@@ -73,19 +76,27 @@ MAX_FRAME_WIDTH = 640
 # Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
 # entrenadas (no sabe decir "no sé"), así que esto es lo que distingue
 # "sí es una frase de riesgo conocida" de "no es nada, no hacer caso".
-#
-# Subido de 0.40/0.15 a 0.70/0.35: el modelo se entrenó SOLO con las 20
-# frases de bullying -- nunca vio ejemplos de habla normal ("hola qué tal"),
-# así que no tiene ninguna noción real de "esto no es bullying". Frente a
-# algo fuera de vocabulario, el softmax igual puede salir muy confiado
-# (picos artificiales en la clase más parecida) porque nunca aprendió a
-# decir "no sé" -- confirmado en producción: "hola qué tal" se marcaba
-# como frase de riesgo con el umbral viejo. Subir la barra reduce esos
-# falsos positivos (a costa de, ocasionalmente, no marcar una frase de
-# riesgo real dicha de forma poco clara -- mejor eso que alarmar con algo
-# que no era bullying).
-MIN_RISK_PROB = 0.70
-MIN_RISK_MARGIN = 0.35
+MIN_RISK_PROB = 0.90      # la clase top tiene que superar esto
+MIN_RISK_MARGIN = 0.30    # y sacarle esta diferencia mínima a la 2da opción
+# (sincronizado con probar_modelo.py -- se subió de 0.40/0.15 porque con
+# umbrales bajos alcanzaba con un 40% de confianza en CUALQUIER frase
+# entrenada, incluida una neutra, para marcar riesgo por error.)
+
+# Las ÚNICAS clases que cuentan como "frase de riesgo" -- el resto de las
+# clases del modelo (las 20 frases neutras tipo "hola"/"gracias", ver
+# scripts/generar_sintetico.py) están ahí para que el modelo tenga algo
+# real que predecir cuando NO es bullying, pero nunca tienen que disparar
+# una alerta aunque salgan con confianza alta. Antes esto no se chequeaba
+# -- la decisión de riesgo miraba SOLO la confianza del softmax, sin
+# importar qué palabra era, así que una frase neutra predicha con
+# confianza igual se marcaba como riesgo por error.
+RISK_WORDS = frozenset({
+    "asqueroso", "camba_de_mierda", "ciego_de_mierda", "colla_y_mierda",
+    "de_esta_no_te_salvas", "enano", "engendro", "eres_una_rata", "estorbo",
+    "feo", "fracasado", "fracasado_de_mierda", "gordo", "gordo_asqueroso",
+    "idiota", "inservible", "maldito_colla_de_mierda", "estúpido",
+    "imbécil", "inútil",
+})
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -454,18 +465,6 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
                       "-- probablemente no se dijo la frase completa",
         }
 
-    if total > MAX_PIPELINE_FRAMES:
-        # Confirmado en producción: TODOS los cuelgues de hoy pasaron con
-        # clips de 120+ frames (la cámara del navegador graba a más FPS de
-        # lo esperado -- un clip de 5-6s puede tener 200+ frames), y TODAS
-        # las pruebas con menos de 90 frames terminaron bien. Muestreamos
-        # parejo a lo largo de todo el clip (no solo el principio) para no
-        # perder el final de la frase, en vez de arriesgar el cuelgue.
-        idx = np.linspace(0, total - 1, MAX_PIPELINE_FRAMES).round().astype(int)
-        frames = [frames[i] for i in idx]
-        total = len(frames)
-        print(f"[predict] clip muestreado a {total} frames (tope de seguridad)")
-
     # Detección en BATCH: todo el clip al GPU de una sola vez en vez de
     # frame por frame -- ver detect_landmarks_batch en
     # extraer_landmarks_npy.py para el detalle de por qué es más rápido.
@@ -505,7 +504,11 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     top_prob = float(sorted_probs[0].item())
     second_prob = float(sorted_probs[1].item()) if len(sorted_probs) > 1 else 0.0
     margin = top_prob - second_prob
-    es_frase_de_riesgo = top_prob >= MIN_RISK_PROB and margin >= MIN_RISK_MARGIN
+    es_frase_de_riesgo = (
+        class_names[top_idx] in RISK_WORDS
+        and top_prob >= MIN_RISK_PROB
+        and margin >= MIN_RISK_MARGIN
+    )
 
     all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
 

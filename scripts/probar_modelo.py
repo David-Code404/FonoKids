@@ -1,18 +1,15 @@
 """
 probar_modelo.py
 -----------------
-Prende la cámara, grabás una toma (C/S, igual que grabar_video_continuo.py)
-y el modelo entrenado (mejor_modelo_landmarks_conformer.pth, bajado de
-Colab o entrenado local con train_landmarks_transformer.py) te dice qué
-frase cree que dijiste.
+Prende la cámara, grabás una toma (C/S) y el modelo entrenado
+(models/best.pth) te dice qué frase cree que dijiste.
 
-Usa MediaPipe Face Landmarker + la misma normalización de landmarks que
-extraer_landmarks_npy.py, para que la predicción sea consistente con cómo
-se entrenó (pipeline de landmarks puros + Conformer, 
+Arquitectura TCN + Conformer, detección con HRNet/FAN (MediaPipe solo para
+el overlay en vivo, cosmético). El vector de entrada es posición +
+velocidad + aceleración de los 20 puntos de labios del esquema HRNet
+(120 = 40 posición + 40 velocidad + 40 aceleración).
 
-IMPORTANTE: para saber si el modelo realmente aprendió a leer labios (y no
-memorizó detalles de la sesión de grabación), probalo con tomas grabadas
-AHORA, en otro momento distinto al que usaste para entrenar.
+AUTOCONTENIDO: no importa nada de otros archivos del proyecto.
 
 Controles:
     C -> Empieza a grabar
@@ -22,36 +19,271 @@ Controles:
 Uso:
     python probar_modelo.py
 """
+import math
 import os
+import sys
+import urllib.request
 from datetime import datetime
+
+import cv2
+import numpy as np
 import torch
+import torch.nn as nn
 
 torch.cuda.empty_cache()
-import cv2
-import torch
 
-from train_landmarks_transformer import LipReadingConformer, make_padding_mask
-from extraer_landmarks_npy import (
-    build_landmarker,
-    detect_frame_landmarks,
-    detect_landmarks_batch,
-    normalize_lip_landmarks,
-    fill_missing_frames,
-    smooth_positions,
-    add_dynamics,
-    is_outlier,
-    open_camera,
-    list_available_cameras,
-    choose_camera,
-    _build_mediapipe_landmarker,
-    _detect_mediapipe,
-)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")
+CAPTURAS_DIR = os.path.join(BASE_DIR, "capturas")
 
-# Puntos de referencia SOLO para dibujar el overlay en vivo (esquema de 478
-# puntos de MediaPipe) -- independiente de qué DETECTOR_BACKEND se use para
-# la extracción/predicción real. Se usa MediaPipe acá porque es rápido
-# (HRNet a ~3fps trabaría la vista en vivo, igual que en grabar_video_
-# continuo.py).
+FRAME_SIZE = (640, 480)
+MIN_FRAMES_VALID = 15
+MAX_FRAMES_BUFFER = 150
+MIN_DETECTION_RATE_VALID = 0.6
+MAIN_WINDOW = "SpeakShadow - Probar modelo"
+
+MIN_RISK_PROB = 0.40
+MIN_RISK_MARGIN = 0.15
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+# =====================================================================
+# DETECCIÓN HRNet/FAN (real, la que ve el modelo) -- esquema iBUG/300W de
+# 68 puntos: boca = índices 48-67 (20 puntos), ojos = 36 (der.) y 45 (izq.)
+# =====================================================================
+LIP_INDICES = list(range(48, 68))
+RIGHT_EYE_OUTER = 36
+LEFT_EYE_OUTER = 45
+SCALE_EPSILON = 1e-6
+HRNET_BATCH_CHUNK_SIZE = 4  # valor probado toda la sesión sin trabar la PC -- NO
+# subirlo sin probarlo antes: un sub-lote más grande manda más al GPU de una sola
+# vez, y en esta PC eso es justo lo que disparó cuelgues del driver de NVIDIA.
+
+
+def build_hrnet_detector():
+    """Detector tipo HRNet vía el paquete `face-alignment` (red FAN)."""
+    import face_alignment
+    import torch._dynamo
+
+    # face_alignment intenta compilar su red con torch.compile en la primera
+    # llamada -- en Windows no hay build oficial de Triton, así que esa
+    # compilación SIEMPRE falla. Sin esto tira una excepción en vez de caer
+    # a modo eager (que funciona perfecto, solo un poco más lento la primera vez).
+    torch._dynamo.config.suppress_errors = True
+
+    if DEVICE == "cpu":
+        print("[AVISO] No hay GPU disponible -- HRNet/FAN en CPU va a ser MUY lento.")
+
+    detector = face_alignment.FaceAlignment(
+        face_alignment.LandmarksType.TWO_D, device=DEVICE, flip_input=False,
+    )
+    print(f">>> Detector HRNet/FAN corriendo en {DEVICE.upper()}. <<<")
+    return detector
+
+
+def detect_hrnet(detector, frame_bgr):
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    preds = detector.get_landmarks(rgb)  # lista de (68, 2) por cara, o None
+    if not preds:
+        return None
+    return preds[0].astype(np.float32)
+
+
+def detect_landmarks_batch(detector, frames_bgr):
+    """Detecta landmarks en un clip entero: detección de cara en sub-lotes
+    (GPU), regresión de los 68 puntos frame por frame -- ver el porqué de
+    los sub-lotes en el comentario de HRNET_BATCH_CHUNK_SIZE."""
+    if not frames_bgr:
+        return []
+
+    frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr]
+    device = detector.face_detector.device
+    chunk_size = HRNET_BATCH_CHUNK_SIZE
+    detected_faces = []
+    try:
+        for start in range(0, len(frames_rgb), chunk_size):
+            chunk = frames_rgb[start:start + chunk_size]
+            batch = torch.stack([
+                torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in chunk
+            ]).to(device)
+            try:
+                chunk_faces = detector.face_detector.detect_from_batch(batch)
+            except torch.cuda.OutOfMemoryError:
+                del batch
+                print(f"[AVISO] Sub-lote de {len(chunk)} frames sin memoria, reintentando de a un frame.")
+                chunk_faces = []
+                for frame in chunk:
+                    single = torch.from_numpy(np.ascontiguousarray(frame)).permute(2, 0, 1).unsqueeze(0).to(device)
+                    chunk_faces.extend(detector.face_detector.detect_from_batch(single))
+                    del single
+            detected_faces.extend(chunk_faces)
+            del batch
+    except Exception as e:
+        print(f"[AVISO] Deteccion en batch fallo ({e}), usando frame por frame.")
+        detected_faces = None
+
+    resultados = []
+    for i, frame_rgb in enumerate(frames_rgb):
+        if detected_faces is None:
+            preds = detector.get_landmarks_from_image(frame_rgb)
+        else:
+            faces = detected_faces[i] if i < len(detected_faces) else []
+            if not len(faces):
+                resultados.append(None)
+                continue
+            preds = detector.get_landmarks_from_image(frame_rgb, detected_faces=faces)
+        resultados.append(preds[0].astype(np.float32) if preds else None)
+    return resultados
+
+
+def normalize_lip_landmarks(landmarks_px):
+    """landmarks_px: array (68, 2) en píxeles (esquema HRNet). Devuelve un
+    vector (40,) con los 20 puntos de labios normalizados (traslación +
+    rotación + escala), o None si algo sale mal (ej. ojos muy pegados)."""
+    right_eye = landmarks_px[RIGHT_EYE_OUTER]
+    left_eye = landmarks_px[LEFT_EYE_OUTER]
+
+    eye_center = (right_eye + left_eye) / 2.0
+    eye_vector = left_eye - right_eye
+    scale = np.linalg.norm(eye_vector)
+    if scale < 1e-3:
+        return None
+    angle = math.atan2(eye_vector[1], eye_vector[0])
+
+    cos_a, sin_a = math.cos(-angle), math.sin(-angle)
+    rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
+
+    lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
+    translated = lip_pts - eye_center
+    rotated = translated @ rotation.T
+    normalized = rotated / (scale + SCALE_EPSILON)
+
+    return normalized.astype(np.float32).flatten()
+
+
+OUTLIER_MAX_JUMP = 0.15
+
+
+def is_outlier(vector, last_valid_vector):
+    if last_valid_vector is None:
+        return False
+    return float(np.abs(vector - last_valid_vector).max()) > OUTLIER_MAX_JUMP
+
+
+def fill_missing_frames(positions):
+    """positions: lista de (40,) o None por frame. Devuelve (T, 40) sin
+    ningún None -- bfill al principio, interpolación lineal en huecos del
+    medio, ffill al final. None si NINGÚN frame tuvo posición válida."""
+    primeros_validos = [i for i, p in enumerate(positions) if p is not None]
+    if not primeros_validos:
+        return None
+
+    primer_valido = primeros_validos[0]
+    ultimo_valido_idx = primeros_validos[-1]
+    relleno = list(positions)
+
+    for i in range(primer_valido):
+        relleno[i] = relleno[primer_valido]
+
+    i = primer_valido
+    while i < ultimo_valido_idx:
+        if relleno[i + 1] is None:
+            j = i + 1
+            while relleno[j] is None:
+                j += 1
+            inicio, fin = relleno[i], relleno[j]
+            pasos = j - i
+            for k in range(1, pasos):
+                t = k / pasos
+                relleno[i + k] = (1 - t) * inicio + t * fin
+            i = j
+        else:
+            i += 1
+
+    for i in range(ultimo_valido_idx + 1, len(relleno)):
+        relleno[i] = relleno[ultimo_valido_idx]
+
+    return np.stack(relleno, axis=0).astype(np.float32)
+
+
+SMOOTHING_ALPHA = 0.4
+
+
+def smooth_positions(positions, alpha=SMOOTHING_ALPHA):
+    smoothed = np.empty_like(positions)
+    smoothed[0] = positions[0]
+    for t in range(1, positions.shape[0]):
+        smoothed[t] = alpha * positions[t] + (1 - alpha) * smoothed[t - 1]
+    return smoothed.astype(np.float32)
+
+
+def add_dynamics(positions):
+    """(T, 40) -> (T, 120) = [posición | velocidad | aceleración]."""
+    velocity = np.zeros_like(positions)
+    velocity[1:] = positions[1:] - positions[:-1]
+
+    acceleration = np.zeros_like(positions)
+    acceleration[1:] = velocity[1:] - velocity[:-1]
+
+    return np.concatenate([positions, velocity, acceleration], axis=1).astype(np.float32)
+
+
+# =====================================================================
+# Cámara
+# =====================================================================
+MAX_CAMERAS_TO_CHECK = 5
+
+
+def open_camera(index):
+    if sys.platform == "win32":
+        return cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    return cv2.VideoCapture(index)
+
+
+def list_available_cameras(max_check=MAX_CAMERAS_TO_CHECK):
+    found = []
+    for i in range(max_check):
+        cap = open_camera(i)
+        if cap.isOpened():
+            ok, _ = cap.read()
+            if ok:
+                found.append(i)
+        cap.release()
+    return found
+
+
+def choose_camera():
+    print("Buscando cámaras disponibles...")
+    cameras = list_available_cameras()
+    if not cameras:
+        print("No encontré ninguna cámara conectada.")
+        return None
+
+    if len(cameras) == 1:
+        print(f"Encontré 1 cámara (índice {cameras[0]}), la uso.")
+        return cameras[0]
+
+    print(f"Encontré {len(cameras)} cámaras: {cameras}")
+    while True:
+        choice = input(f"¿Cuál querés usar? (número de índice, ej. {cameras[0]}): ").strip()
+        try:
+            idx = int(choice)
+            if idx in cameras:
+                return idx
+        except ValueError:
+            pass
+        print(f"Opción inválida -- elegí uno de {cameras}.")
+
+
+# =====================================================================
+# MediaPipe -- SOLO para el overlay en vivo (rápido, cosmético) -- tiene su
+# PROPIO landmarker y su propio contador de timestamp, separado del de
+# HRNet (que no usa timestamps), así que no hay conflicto entre los dos.
+# =====================================================================
+MEDIAPIPE_MODEL_PATH = os.path.join(BASE_DIR, "models", "face_landmarker.task")
+MEDIAPIPE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+MIN_DETECTION_CONFIDENCE = 0.7
+
 PREVIEW_LIP_INDICES = sorted({
     61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
     185, 40, 39, 37, 0, 267, 269, 270, 409,
@@ -61,28 +293,225 @@ PREVIEW_LIP_INDICES = sorted({
 PREVIEW_RIGHT_EYE_OUTER, PREVIEW_LEFT_EYE_OUTER = 33, 263
 LIVE_DETECT_EVERY = 2  # correr el detector del preview cada N frames
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
-CAPTURAS_DIR = os.path.join(BASE_DIR, "capturas")
 
-FRAME_SIZE = (640, 480)
-MIN_FRAMES_VALID = 15   # menos que esto = probablemente no dijiste la frase completa
-MAX_FRAMES_BUFFER = 150  # tope de frames por toma (~6s a 25fps) para no acumular de más si te olvidás de apretar S
-MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
-MAIN_WINDOW = "SpeakShadow - Probar modelo"
+def build_mediapipe_preview():
+    if not os.path.exists(MEDIAPIPE_MODEL_PATH):
+        print(f"Descargando modelo de MediaPipe ({MEDIAPIPE_MODEL_URL})...")
+        urllib.request.urlretrieve(MEDIAPIPE_MODEL_URL, MEDIAPIPE_MODEL_PATH)
 
-# El modelo SIEMPRE tiene que elegir una de las 57 frases (es un clasificador
-# de conjunto cerrado, no sabe decir "no sé") -- así que si decís algo que no
-# es ninguna frase de riesgo (ej. "hola", "adiós"), igual te va a devolver
-# la frase que más se le pareció, con confianza baja. Este umbral es lo que
-# distingue "SÍ es una frase conocida" de "no es nada, no hacer caso":
-# si no lo supera, se trata como que NO se dijo ninguna frase de riesgo.
-MIN_RISK_PROB = 0.40      # la clase top tiene que superar esto
-MIN_RISK_MARGIN = 0.15    # y sacarle esta diferencia mínima a la 2da opción
+    from mediapipe.tasks import python as mp_python
+    from mediapipe.tasks.python import vision as mp_vision
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+    def _options(delegate):
+        return mp_vision.FaceLandmarkerOptions(
+            base_options=mp_python.BaseOptions(model_asset_path=MEDIAPIPE_MODEL_PATH, delegate=delegate),
+            running_mode=mp_vision.RunningMode.VIDEO,
+            num_faces=1,
+            min_face_detection_confidence=MIN_DETECTION_CONFIDENCE,
+            min_face_presence_confidence=MIN_DETECTION_CONFIDENCE,
+            min_tracking_confidence=MIN_DETECTION_CONFIDENCE,
+        )
+
+    try:
+        landmarker = mp_vision.FaceLandmarker.create_from_options(_options(mp_python.BaseOptions.Delegate.GPU))
+        print(">>> MediaPipe (preview) corriendo en GPU. <<<")
+    except Exception:
+        landmarker = mp_vision.FaceLandmarker.create_from_options(_options(mp_python.BaseOptions.Delegate.CPU))
+        print(">>> MediaPipe (preview) corriendo en CPU. <<<")
+    return landmarker
 
 
+def detect_mediapipe_preview(landmarker, frame_bgr, timestamp_ms, frame_ms):
+    import mediapipe as mp
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result = landmarker.detect_for_video(mp_image, timestamp_ms)
+    landmarks_px = None
+    if result.face_landmarks:
+        face = result.face_landmarks[0]
+        h, w = frame_bgr.shape[:2]
+        landmarks_px = np.array([[lm.x * w, lm.y * h] for lm in face], dtype=np.float32)
+    return landmarks_px, timestamp_ms + frame_ms
+
+
+# =====================================================================
+# Modelo: TCN + Conformer (arquitectura idéntica a train_landmarks_
+# transformer.py -- tiene que coincidir para poder cargar el checkpoint)
+# =====================================================================
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=500):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0))
+
+    def forward(self, x):
+        return x + self.pe[:, : x.size(1)]
+
+
+class TCNBlock(nn.Module):
+    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation // 2
+        self.conv1 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+        self.bn1 = nn.BatchNorm1d(channels)
+        self.conv2 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm1d(channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, key_padding_mask=None):
+        residual = x
+        x = x.transpose(1, 2)
+        if key_padding_mask is not None:
+            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+        x = self.dropout(self.relu(self.bn1(self.conv1(x))))
+        x = self.bn2(self.conv2(x))
+        x = x.transpose(1, 2)
+        return self.relu(residual + self.dropout(x))
+
+
+class TCNFeatureExtractor(nn.Module):
+    def __init__(self, channels, n_blocks=3, kernel_size=3, dropout=0.1):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            TCNBlock(channels, kernel_size=kernel_size, dilation=2 ** i, dropout=dropout)
+            for i in range(n_blocks)
+        ])
+
+    def forward(self, x, key_padding_mask=None):
+        for block in self.blocks:
+            x = block(x, key_padding_mask=key_padding_mask)
+        return x
+
+
+class ConformerFeedForward(nn.Module):
+    def __init__(self, d_model, dim_feedforward, dropout):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, dim_feedforward),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class ConformerConvModule(nn.Module):
+    def __init__(self, d_model, kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.layer_norm = nn.LayerNorm(d_model)
+        self.pointwise_conv1 = nn.Conv1d(d_model, 2 * d_model, kernel_size=1)
+        self.glu = nn.GLU(dim=1)
+        padding = (kernel_size - 1) // 2
+        self.depthwise_conv = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=padding, groups=d_model)
+        self.batch_norm = nn.BatchNorm1d(d_model)
+        self.swish = nn.SiLU()
+        self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, key_padding_mask=None):
+        residual = x
+        x = self.layer_norm(x)
+        x = x.transpose(1, 2)
+        if key_padding_mask is not None:
+            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+        x = self.pointwise_conv1(x)
+        x = self.glu(x)
+        x = self.depthwise_conv(x)
+        x = self.batch_norm(x)
+        x = self.swish(x)
+        x = self.pointwise_conv2(x)
+        x = self.dropout(x)
+        x = x.transpose(1, 2)
+        return residual + x
+
+
+class ConformerBlock(nn.Module):
+    def __init__(self, d_model, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.ff1 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+        self.self_attn_norm = nn.LayerNorm(d_model)
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn_dropout = nn.Dropout(dropout)
+        self.conv_module = ConformerConvModule(d_model, conv_kernel_size, dropout)
+        self.ff2 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+        self.final_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x, src_key_padding_mask=None):
+        x = x + 0.5 * self.ff1(x)
+        residual = x
+        x_norm = self.self_attn_norm(x)
+        attn_out, _ = self.self_attn(x_norm, x_norm, x_norm, key_padding_mask=src_key_padding_mask, need_weights=False)
+        x = residual + self.attn_dropout(attn_out)
+        x = self.conv_module(x, key_padding_mask=src_key_padding_mask)
+        x = x + 0.5 * self.ff2(x)
+        return self.final_norm(x)
+
+
+class ConformerEncoder(nn.Module):
+    def __init__(self, d_model, n_layers, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.layers = nn.ModuleList([
+            ConformerBlock(d_model, n_heads, dim_feedforward, conv_kernel_size, dropout)
+            for _ in range(n_layers)
+        ])
+
+    def forward(self, x, src_key_padding_mask=None):
+        for layer in self.layers:
+            x = layer(x, src_key_padding_mask=src_key_padding_mask)
+        return x
+
+
+def masked_mean_pool(x, src_key_padding_mask):
+    if src_key_padding_mask is None:
+        return x.mean(dim=1)
+    real_mask = (~src_key_padding_mask).unsqueeze(-1).float()
+    summed = (x * real_mask).sum(dim=1)
+    counts = real_mask.sum(dim=1).clamp(min=1.0)
+    return summed / counts
+
+
+class LipReadingConformer(nn.Module):
+    def __init__(self, num_classes, input_dim, hidden_dim=128,
+                 n_layers=2, n_heads=8, dim_feedforward=256,
+                 conv_kernel_size=15, tcn_blocks=3, tcn_kernel_size=3, dropout=0.3):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        self.tcn = TCNFeatureExtractor(hidden_dim, n_blocks=tcn_blocks, kernel_size=tcn_kernel_size, dropout=dropout)
+        self.pos_encoder = PositionalEncoding(hidden_dim)
+        self.conformer_encoder = ConformerEncoder(
+            d_model=hidden_dim, n_layers=n_layers, n_heads=n_heads,
+            dim_feedforward=dim_feedforward, conv_kernel_size=conv_kernel_size, dropout=dropout,
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, 64), nn.ReLU(), nn.Dropout(dropout), nn.Linear(64, num_classes),
+        )
+
+    def forward(self, x, src_key_padding_mask=None):
+        x = self.input_proj(x)
+        x = self.tcn(x, key_padding_mask=src_key_padding_mask)
+        x = self.pos_encoder(x)
+        x = self.conformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
+        pooled = masked_mean_pool(x, src_key_padding_mask)
+        return self.classifier(pooled)
+
+
+def make_padding_mask(lengths, max_len, device):
+    idx = torch.arange(max_len, device=device).unsqueeze(0)
+    return idx >= lengths.unsqueeze(1)
+
+
+# =====================================================================
+# Carga del modelo y predicción
+# =====================================================================
 def safe_torch_load(path):
     try:
         return torch.load(path, weights_only=True)
@@ -108,57 +537,55 @@ def load_model():
 
 
 def preprocess_sequence(positions, max_frames):
-    """positions: (T, 80) ya continuo (sin huecos, ver fill_missing_frames).
-    Suaviza (igual que el extractor) y le agrega velocidad/aceleración ->
-    (T, 240), y padea/trunca a max_frames, igual que en el entrenamiento."""
     smoothed = smooth_positions(positions)
-    sequence_np = add_dynamics(smoothed)  # (T, 240)
+    sequence_np = add_dynamics(smoothed)
     sequence = torch.from_numpy(sequence_np).float()
 
     T = sequence.shape[0]
-    real_length = min(T, max_frames)
     if T < max_frames:
+        real_length = T
         padding = torch.zeros((max_frames - T,) + sequence.shape[1:], dtype=sequence.dtype)
         sequence = torch.cat([sequence, padding], dim=0)
     elif T > max_frames:
-        sequence = sequence[:max_frames]
+        # Recorte del MEDIO, no del principio -- si la toma duró más que
+        # max_frames, quedarse con los primeros corta el FINAL de la
+        # frase. NO se remuestrea por interpolación acá (a diferencia del
+        # otro prototipo): este modelo usa velocidad/aceleración, que son
+        # derivadas frame-a-frame -- interpolar el eje de tiempo las
+        # rompería. Recortar sí es seguro, solo se pierden frames de las
+        # puntas, no se corrompe la dinámica de los que quedan.
+        start = (T - max_frames) // 2
+        sequence = sequence[start:start + max_frames]
+        real_length = max_frames
+    else:
+        real_length = T
 
     mask = make_padding_mask(torch.tensor([real_length]), max_frames, sequence.device)
-    return sequence.unsqueeze(0), mask  # (1, T, 240), (1, T)
+    return sequence.unsqueeze(0), mask
 
 
-def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_ms):
-    """Devuelve (resultado_dict_o_None, timestamp_ms_actualizado).
-    resultado_dict tiene 'valid': False + 'reason' si la toma no vale
-    (muy corta o cara mal detectada) -- en ese caso NO se corre el modelo.
-
-    Igual que extraer_landmarks_npy.py: se guarda un valor por CADA frame
-    (None si no se detectó cara) y se rellena con bfill/ffill, en vez de
-    saltear frames -- así la predicción usa exactamente la misma
+def predict_clip(model, detector, frames, class_names, max_frames):
+    """Igual que extraer_landmarks_npy.py: se guarda un valor por CADA
+    frame (None si no se detectó cara) y se rellena con bfill/ffill, en vez
+    de saltear frames -- así la predicción usa exactamente la misma
     continuidad temporal con la que se entrenó."""
     total = len(frames)
 
     if total < MIN_FRAMES_VALID:
         return {"valid": False, "reason": f"toma muy corta ({total} frames, "
-                f"minimo {MIN_FRAMES_VALID}) -- probablemente no dijiste la frase completa"}, timestamp_ms
+                f"minimo {MIN_FRAMES_VALID}) -- probablemente no dijiste la frase completa"}
 
     positions = []
     detected = 0
     last_valid_vector = None
-    frame_ms = 40  # ~25 fps
 
-    # Detección en BATCH: manda el clip entero al GPU de una sola vez en vez
-    # de detectar cara por cara en cada frame -- esto es lo que hace que la
-    # predicción salga en segundos y no en 15-20s con HRNet.
-    landmarks_por_frame = detect_landmarks_batch(landmarker, frames, timestamp_ms, frame_ms)
-    if landmarks_por_frame:
-        timestamp_ms += frame_ms * len(frames)
+    landmarks_por_frame = detect_landmarks_batch(detector, frames)
 
     for landmarks_px in landmarks_por_frame:
         vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
 
         if vector is not None and is_outlier(vector, last_valid_vector):
-            vector = None  # glitch de detección, se rellena en vez de aceptarlo
+            vector = None
 
         if vector is not None:
             detected += 1
@@ -169,7 +596,7 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
     filled = fill_missing_frames(positions)
     if filled is None or detection_rate < MIN_DETECTION_RATE_VALID:
         return {"valid": False, "reason": f"cara detectada solo en {detected}/{total} frames "
-                f"({detection_rate*100:.0f}%) -- encuadre malo, repetí la toma"}, timestamp_ms
+                f"({detection_rate*100:.0f}%) -- encuadre malo, repetí la toma"}
 
     sequence, mask = preprocess_sequence(filled, max_frames)
     sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
@@ -193,14 +620,13 @@ def predict_clip(model, landmarker, frames, class_names, max_frames, timestamp_m
         "detected": detected,
         "total": total,
         "all_probs": all_probs,
-    }, timestamp_ms
+    }
 
 
 def draw_landmarks_points(frame, landmarks_px):
-    """Dibuja los puntos de MediaPipe sobre el frame, igual que la imagen de
-    referencia: rojo = resto de la malla facial (no se usa), amarillo =
-    esquinas de los ojos (referencia de normalización), verde = los 40
-    puntos de labios (los únicos que ve el modelo)."""
+    """Dibuja los puntos de MediaPipe sobre el frame: rojo = resto de la
+    malla facial (no se usa), amarillo = esquinas de los ojos (referencia
+    de normalización), verde = los 40 puntos de labios."""
     if landmarks_px is None:
         return frame
     for i, (x, y) in enumerate(landmarks_px):
@@ -233,9 +659,6 @@ def draw_overlay(frame, recording, last_result):
 
 
 def save_capture(frame_bgr, landmarks_px, word, prob):
-    """Guarda una foto (.jpg) del frame con un recuadro alrededor de la cara
-    y la frase detectada escrita arriba -- una captura de "quién dijo qué"
-    para cada predicción, en CAPTURAS_DIR."""
     os.makedirs(CAPTURAS_DIR, exist_ok=True)
     frame_out = frame_bgr.copy()
     h, w = frame_out.shape[:2]
@@ -270,14 +693,14 @@ def main():
         print(f"GPU detectada: {torch.cuda.get_device_name(0)}")
 
     model, class_names, max_frames = load_model()
-    print(f"Clases del modelo: {class_names}")
+    print(f"Clases del modelo ({len(class_names)}): {class_names}")
     print(f"Modelo cargado en {DEVICE}: {MODEL_PATH}")
 
-    print("Cargando detector de landmarks...")
-    landmarker = build_landmarker()
+    print("Cargando detector de landmarks (HRNet/FAN)...")
+    detector = build_hrnet_detector()
 
     print("Cargando MediaPipe para el preview en vivo (rápido, solo visual)...")
-    preview_landmarker = _build_mediapipe_landmarker()
+    preview_landmarker = build_mediapipe_preview()
 
     cam_index = choose_camera()
     if cam_index is None:
@@ -291,7 +714,6 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_SIZE[1])
 
     recording, frames_buffer, last_result = False, [], None
-    timestamp_ms = 0
     preview_timestamp_ms = 0
     frame_idx = 0
     last_preview_landmarks = None
@@ -308,7 +730,7 @@ def main():
             frames_buffer.append(frame.copy())
 
         if frame_idx % LIVE_DETECT_EVERY == 0:
-            last_preview_landmarks, preview_timestamp_ms = _detect_mediapipe(
+            last_preview_landmarks, preview_timestamp_ms = detect_mediapipe_preview(
                 preview_landmarker, frame, preview_timestamp_ms, frame_ms=40 * LIVE_DETECT_EVERY
             )
 
@@ -325,7 +747,7 @@ def main():
             print(f"-> Prediciendo sobre {len(frames_buffer)} frames...")
 
             frame_medio = frames_buffer[len(frames_buffer) // 2] if frames_buffer else None
-            result, timestamp_ms = predict_clip(model, landmarker, frames_buffer, class_names, max_frames, timestamp_ms)
+            result = predict_clip(model, detector, frames_buffer, class_names, max_frames)
             frames_buffer = []
 
             if not result["valid"]:
@@ -336,10 +758,6 @@ def main():
             print(f"  Cara detectada en {result['detected']}/{result['total']} frames")
 
             if not result["es_frase_de_riesgo"]:
-                # No es ninguna de las 57 frases conocidas (ej. dijiste "hola",
-                # "adiós", algo normal) -- no se guarda captura, no se alerta,
-                # no se hace nada. El modelo SIEMPRE tiene que elegir una clase
-                # internamente, pero acá se descarta por baja confianza/margen.
                 print(f"  -> No es ninguna frase de riesgo conocida (más parecido: "
                       f"'{result['word']}' con {result['prob']*100:.1f}%, pero no supera el umbral) "
                       "-- no se hace nada.")
@@ -350,7 +768,7 @@ def main():
             print(f"  -> Predicción: '{result['word']}' con {result['prob']*100:.1f}% de confianza")
 
             if frame_medio is not None:
-                landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame_medio, timestamp_ms)
+                landmarks_px = detect_hrnet(detector, frame_medio)
                 capture_path = save_capture(frame_medio, landmarks_px, result["word"], result["prob"])
                 print(f"  Captura guardada: {capture_path}")
             print(f"  Probabilidades: { {k: round(v,3) for k,v in result['all_probs'].items()} }")
@@ -358,7 +776,7 @@ def main():
         elif key == ord('q'):
             break
 
-    landmarker.close()
+    detector = None
     preview_landmarker.close()
     cap.release()
     cv2.destroyAllWindows()
