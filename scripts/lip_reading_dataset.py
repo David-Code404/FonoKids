@@ -153,21 +153,33 @@ class LipReadingDataset(Dataset):
 def build_dataloaders(data_dir=DEFAULT_DATA_DIR, max_frames=60, batch_size=32,
                        val_ratio=0.2, seed=42, num_workers=0, augment_train=True):
     """Arma el dataset completo, lo separa en train/val a nivel de ARCHIVOS
-    (no de tensores ya cargados) para poder darle augmentation solo al
-    split de entrenamiento, y devuelve los DataLoaders listos junto con un
-    dataset "de referencia" (para leer class_names/landmark_dim)."""
+    (no de tensores ya cargados) para poder darle augmentation SOLO al
+    split de entrenamiento (nunca a val), y devuelve los DataLoaders listos
+    junto con un dataset "de referencia" (para leer class_names/landmark_dim).
+
+    Split ESTRATIFICADO por clase: separa val_ratio de CADA clase por
+    separado (no un permutation al azar sobre TODO el dataset) -- con
+    clases de tamaños muy distintos (ej. "no_es_riesgo" con cientos de
+    clips vs una frase de bullying con 200), un split global podía dejar
+    alguna clase chica con pocas o CERO muestras de validación."""
     reference = LipReadingDataset(data_dir=data_dir, max_frames=max_frames)
     file_paths = reference.file_paths
 
-    n = len(file_paths)
-    val_size = max(1, int(n * val_ratio))
-    train_size = n - val_size
+    labels_by_path = {p: reference.label_map[_nfc(os.path.basename(os.path.dirname(p)))] for p in file_paths}
+    paths_by_class = {}
+    for p in file_paths:
+        paths_by_class.setdefault(labels_by_path[p], []).append(p)
 
     rng = np.random.default_rng(seed)
-    indices = rng.permutation(n)
-    train_idx, val_idx = indices[:train_size], indices[train_size:]
-    train_paths = [file_paths[i] for i in train_idx]
-    val_paths = [file_paths[i] for i in val_idx]
+    train_paths, val_paths = [], []
+    for label, paths in paths_by_class.items():
+        paths = list(paths)
+        rng.shuffle(paths)
+        n_val = max(1, int(round(len(paths) * val_ratio)))
+        val_paths.extend(paths[:n_val])
+        train_paths.extend(paths[n_val:])
+    rng.shuffle(train_paths)
+    rng.shuffle(val_paths)
 
     train_ds = LipReadingDataset(data_dir=data_dir, max_frames=max_frames,
                                   file_paths=train_paths, augment=augment_train)
