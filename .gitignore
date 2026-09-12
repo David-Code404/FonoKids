@@ -34,3 +34,6 @@ Thumbs.db
 
 # Entorno virtual de WSL (probado localmente, no es parte del repo)
 /.venv-wsl/
+
+# PID del server en vivo (lo usa server/watchdog.sh) -- runtime, no es parte del repo
+/server/.server.pid

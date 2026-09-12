@@ -1,28 +1,24 @@
 """
 server/main.py
 ---------------
-API HTTP para la app de Flutter. Recibe un video corto (grabado desde el
-celular), corre EXACTAMENTE el mismo pipeline que probar_modelo.py
+API HTTP para la app web. Recibe un video corto (grabado desde el
+navegador), corre EXACTAMENTE el mismo pipeline que scripts/probar_modelo.py
 (HRNet -> landmarks de labios -> TCN + Conformer) y devuelve la palabra
 predicha en JSON.
 
-La detección de landmarks corre en BATCH (todo el clip al GPU de una sola
-vez, ver detect_landmarks_batch en extraer_landmarks_npy.py) en vez de
-frame por frame -- es lo que hace que /predict responda en segundos y no
-en 15-20s con HRNet.
+Todo el código de detección/modelo de acá abajo está copiado tal cual de
+scripts/probar_modelo.py (ese script NO se toca) -- así el server predice
+exactamente igual que la prueba con cámara que ya funciona bien.
 
 Uso:
     python server/main.py
     (por defecto escucha en 0.0.0.0:8000 -- accesible desde el celular
     si está en la misma red WiFi que esta PC, usando la IP local de la PC)
 """
-import asyncio
+import math
 import os
-import queue
-import sys
 import shutil
 import tempfile
-import threading
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -30,66 +26,35 @@ from datetime import datetime
 import cv2
 import numpy as np
 import torch
+import torch.nn as nn
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
-if SCRIPTS_DIR not in sys.path:
-    sys.path.insert(0, SCRIPTS_DIR)
 
-from train_landmarks_transformer import LipReadingConformer, make_padding_mask  # noqa: E402
-from extraer_landmarks_npy import (  # noqa: E402
-    build_landmarker,
-    detect_landmarks_batch,
-    normalize_lip_landmarks,
-    fill_missing_frames,
-    smooth_positions,
-    add_dynamics,
-    is_outlier,
-)
-
-DATASET_DIR = os.path.join(BASE_DIR, "data", "dataset_pt")
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
-MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
+MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")  # igual que probar_modelo.py
 GOAL_PER_WORD = 500
 
 MIN_FRAMES_VALID = 15           # menos que esto = probablemente no se dijo la frase completa
 MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = toma mala
 
-# NO se recortan ni saltean frames -- igual que probar_modelo.py/extraer_
-# landmarks_npy.py ("CONTINUIDAD TEMPORAL ESTRICTA"). Antes acá había un
-# tope (MAX_PIPELINE_FRAMES) que cortaba clips largos para evitar el
-# cuelgue de GPU, pero eso rompía la continuidad temporal con la que se
-# entrenó el modelo y empeoraba la predicción. El cuelgue real ya se
-# arregla con el resize (MAX_FRAME_WIDTH) + el chunking de sub-lotes en
-# detect_landmarks_batch (ver extraer_landmarks_npy.py) -- con eso ya no
-# hace falta cortar el clip.
-
 # Ancho máximo de cada frame ANTES de mandarlo a HRNet -- la cámara del
 # navegador graba en Full HD (1920px), muchísimo más de lo necesario para
-# detectar una cara. 640px es lo mismo que usa grabar_video_continuo.py /
-# probar_modelo.py (FRAME_SIZE), donde nunca se vio este cuelgue.
+# detectar una cara. 640px es lo mismo que usa probar_modelo.py (FRAME_SIZE).
 MAX_FRAME_WIDTH = 640
 
 # Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
 # entrenadas (no sabe decir "no sé"), así que esto es lo que distingue
 # "sí es una frase de riesgo conocida" de "no es nada, no hacer caso".
-MIN_RISK_PROB = 0.90      # la clase top tiene que superar esto
-MIN_RISK_MARGIN = 0.30    # y sacarle esta diferencia mínima a la 2da opción
-# (sincronizado con probar_modelo.py -- se subió de 0.40/0.15 porque con
-# umbrales bajos alcanzaba con un 40% de confianza en CUALQUIER frase
-# entrenada, incluida una neutra, para marcar riesgo por error.)
+MIN_RISK_PROB = 0.40
+MIN_RISK_MARGIN = 0.15
 
-# Las ÚNICAS clases que cuentan como "frase de riesgo" -- el resto de las
-# clases del modelo (las 20 frases neutras tipo "hola"/"gracias", ver
-# scripts/generar_sintetico.py) están ahí para que el modelo tenga algo
-# real que predecir cuando NO es bullying, pero nunca tienen que disparar
-# una alerta aunque salgan con confianza alta. Antes esto no se chequeaba
-# -- la decisión de riesgo miraba SOLO la confianza del softmax, sin
-# importar qué palabra era, así que una frase neutra predicha con
-# confianza igual se marcaba como riesgo por error.
+# Las ÚNICAS clases que cuentan como "frase de riesgo" -- si el modelo
+# tiene clases neutras además de las de bullying, nunca tienen que disparar
+# una alerta aunque salgan con confianza alta. Se ajusta sola si el modelo
+# solo tiene las de bullying (todas caen en el whitelist).
 RISK_WORDS = frozenset({
     "asqueroso", "camba_de_mierda", "ciego_de_mierda", "colla_y_mierda",
     "de_esta_no_te_salvas", "enano", "engendro", "eres_una_rata", "estorbo",
@@ -100,12 +65,365 @@ RISK_WORDS = frozenset({
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# =====================================================================
+# DETECCIÓN HRNet/FAN -- copiado de scripts/probar_modelo.py, esquema
+# iBUG/300W de 68 puntos: boca = índices 48-67 (20 puntos), ojos = 36
+# (der.) y 45 (izq.)
+# =====================================================================
+LIP_INDICES = list(range(48, 68))
+RIGHT_EYE_OUTER = 36
+LEFT_EYE_OUTER = 45
+SCALE_EPSILON = 1e-6
+HRNET_BATCH_CHUNK_SIZE = 4  # valor probado toda la sesión sin trabar la PC -- NO
+# subirlo sin probarlo antes: un sub-lote más grande manda más al GPU de una sola
+# vez, y en esta PC eso es justo lo que disparó cuelgues del driver de NVIDIA.
+
+
+def build_hrnet_detector():
+    """Detector tipo HRNet vía el paquete `face-alignment` (red FAN)."""
+    import face_alignment
+    import torch._dynamo
+
+    # face_alignment intenta compilar su red con torch.compile en la primera
+    # llamada -- en Windows no hay build oficial de Triton, así que esa
+    # compilación SIEMPRE falla. Sin esto tira una excepción en vez de caer
+    # a modo eager (que funciona perfecto, solo un poco más lento la primera vez).
+    torch._dynamo.config.suppress_errors = True
+
+    if DEVICE == "cpu":
+        print("[AVISO] No hay GPU disponible -- HRNet/FAN en CPU va a ser MUY lento.")
+
+    # compile=False: face-alignment 1.5.0 compila su red con torch.compile
+    # por defecto -- en esta PC (Windows, sin Triton) ese warm-up no tira
+    # excepción, se queda COLGADO para siempre (confirmado: el arranque del
+    # server nunca pasaba de "Compiling face alignment model..."). Con
+    # compile=False corre directo en modo eager, sin ese paso.
+    detector = face_alignment.FaceAlignment(
+        face_alignment.LandmarksType.TWO_D, device=DEVICE, flip_input=False, compile=False,
+    )
+    print(f">>> Detector HRNet/FAN corriendo en {DEVICE.upper()}. <<<")
+    return detector
+
+
+def detect_landmarks_batch(detector, frames_bgr):
+    """Detecta landmarks en un clip entero: detección de cara en sub-lotes
+    (GPU), regresión de los 68 puntos frame por frame -- ver el porqué de
+    los sub-lotes en el comentario de HRNET_BATCH_CHUNK_SIZE."""
+    if not frames_bgr:
+        return []
+
+    frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr]
+    device = detector.face_detector.device
+    chunk_size = HRNET_BATCH_CHUNK_SIZE
+    detected_faces = []
+    try:
+        for start in range(0, len(frames_rgb), chunk_size):
+            chunk = frames_rgb[start:start + chunk_size]
+            batch = torch.stack([
+                torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in chunk
+            ]).to(device)
+            try:
+                chunk_faces = detector.face_detector.detect_from_batch(batch)
+            except torch.cuda.OutOfMemoryError:
+                del batch
+                print(f"[AVISO] Sub-lote de {len(chunk)} frames sin memoria, reintentando de a un frame.")
+                chunk_faces = []
+                for frame in chunk:
+                    single = torch.from_numpy(np.ascontiguousarray(frame)).permute(2, 0, 1).unsqueeze(0).to(device)
+                    chunk_faces.extend(detector.face_detector.detect_from_batch(single))
+                    del single
+            detected_faces.extend(chunk_faces)
+            del batch
+    except Exception as e:
+        print(f"[AVISO] Deteccion en batch fallo ({e}), usando frame por frame.")
+        detected_faces = None
+
+    resultados = []
+    for i, frame_rgb in enumerate(frames_rgb):
+        if detected_faces is None:
+            preds = detector.get_landmarks_from_image(frame_rgb)
+        else:
+            faces = detected_faces[i] if i < len(detected_faces) else []
+            if not len(faces):
+                resultados.append(None)
+                continue
+            preds = detector.get_landmarks_from_image(frame_rgb, detected_faces=faces)
+        resultados.append(preds[0].astype(np.float32) if preds else None)
+    return resultados
+
+
+def normalize_lip_landmarks(landmarks_px):
+    """landmarks_px: array (68, 2) en píxeles (esquema HRNet). Devuelve un
+    vector (40,) con los 20 puntos de labios normalizados (traslación +
+    rotación + escala), o None si algo sale mal (ej. ojos muy pegados)."""
+    right_eye = landmarks_px[RIGHT_EYE_OUTER]
+    left_eye = landmarks_px[LEFT_EYE_OUTER]
+
+    eye_center = (right_eye + left_eye) / 2.0
+    eye_vector = left_eye - right_eye
+    scale = np.linalg.norm(eye_vector)
+    if scale < 1e-3:
+        return None
+    angle = math.atan2(eye_vector[1], eye_vector[0])
+
+    cos_a, sin_a = math.cos(-angle), math.sin(-angle)
+    rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
+
+    lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
+    translated = lip_pts - eye_center
+    rotated = translated @ rotation.T
+    normalized = rotated / (scale + SCALE_EPSILON)
+
+    return normalized.astype(np.float32).flatten()
+
+
+OUTLIER_MAX_JUMP = 0.15
+
+
+def is_outlier(vector, last_valid_vector):
+    if last_valid_vector is None:
+        return False
+    return float(np.abs(vector - last_valid_vector).max()) > OUTLIER_MAX_JUMP
+
+
+def fill_missing_frames(positions):
+    """positions: lista de (40,) o None por frame. Devuelve (T, 40) sin
+    ningún None -- bfill al principio, interpolación lineal en huecos del
+    medio, ffill al final. None si NINGÚN frame tuvo posición válida."""
+    primeros_validos = [i for i, p in enumerate(positions) if p is not None]
+    if not primeros_validos:
+        return None
+
+    primer_valido = primeros_validos[0]
+    ultimo_valido_idx = primeros_validos[-1]
+    relleno = list(positions)
+
+    for i in range(primer_valido):
+        relleno[i] = relleno[primer_valido]
+
+    i = primer_valido
+    while i < ultimo_valido_idx:
+        if relleno[i + 1] is None:
+            j = i + 1
+            while relleno[j] is None:
+                j += 1
+            inicio, fin = relleno[i], relleno[j]
+            pasos = j - i
+            for k in range(1, pasos):
+                t = k / pasos
+                relleno[i + k] = (1 - t) * inicio + t * fin
+            i = j
+        else:
+            i += 1
+
+    for i in range(ultimo_valido_idx + 1, len(relleno)):
+        relleno[i] = relleno[ultimo_valido_idx]
+
+    return np.stack(relleno, axis=0).astype(np.float32)
+
+
+SMOOTHING_ALPHA = 0.4
+
+
+def smooth_positions(positions, alpha=SMOOTHING_ALPHA):
+    smoothed = np.empty_like(positions)
+    smoothed[0] = positions[0]
+    for t in range(1, positions.shape[0]):
+        smoothed[t] = alpha * positions[t] + (1 - alpha) * smoothed[t - 1]
+    return smoothed.astype(np.float32)
+
+
+def add_dynamics(positions):
+    """(T, 40) -> (T, 120) = [posición | velocidad | aceleración]."""
+    velocity = np.zeros_like(positions)
+    velocity[1:] = positions[1:] - positions[:-1]
+
+    acceleration = np.zeros_like(positions)
+    acceleration[1:] = velocity[1:] - velocity[:-1]
+
+    return np.concatenate([positions, velocity, acceleration], axis=1).astype(np.float32)
+
+
+# =====================================================================
+# Modelo: TCN + Conformer -- copiado de scripts/probar_modelo.py
+# =====================================================================
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=500):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer("pe", pe.unsqueeze(0))
+
+    def forward(self, x):
+        return x + self.pe[:, : x.size(1)]
+
+
+class TCNBlock(nn.Module):
+    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation // 2
+        self.conv1 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+        self.bn1 = nn.BatchNorm1d(channels)
+        self.conv2 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+        self.bn2 = nn.BatchNorm1d(channels)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, key_padding_mask=None):
+        residual = x
+        x = x.transpose(1, 2)
+        if key_padding_mask is not None:
+            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+        x = self.dropout(self.relu(self.bn1(self.conv1(x))))
+        x = self.bn2(self.conv2(x))
+        x = x.transpose(1, 2)
+        return self.relu(residual + self.dropout(x))
+
+
+class TCNFeatureExtractor(nn.Module):
+    def __init__(self, channels, n_blocks=3, kernel_size=3, dropout=0.1):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            TCNBlock(channels, kernel_size=kernel_size, dilation=2 ** i, dropout=dropout)
+            for i in range(n_blocks)
+        ])
+
+    def forward(self, x, key_padding_mask=None):
+        for block in self.blocks:
+            x = block(x, key_padding_mask=key_padding_mask)
+        return x
+
+
+class ConformerFeedForward(nn.Module):
+    def __init__(self, d_model, dim_feedforward, dropout):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, dim_feedforward),
+            nn.SiLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class ConformerConvModule(nn.Module):
+    def __init__(self, d_model, kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.layer_norm = nn.LayerNorm(d_model)
+        self.pointwise_conv1 = nn.Conv1d(d_model, 2 * d_model, kernel_size=1)
+        self.glu = nn.GLU(dim=1)
+        padding = (kernel_size - 1) // 2
+        self.depthwise_conv = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=padding, groups=d_model)
+        self.batch_norm = nn.BatchNorm1d(d_model)
+        self.swish = nn.SiLU()
+        self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, key_padding_mask=None):
+        residual = x
+        x = self.layer_norm(x)
+        x = x.transpose(1, 2)
+        if key_padding_mask is not None:
+            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+        x = self.pointwise_conv1(x)
+        x = self.glu(x)
+        x = self.depthwise_conv(x)
+        x = self.batch_norm(x)
+        x = self.swish(x)
+        x = self.pointwise_conv2(x)
+        x = self.dropout(x)
+        x = x.transpose(1, 2)
+        return residual + x
+
+
+class ConformerBlock(nn.Module):
+    def __init__(self, d_model, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.ff1 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+        self.self_attn_norm = nn.LayerNorm(d_model)
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        self.attn_dropout = nn.Dropout(dropout)
+        self.conv_module = ConformerConvModule(d_model, conv_kernel_size, dropout)
+        self.ff2 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+        self.final_norm = nn.LayerNorm(d_model)
+
+    def forward(self, x, src_key_padding_mask=None):
+        x = x + 0.5 * self.ff1(x)
+        residual = x
+        x_norm = self.self_attn_norm(x)
+        attn_out, _ = self.self_attn(x_norm, x_norm, x_norm, key_padding_mask=src_key_padding_mask, need_weights=False)
+        x = residual + self.attn_dropout(attn_out)
+        x = self.conv_module(x, key_padding_mask=src_key_padding_mask)
+        x = x + 0.5 * self.ff2(x)
+        return self.final_norm(x)
+
+
+class ConformerEncoder(nn.Module):
+    def __init__(self, d_model, n_layers, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
+        super().__init__()
+        self.layers = nn.ModuleList([
+            ConformerBlock(d_model, n_heads, dim_feedforward, conv_kernel_size, dropout)
+            for _ in range(n_layers)
+        ])
+
+    def forward(self, x, src_key_padding_mask=None):
+        for layer in self.layers:
+            x = layer(x, src_key_padding_mask=src_key_padding_mask)
+        return x
+
+
+def masked_mean_pool(x, src_key_padding_mask):
+    if src_key_padding_mask is None:
+        return x.mean(dim=1)
+    real_mask = (~src_key_padding_mask).unsqueeze(-1).float()
+    summed = (x * real_mask).sum(dim=1)
+    counts = real_mask.sum(dim=1).clamp(min=1.0)
+    return summed / counts
+
+
+class LipReadingConformer(nn.Module):
+    def __init__(self, num_classes, input_dim, hidden_dim=128,
+                 n_layers=2, n_heads=8, dim_feedforward=256,
+                 conv_kernel_size=15, tcn_blocks=3, tcn_kernel_size=3, dropout=0.3):
+        super().__init__()
+        self.input_proj = nn.Linear(input_dim, hidden_dim)
+        self.tcn = TCNFeatureExtractor(hidden_dim, n_blocks=tcn_blocks, kernel_size=tcn_kernel_size, dropout=dropout)
+        self.pos_encoder = PositionalEncoding(hidden_dim)
+        self.conformer_encoder = ConformerEncoder(
+            d_model=hidden_dim, n_layers=n_layers, n_heads=n_heads,
+            dim_feedforward=dim_feedforward, conv_kernel_size=conv_kernel_size, dropout=dropout,
+        )
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, 64), nn.ReLU(), nn.Dropout(dropout), nn.Linear(64, num_classes),
+        )
+
+    def forward(self, x, src_key_padding_mask=None):
+        x = self.input_proj(x)
+        x = self.tcn(x, key_padding_mask=src_key_padding_mask)
+        x = self.pos_encoder(x)
+        x = self.conformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
+        pooled = masked_mean_pool(x, src_key_padding_mask)
+        return self.classifier(pooled)
+
+
+def make_padding_mask(lengths, max_len, device):
+    idx = torch.arange(max_len, device=device).unsqueeze(0)
+    return idx >= lengths.unsqueeze(1)
+
 
 def safe_torch_load(path):
     try:
         return torch.load(path, weights_only=True)
     except Exception:
         return torch.load(path, weights_only=False)
+
 
 app = FastAPI(title="SpeakShadow API")
 app.add_middleware(
@@ -120,85 +438,72 @@ app.add_middleware(
 _state = {"model": None, "landmarker": None, "class_names": None, "max_frames": None}
 
 # =====================================================================
-# HILO DEDICADO DE GPU -- ver por qué esto existe en el comentario largo
-# de más abajo. TL;DR: antes cada /predict corría vía run_in_threadpool
-# (el pool genérico de Starlette/AnyIO), que puede repartir cada request
-# en un hilo de sistema operativo DISTINTO. En probar_modelo.py, en
-# cambio, TODO (cargar el modelo Y cada predicción) corre siempre en el
-# mismo hilo (el principal) -- y ahí nunca se cuelga, ni siquiera con
-# tomas largas. La diferencia real entre "funciona en probar_modelo.py"
-# y "se cuelga en el servidor" parece ser justo esa: CUDA en Windows es
-# conocido por dar problemas cuando el contexto de GPU se toca desde
-# hilos distintos a lo largo de la vida del proceso. Acá se fuerza que
-# absolutamente todo el trabajo de GPU (carga del modelo, precalentamiento,
-# y cada predicción) pase SIEMPRE por el mismo único hilo, de punta a
-# punta, igual que probar_modelo.py.
+# TODO el trabajo de GPU (carga del modelo, precalentamiento, y CADA
+# predicción) corre en el HILO PRINCIPAL del proceso -- ni un hilo aparte
+# dedicado, ni el threadpool genérico de Starlette. Exactamente igual que
+# scripts/probar_modelo.py (que nunca se cuelga, ni con tomas largas).
+#
+# Antes esto corría en un hilo dedicado aparte (siempre el mismo, pero NO
+# el principal) para no bloquear el resto del servidor mientras predice.
+# Confirmado en producción: los cuelgues de /predict seguían pasando igual
+# ahí, cada vez más seguido -- la diferencia real entre "funciona en
+# probar_modelo.py" y "se cuelga en el servidor" parece ser justo esta:
+# CUDA en Windows da problemas cuando el contexto de GPU se toca desde un
+# hilo que no es el principal del proceso, no importa cuán "dedicado" sea.
+#
+# El costo: /predict ahora bloquea TODO el servidor (ni /health responde)
+# mientras predice -- pero como ya se procesaba una predicción a la vez de
+# todos modos, no se pierde nada real. Y como esto bloquea el hilo que
+# antes vigilaba el timeout, ya no hay forma de que el PROPIO proceso se
+# reinicie solo si se cuelga -- por eso ahora hay un vigilante EXTERNO
+# aparte (ver server/watchdog.sh) que chequea /health desde afuera y mata
+# el proceso a la fuerza si deja de responder por mucho tiempo.
 # =====================================================================
-_gpu_queue = queue.Queue()
 
 
-def _gpu_worker_loop():
-    """Corre en su propio hilo, para siempre, durante toda la vida del
-    proceso -- carga el modelo una vez al principio y después atiende
-    tareas de a una, en el mismo hilo que las cargó."""
+@app.on_event("startup")
+async def load_everything():
+    """async a propósito: FastAPI/Starlette corre los eventos de startup
+    definidos como `def` (sync) en un hilo del threadpool, NO en el
+    principal -- con `async def` y llamando todo directo (sin await a
+    ningún threadpool), esto se ejecuta en el mismo hilo que el event loop
+    de uvicorn, que ES el principal del proceso (sin --workers)."""
     if not os.path.exists(MODEL_PATH):
         print(f"[AVISO] No encontré {MODEL_PATH} -- /predict queda deshabilitado. "
               "Entrenalo con train_landmarks_transformer.py o bajalo de Colab. "
               "El resto del server (dashboard, stats) funciona igual.")
-    else:
-        checkpoint = safe_torch_load(MODEL_PATH)
-        class_names = checkpoint["class_names"]
-        max_frames = checkpoint["max_frames"]
-        input_dim = checkpoint.get("input_dim", 240)
+        return
 
-        model = LipReadingConformer(num_classes=len(class_names), input_dim=input_dim).to(DEVICE)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        model.eval()
+    checkpoint = safe_torch_load(MODEL_PATH)
+    class_names = checkpoint["class_names"]
+    max_frames = checkpoint["max_frames"]
+    input_dim = checkpoint.get("input_dim", 120)
 
-        print("Cargando detector de landmarks (HRNet/FAN)...")
-        landmarker = build_landmarker()
+    model = LipReadingConformer(num_classes=len(class_names), input_dim=input_dim).to(DEVICE)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
 
-        # Precalentamiento: la PRIMERA vez que HRNet corre, PyTorch intenta
-        # compilar la red (torch.compile/dynamo), falla en Windows y cae a
-        # modo eager -- ese intento fallido es lo que hace que la primera
-        # predicción real tarde ~50-90s en vez de ~10-20s. Absorbemos ese
-        # costo ACÁ, antes de aceptar requests, para que la primera
-        # predicción de un usuario real ya sea rápida.
-        if DEVICE == "cuda":
-            try:
-                print("Precalentando HRNet (primera compilación, puede tardar)...")
-                dummy_frames = [np.zeros((240, 320, 3), dtype=np.uint8) for _ in range(3)]
-                detect_landmarks_batch(landmarker, dummy_frames)
-                print("Precalentamiento listo.")
-            except Exception as e:
-                print(f"[AVISO] Precalentamiento falló ({e}), no es grave -- "
-                      "la primera predicción real puede tardar más de lo normal.")
+    print("Cargando detector de landmarks (HRNet/FAN)...")
+    landmarker = build_hrnet_detector()
 
-        _state.update(model=model, landmarker=landmarker, class_names=class_names, max_frames=max_frames)
-        print(f"Listo. Device: {DEVICE}. Clases ({len(class_names)}): {class_names}")
-
-    while True:
-        func, args, result_future, loop = _gpu_queue.get()
+    # Precalentamiento: la PRIMERA vez que HRNet corre, PyTorch intenta
+    # compilar la red (torch.compile/dynamo), falla en Windows y cae a
+    # modo eager -- ese intento fallido es lo que hace que la primera
+    # predicción real tarde ~50-90s en vez de ~10-20s. Absorbemos ese
+    # costo ACÁ, antes de aceptar requests, para que la primera
+    # predicción de un usuario real ya sea rápida.
+    if DEVICE == "cuda":
         try:
-            result = func(*args)
-            loop.call_soon_threadsafe(result_future.set_result, result)
-        except BaseException as e:  # noqa: BLE001 -- reportar CUALQUIER falla al que espera
-            loop.call_soon_threadsafe(result_future.set_exception, e)
+            print("Precalentando HRNet (primera compilación, puede tardar)...")
+            dummy_frames = [np.zeros((240, 320, 3), dtype=np.uint8) for _ in range(3)]
+            detect_landmarks_batch(landmarker, dummy_frames)
+            print("Precalentamiento listo.")
+        except Exception as e:
+            print(f"[AVISO] Precalentamiento falló ({e}), no es grave -- "
+                  "la primera predicción real puede tardar más de lo normal.")
 
-
-async def run_on_gpu_thread(func, *args):
-    """Encola `func(*args)` para correr en el hilo dedicado de GPU y espera
-    el resultado, sin bloquear el event loop de FastAPI mientras tanto
-    (igual que hacía run_in_threadpool, pero siempre en el MISMO hilo)."""
-    loop = asyncio.get_event_loop()
-    result_future = loop.create_future()
-    _gpu_queue.put((func, args, result_future, loop))
-    return await result_future
-
-
-@app.on_event("startup")
-def load_everything():
-    threading.Thread(target=_gpu_worker_loop, daemon=True, name="gpu-worker").start()
+    _state.update(model=model, landmarker=landmarker, class_names=class_names, max_frames=max_frames)
+    print(f"Listo. Device: {DEVICE}. Clases ({len(class_names)}): {class_names}")
 
 
 @app.on_event("shutdown")
@@ -209,20 +514,26 @@ def cleanup():
 
 
 def preprocess_sequence(positions, max_frames):
-    """positions: (T, N) ya continuo (sin huecos, ver fill_missing_frames).
-    Suaviza y le agrega velocidad/aceleración, después padea/trunca a
-    max_frames -- igual que en el entrenamiento y en probar_modelo.py."""
+    """Copiado de scripts/probar_modelo.py -- suaviza, agrega velocidad/
+    aceleración, y padea/recorta a max_frames. Recorte del MEDIO (no del
+    principio) si la toma duró más que max_frames -- ver el porqué en
+    probar_modelo.py. NO se remuestrea por interpolación: este modelo usa
+    derivadas frame-a-frame (velocidad/aceleración), que se romperían."""
     smoothed = smooth_positions(positions)
     sequence_np = add_dynamics(smoothed)
     sequence = torch.from_numpy(sequence_np).float()
 
     T = sequence.shape[0]
-    real_length = min(T, max_frames)
     if T < max_frames:
+        real_length = T
         padding = torch.zeros((max_frames - T,) + sequence.shape[1:], dtype=sequence.dtype)
         sequence = torch.cat([sequence, padding], dim=0)
     elif T > max_frames:
-        sequence = sequence[:max_frames]
+        start = (T - max_frames) // 2
+        sequence = sequence[start:start + max_frames]
+        real_length = max_frames
+    else:
+        real_length = T
 
     mask = make_padding_mask(torch.tensor([real_length]), max_frames, sequence.device)
     return sequence.unsqueeze(0), mask  # (1, T, N), (1, T)
@@ -249,30 +560,24 @@ def _count_files(folder, extensions=VIDEO_EXTENSIONS):
 
 @app.get("/dataset/stats")
 def dataset_stats():
-    """Progreso del dataset -- cuántos clips grabados y procesados hay por
-    palabra, para mostrar el dashboard en la app."""
+    """Progreso del dataset -- cuántos clips grabados hay por palabra, para
+    mostrar el dashboard en la app."""
     words = set()
     if os.path.isdir(SESSIONS_DIR):
         words.update(d for d in os.listdir(SESSIONS_DIR)
                       if os.path.isdir(os.path.join(SESSIONS_DIR, d)))
-    if os.path.isdir(DATASET_DIR):
-        words.update(d for d in os.listdir(DATASET_DIR)
-                      if os.path.isdir(os.path.join(DATASET_DIR, d)))
 
     rows = []
-    total_clips, total_processed = 0, 0
+    total_clips = 0
     for word in sorted(words):
         n_clips = _count_files(os.path.join(SESSIONS_DIR, word, "clips"))
-        n_processed = _count_files(os.path.join(DATASET_DIR, word), ".pt")
-        rows.append({"word": word, "clips": n_clips, "processed": n_processed})
+        rows.append({"word": word, "clips": n_clips})
         total_clips += n_clips
-        total_processed += n_processed
 
     return {
         "goal_per_word": GOAL_PER_WORD,
         "total_words": len(rows),
         "total_clips": total_clips,
-        "total_processed": total_processed,
         "words": rows,
     }
 
@@ -396,13 +701,13 @@ def _save_web_capture(word, tmp_path, suffix):
         return None
 
 
-# Ya NO hace falta un semáforo acá -- el hilo dedicado de GPU (ver
-# _gpu_worker_loop) procesa una tarea a la vez desde su propia cola, así que
-# la serialización ya está garantizada de por sí, sin nada extra.
+# Ya no hace falta un semáforo acá -- al correr todo en el hilo principal
+# (ver comentario grande más arriba), FastAPI ni siquiera puede empezar a
+# procesar una segunda request de /predict hasta que la anterior termine,
+# la serialización queda garantizada sola.
 
-# Tope duro por predicción individual -- ver uso en el endpoint /predict.
-# Con el chunking de detect_landmarks_batch, un clip de 199 frames terminó
-# bien en 67.4s. 90s deja margen de sobra arriba de eso.
+# Referencia para server/watchdog.sh (no se usa acá adentro): cuánto puede
+# tardar una predicción real, sin cuelgue, en el peor caso.
 PREDICT_HARD_TIMEOUT_S = 90
 
 
@@ -410,19 +715,13 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     """Todo el trabajo pesado (lectura de frames, HRNet, Conformer) -- código
     100% sincrónico y bloqueante a propósito, para correrlo en el hilo
     dedicado de GPU (ver _gpu_worker_loop) y no congelar el event loop de
-    FastAPI mientras tarda (puede ser bastante, ver AVISO de detección en batch).
+    FastAPI mientras tarda.
 
     Los print() con tiempos son a propósito -- si esto se cuelga nos dice
     EXACTAMENTE en qué etapa se quedó trabado (lectura de frames, detección
     HRNet, o inferencia del modelo), en vez de tener que adivinar."""
     t_start = time.time()
     if DEVICE == "cuda":
-        # Limpieza de memoria ANTES de arrancar (no en cada sub-lote, eso ya
-        # lo probamos y empeoraba el cuelgue) -- en uso intenso y seguido
-        # (modo vigilancia, muchos /predict uno atrás del otro en el mismo
-        # proceso) la memoria de la GPU se va fragmentando con cada request,
-        # y eso parece ser lo que dispara el cuelgue del driver más adelante,
-        # no el tamaño de un clip puntual.
         torch.cuda.empty_cache()
     cap = cv2.VideoCapture(tmp_path)
     if not cap.isOpened():
@@ -433,13 +732,10 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
         ok, frame = cap.read()
         if not ok:
             break
-        # CAUSA REAL encontrada en producción: la cámara del navegador graba
-        # en Full HD (1920x1080) -- 6.75x más píxeles por frame que los
-        # 640x480 con los que se probó todo el pipeline (grabar_video_
-        # continuo.py, probar_modelo.py). Ese tamaño es lo que realmente
-        # disparaba el cuelgue, no la cantidad de frames. HRNet no necesita
-        # esa resolución para encontrar la cara -- se achica ACÁ, antes de
-        # meterla al pipeline, preservando el aspecto.
+        # La cámara del navegador graba en Full HD (1920x1080) -- HRNet no
+        # necesita esa resolución para encontrar la cara, se achica ACÁ,
+        # antes de meterla al pipeline, preservando el aspecto (igual que
+        # FRAME_SIZE en probar_modelo.py, que graba nativo a 640x480).
         h, w = frame.shape[:2]
         if w > MAX_FRAME_WIDTH:
             scale = MAX_FRAME_WIDTH / w
@@ -450,9 +746,6 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
 
     total = len(frames)
     if total == 0:
-        # cv2 pudo abrir el archivo pero no decodificó ni un frame -- típico
-        # de un códec que el build de OpenCV/ffmpeg del servidor no soporta
-        # (ej. HEVC en .mov de algunos celulares), no de una toma corta.
         return {
             "valid": False,
             "reason": "no se pudo leer ningún frame del video -- el formato/códec "
@@ -465,9 +758,6 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
                       "-- probablemente no se dijo la frase completa",
         }
 
-    # Detección en BATCH: todo el clip al GPU de una sola vez en vez de
-    # frame por frame -- ver detect_landmarks_batch en
-    # extraer_landmarks_npy.py para el detalle de por qué es más rápido.
     landmarks_por_frame = detect_landmarks_batch(landmarker, frames)
     print(f"[predict] landmarks detectados ({time.time() - t_start:.1f}s)")
 
@@ -547,35 +837,12 @@ async def predict(file: UploadFile = File(...)):
         tmp_path = tmp.name
 
     try:
-        try:
-            # Tope duro -- si el hilo dedicado de GPU se cuelga de verdad,
-            # esto corta la espera acá en vez de esperar para siempre. El
-            # hilo colgado sigue vivo de fondo (Python no puede matarlo a la
-            # fuerza), pero como es SIEMPRE el mismo hilo, ya no queda nada
-            # más encolado detrás esperándolo salvo pedidos nuevos, que se
-            # van a apilar hasta que el proceso se reinicie solo (ver abajo).
-            return await asyncio.wait_for(
-                run_on_gpu_thread(
-                    _run_prediction_pipeline, tmp_path, suffix, landmarker, model, class_names, max_frames
-                ),
-                timeout=PREDICT_HARD_TIMEOUT_S,
-            )
-        except asyncio.TimeoutError:
-            # El hilo colgado sigue vivo de fondo consumiendo VRAM -- en
-            # Python no hay forma de matarlo a la fuerza. La única manera
-            # real de recuperar esa memoria es que el PROCESO entero muera,
-            # así que se autoreinicia solo (ver server/run.sh, que lo vuelve
-            # a levantar apenas se cae). Se agenda la salida con un pequeño
-            # delay para que esta respuesta 504 llegue a la app antes de que
-            # el proceso se corte.
-            print("[FATAL] /predict se colgó más de "
-                  f"{PREDICT_HARD_TIMEOUT_S}s -- reiniciando el proceso para liberar la GPU.")
-            asyncio.get_event_loop().call_later(2, lambda: os._exit(1))
-            raise HTTPException(
-                status_code=504,
-                detail=f"La predicción tardó más de {PREDICT_HARD_TIMEOUT_S}s y se canceló -- "
-                "el servidor se está reiniciando solo, probá de nuevo en unos segundos.",
-            )
+        # Llamada DIRECTA y bloqueante, en el mismo hilo que el event loop
+        # (el principal) -- ver el comentario grande sobre esto más arriba.
+        # Si esto se cuelga, ya no hay timeout interno que lo detecte (el
+        # propio hilo que lo controlaría queda bloqueado) -- lo detecta y
+        # mata el proceso el vigilante EXTERNO (ver server/watchdog.sh).
+        return _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, max_frames)
     finally:
         try:
             os.remove(tmp_path)
@@ -585,5 +852,21 @@ async def predict(file: UploadFile = File(...)):
 
 if __name__ == "__main__":
     import uvicorn
+
+    # El propio proceso escribe SU PID real de Windows acá -- bash ($! en
+    # server/run.sh) puede devolver un PID de espacio MSYS que no coincide
+    # con el PID real que Windows/taskkill necesitan (confirmado: causó que
+    # el vigilante fallara al intentar matar un proceso colgado). os.getpid()
+    # desde Python corriendo nativo en Windows siempre es el PID correcto.
+    #
+    # OJO con la ruta: "/tmp/..." es de Git-Bash/MSYS -- el python.exe
+    # NATIVO de Windows no la entiende y tira FileNotFoundError (confirmado
+    # en producción, tumbaba el server en loop apenas arrancaba). Se usa
+    # una ruta DENTRO del proyecto (server/.server.pid) en vez de /tmp,
+    # porque esa sí resuelve bien tanto desde Python nativo como desde
+    # server/watchdog.sh en Git-Bash.
+    pid_file = os.path.join(BASE_DIR, "server", ".server.pid")
+    with open(pid_file, "w") as f:
+        f.write(str(os.getpid()))
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { getRecordings, getServerUrl, thumbnailUrl } from "../api.js";
-import { mockRecordings } from "../mockData.js";
 import { AppBackground, AppCard, EmptyState, ErrorState, HeroCard, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
 import "./Screens.css";
@@ -37,10 +36,16 @@ export default function CapturesScreen() {
       setRecordings(data.recordings || []);
     } catch (e) {
       // Si YA había datos reales cargados, un refresh fallido (ej. el
-      // servidor está ocupado con una predicción) NO debe reemplazarlos por
-      // datos de muestra -- eso hacía que la lista pareciera "cambiar sola".
-      // Los de muestra son solo para la primerísima carga, sin servidor.
-      setRecordings((prev) => (prev && prev.length > 0 ? prev : mockRecordings()));
+      // servidor está ocupado con una predicción) NO debe reemplazarlos --
+      // eso hacía que la lista pareciera "cambiar sola". Nunca se cae a
+      // datos inventados: si no hay nada real todavía, se muestra el error.
+      setRecordings((prev) => {
+        if (!prev || prev.length === 0) {
+          setError(e.message || "No se pudo conectar al servidor.");
+          return [];
+        }
+        return prev;
+      });
     }
   }
 
