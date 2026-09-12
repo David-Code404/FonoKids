@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { getRecordings, getServerUrl } from "../api.js";
-import { mockRecordings } from "../mockData.js";
 import { AppCard, AppBackground, EmptyState, ErrorState, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
 import "./Screens.css";
@@ -51,8 +50,15 @@ export default function PhrasesScreen() {
       setRecordings(data.recordings || []);
     } catch (e) {
       // Ver el mismo comentario en CapturesScreen.jsx -- no pisar datos
-      // reales ya cargados con datos de muestra en un refresh fallido.
-      setRecordings((prev) => (prev && prev.length > 0 ? prev : mockRecordings()));
+      // reales ya cargados en un refresh fallido, y nunca caer a datos
+      // inventados: si no hay nada real todavía, se muestra el error.
+      setRecordings((prev) => {
+        if (!prev || prev.length === 0) {
+          setError(e.message || "No se pudo conectar al servidor.");
+          return [];
+        }
+        return prev;
+      });
     }
   }
 
