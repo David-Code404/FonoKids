@@ -1,10 +1,7 @@
 // Cliente HTTP para server/main.py -- equivalente web de api_client.dart.
 const STORAGE_KEY = "speakshadow_server_url";
-// Por defecto, asumimos que server/main.py corre en la MISMA máquina que
-// sirve esta página (ej. "npm run dev" y "python server/main.py" en la
-// misma PC) -- evita el "Sin conexión" typico de un IP de LAN hardcodeado
-// que no coincide con la red de quien lo prueba. Si el celular entra por
-// otra IP (ej. túnel/HTTPS), el usuario lo cambia a mano en Configuración.
+// server/main.py corre en la MISMA máquina que sirve esta página ("npm run
+// dev" y "python server/main.py" en la misma PC, ambos en localhost).
 export const DEFAULT_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 
 export class ApiError extends Error {}
@@ -119,8 +116,7 @@ async function predictOnce(baseUrl, videoBlob, filename) {
   } catch (e) {
     if (e instanceof ApiError) throw e;
     throw new ApiError(
-      `No se pudo conectar al servidor (${baseUrl}). ` +
-        "Revisá que esté prendido y que el dispositivo esté en la misma red WiFi."
+      `No se pudo conectar al servidor (${baseUrl}). Revisá que esté prendido (python server/main.py).`
     );
   }
 
