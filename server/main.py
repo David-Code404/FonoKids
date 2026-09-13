@@ -12,8 +12,8 @@ exactamente igual que la prueba con cámara que ya funciona bien.
 
 Uso:
     python server/main.py
-    (por defecto escucha en 0.0.0.0:8000 -- accesible desde el celular
-    si está en la misma red WiFi que esta PC, usando la IP local de la PC)
+    (escucha solo en 127.0.0.1:8000 -- nada más que esta misma PC, sin
+    exponerlo a la red local)
 """
 import math
 import os
@@ -869,4 +869,4 @@ if __name__ == "__main__":
     with open(pid_file, "w") as f:
         f.write(str(os.getpid()))
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

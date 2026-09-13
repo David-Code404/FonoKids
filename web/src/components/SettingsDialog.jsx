@@ -22,14 +22,13 @@ export default function SettingsDialog({ currentUrl, onSave, onClose }) {
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <div className="dialog-title">Servidor de predicción</div>
         <p className="dialog-hint">
-          IP y puerto de la PC que corre server/main.py (debe estar en la misma red WiFi que el
-          dispositivo).
+          URL y puerto donde corre server/main.py.
         </p>
         <input
           className="dialog-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="http://192.168.1.100:8000"
+          placeholder="http://localhost:8000"
         />
         <div className="dialog-test-row">
           <button className="dialog-test-button" onClick={testConnection} disabled={testing}>
