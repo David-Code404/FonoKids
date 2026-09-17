@@ -5,12 +5,12 @@ import HomeScreen from "./screens/HomeScreen.jsx";
 import "./App.css";
 
 const TABS = [
-  { key: "capturas", label: "Capturas", icon: "🗓" },
-  { key: "frases", label: "Frases", icon: "🗣" },
-  { key: "grabar", label: "Grabar", icon: "🎥" },
+  { key: "diario", label: "Mi Diario", icon: "📔" },
+  { key: "logros", label: "Logros", icon: "🏆" },
+  { key: "practicar", label: "Practicar", icon: "🎥" },
 ];
 
-/// Navegación por pestañas entre Capturas, Frases y Grabar (cámara en
+/// Navegación por pestañas entre Mi Diario, Logros y Practicar (cámara en
 /// tiempo real) -- igual que main_tab_screen.dart (MainTabScreen).
 export default function App() {
   const [index, setIndex] = useState(0);

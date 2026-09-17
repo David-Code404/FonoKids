@@ -6,3 +6,4 @@ mediapipe==1.0.1
 face-alignment==1.5.0
 numpy==2.2.6
 python-multipart
+sounddevice==0.5.6

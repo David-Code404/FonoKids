@@ -31,16 +31,16 @@ export default class ErrorBoundary extends Component {
             alignItems: "center",
             justifyContent: "center",
             gap: 16,
-            background: "#07080d",
-            color: "#f2f3f7",
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            background: "#fff8ec",
+            color: "#3a3550",
+            fontFamily: "'Baloo 2', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             padding: 24,
             textAlign: "center",
           }}
         >
           <div style={{ fontSize: 40 }}>⚠</div>
           <div style={{ fontSize: 18, fontWeight: 700 }}>Algo se rompió en la app</div>
-          <div style={{ fontSize: 13, color: "#9da2b3", maxWidth: 340 }}>
+          <div style={{ fontSize: 13, color: "#6b6580", maxWidth: 340 }}>
             {this.state.error.message || String(this.state.error)}
           </div>
           <button
@@ -49,7 +49,7 @@ export default class ErrorBoundary extends Component {
               padding: "10px 20px",
               borderRadius: 12,
               border: "none",
-              background: "#7c6cff",
+              background: "#8c6bff",
               color: "#fff",
               fontWeight: 600,
               fontSize: 14,

@@ -425,11 +425,18 @@ def build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs=5):
 
 # =====================================================================
 # REPORTE DE RESULTADOS (sección 8 del informe): accuracy top-1/top-3,
-# matriz de confusión, motor de riesgo (umbral) y latencia de inferencia.
-# Corre UNA vez al final, sobre el mejor modelo guardado. Todo dentro de
-# un try/except en train() para que, si algo de esto falla, no se pierda
-# el modelo ya entrenado y guardado -- solo se avisa qué falló.
+# matriz de confusión, accuracy de correcta/incorrecta (agrupando por
+# sufijo de clase) y latencia de inferencia. Corre UNA vez al final, sobre
+# el mejor modelo guardado. Todo dentro de un try/except en train() para
+# que, si algo de esto falla, no se pierda el modelo ya entrenado y
+# guardado -- solo se avisa qué falló.
 # =====================================================================
+def _es_clase_correcta(nombre_clase):
+    """Mismo criterio que _parse_clase_predicha() en server/main.py:
+    '<palabra>_correcto' -> True, '<palabra>_incorrecto[_subtipo]' -> False."""
+    return nombre_clase.endswith("_correcto")
+
+
 def evaluate_final_report(model, val_loader, class_names, device):
     model.eval()
     all_preds, all_labels, all_top3_hit, all_top_probs = [], [], [], []
@@ -486,16 +493,22 @@ def evaluate_final_report(model, val_loader, class_names, device):
     plt.savefig(cm_path)
     plt.close()
 
-    # --- Motor de riesgo (umbral de 40%) ---
-    # Ojo: el set de validación son todo frases DE RIESGO reales, no hay
-    # ejemplos negativos (frases fuera del vocabulario) -- así que acá solo
-    # se puede medir el FALSO NEGATIVO (una frase de riesgo real que el
-    # umbral hubiera descartado por baja confianza). El FALSO POSITIVO
-    # (marcar como riesgo algo que no lo es) necesita un set de prueba con
-    # frases fuera del vocabulario, que todavía no existe.
+    # --- Accuracy de correcta/incorrecta (binaria, agrupando clases) ---
+    # Más importante en la práctica que el top-1 exacto: a un chico le
+    # importa que el sistema le diga bien si la dijo bien o mal, aunque el
+    # top-1 exacto se equivoque de vez en cuando entre dos subtipos de
+    # error parecidos (ej. confundir lambdacismo con dentalización, pero
+    # los dos siguen siendo "incorrecto").
+    es_correcta_real = [_es_clase_correcta(class_names[l]) for l in all_labels]
+    es_correcta_pred = [_es_clase_correcta(class_names[p]) for p in all_preds]
+    binaria_acc = 100.0 * sum(r == p for r, p in zip(es_correcta_real, es_correcta_pred)) / total
+
+    # Umbral de confianza (MIN_CONFIDENCE_PROB en server/main.py): por
+    # debajo de esto, el server no le devuelve un resultado al chico, le
+    # pide repetir la toma en vez de arriesgar una respuesta dudosa.
     umbral = 0.40
-    detectadas = sum(1 for p in all_top_probs if p >= umbral)
-    no_detectadas = total - detectadas
+    con_confianza = sum(1 for p in all_top_probs if p >= umbral)
+    sin_confianza = total - con_confianza
 
     # --- Latencia ---
     avg_latency_ms = sum(latencies_ms) / len(latencies_ms)
@@ -507,14 +520,13 @@ def evaluate_final_report(model, val_loader, class_names, device):
         f"## Resultados\n\n**Muestras de validacion:** {total}",
         f"### Accuracy\n\n- Top-1: **{top1_acc:.2f}%**\n- Top-3: **{top3_acc:.2f}%**",
         f"### Matriz de confusion\n\nGuardada en: `{os.path.basename(cm_path)}`",
+        f"### Accuracy correcta/incorrecta (binaria)\n\n- **{binaria_acc:.2f}%** -- ¿el modelo distingue bien si la palabra se dijo bien o mal, más allá de si acierta el subtipo exacto de error?",
         (
-            f"### Motor de riesgo (umbral {umbral*100:.0f}%)\n\n"
-            f"- Frases de riesgo detectadas correctamente: **{detectadas}/{total}** "
-            f"({100.0*detectadas/total:.2f}%)\n"
-            f"- Falsos negativos (riesgo real no detectado): **{no_detectadas}** "
-            f"({100.0*no_detectadas/total:.2f}%)\n\n"
-            f"*Nota: los falsos positivos todavia no se pueden medir -- falta un "
-            f"set de prueba con frases fuera del vocabulario entrenado.*"
+            f"### Confianza del modelo (umbral {umbral*100:.0f}%)\n\n"
+            f"- Predicciones con confianza suficiente para mostrarle un resultado al chico: **{con_confianza}/{total}** "
+            f"({100.0*con_confianza/total:.2f}%)\n"
+            f"- Sin confianza suficiente (el server pediría repetir la toma): **{sin_confianza}** "
+            f"({100.0*sin_confianza/total:.2f}%)"
         ),
         f"### Latencia de inferencia\n\n- Promedio: **{avg_latency_ms:.2f} ms** (batch=1, {device})",
     ]

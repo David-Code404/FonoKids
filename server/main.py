@@ -1,10 +1,16 @@
 """
 server/main.py
 ---------------
-API HTTP para la app web. Recibe un video corto (grabado desde el
-navegador), corre EXACTAMENTE el mismo pipeline que scripts/probar_modelo.py
-(HRNet -> landmarks de labios -> TCN + Conformer) y devuelve la palabra
-predicha en JSON.
+API HTTP de SpeakShadow para práctica de pronunciación infantil. Recibe un
+video corto (grabado desde el navegador, un chico diciendo una palabra
+objetivo), corre EXACTAMENTE el mismo pipeline que scripts/probar_modelo.py
+(FAN -> landmarks de labios -> TCN + Conformer) y devuelve si la pronunció
+bien o mal.
+
+El modelo se entrena con clases de a pares por palabra objetivo
+("<palabra>_correcto" / "<palabra>_incorrecto") -- el nombre de la clase
+ganadora ya dice CUÁL palabra se intentó decir Y si estuvo bien dicha, sin
+necesitar un módulo de decisión aparte para eso (ver _parse_clase_predicha).
 
 Todo el código de detección/modelo de acá abajo está copiado tal cual de
 scripts/probar_modelo.py (ese script NO se toca) -- así el server predice
@@ -46,22 +52,43 @@ MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = t
 MAX_FRAME_WIDTH = 640
 
 # Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
-# entrenadas (no sabe decir "no sé"), así que esto es lo que distingue
-# "sí es una frase de riesgo conocida" de "no es nada, no hacer caso".
-MIN_RISK_PROB = 0.40
-MIN_RISK_MARGIN = 0.15
+# entrenadas (no sabe decir "no sé"), así que esto es lo que distingue "el
+# modelo está seguro de esta lectura" de "está adivinando entre dos clases
+# parecidas, no confiar en este resultado todavía".
+MIN_CONFIDENCE_PROB = 0.40
+MIN_CONFIDENCE_MARGIN = 0.15
 
-# Las ÚNICAS clases que cuentan como "frase de riesgo" -- si el modelo
-# tiene clases neutras además de las de bullying, nunca tienen que disparar
-# una alerta aunque salgan con confianza alta. Se ajusta sola si el modelo
-# solo tiene las de bullying (todas caen en el whitelist).
-RISK_WORDS = frozenset({
-    "asqueroso", "camba_de_mierda", "ciego_de_mierda", "colla_y_mierda",
-    "de_esta_no_te_salvas", "enano", "engendro", "eres_una_rata", "estorbo",
-    "feo", "fracasado", "fracasado_de_mierda", "gordo", "gordo_asqueroso",
-    "idiota", "inservible", "maldito_colla_de_mierda", "estúpido",
-    "imbécil", "inútil",
-})
+# Convención de nombres de clase en el checkpoint: cada palabra objetivo
+# aporta la clase "<palabra>_correcto" y una o más clases de error
+# "<palabra>_incorrecto" o "<palabra>_incorrecto_<subtipo>" (ej.
+# "perro_incorrecto_lambdacismo", "perro_incorrecto_dentalizacion",
+# "perro_incorrecto_omision" -- variantes de error real de logopedia, no
+# "otra palabra que suena parecido"). El propio nombre de la clase ganadora
+# ya dice qué palabra se intentó, si quedó bien dicha, y (si está disponible)
+# qué tipo de error fue -- sin necesitar una lista aparte tipo la vieja
+# RISK_WORDS.
+SUFIJO_CORRECTO = "_correcto"
+MARCADOR_INCORRECTO = "_incorrecto"
+
+
+def _parse_clase_predicha(nombre_clase):
+    """'perro_correcto' -> ('perro', True, None).
+    'perro_incorrecto' -> ('perro', False, None).
+    'perro_incorrecto_lambdacismo' -> ('perro', False, 'lambdacismo').
+    Si la clase no tiene ninguno de los dos marcadores (checkpoint viejo o
+    mal entrenado), devuelve (nombre_clase, None, None) -- se trata como "no
+    se pudo determinar corrección" en vez de asumir un valor."""
+    if nombre_clase.endswith(SUFIJO_CORRECTO):
+        return nombre_clase[: -len(SUFIJO_CORRECTO)], True, None
+
+    idx = nombre_clase.find(MARCADOR_INCORRECTO)
+    if idx != -1:
+        palabra = nombre_clase[:idx]
+        resto = nombre_clase[idx + len(MARCADOR_INCORRECTO):]
+        subtipo = resto[1:] if resto.startswith("_") else None
+        return palabra, False, subtipo or None
+
+    return nombre_clase, None, None
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -547,8 +574,8 @@ def health():
 
 # Extensiones de video reconocidas como "clip" -- .avi es lo que graba
 # grabar_video_continuo.py (dataset), .webm/.mp4/.mov es lo que graba la
-# cámara del navegador (pestaña "Grabar" de la app web) cuando /predict
-# guarda una frase de riesgo real detectada en vivo (ver más abajo).
+# cámara del navegador (pestaña "Practicar" de la app web) cuando /predict
+# guarda un intento de pronunciación con confianza suficiente (ver más abajo).
 VIDEO_EXTENSIONS = (".avi", ".webm", ".mp4", ".mov")
 
 
@@ -560,18 +587,23 @@ def _count_files(folder, extensions=VIDEO_EXTENSIONS):
 
 @app.get("/dataset/stats")
 def dataset_stats():
-    """Progreso del dataset -- cuántos clips grabados hay por palabra, para
-    mostrar el dashboard en la app."""
-    words = set()
+    """Progreso del dataset -- cuántos clips grabados hay por clase
+    ("<palabra>_correcto" / "<palabra>_incorrecto"), para mostrar el
+    dashboard en la app."""
+    class_names_dirs = set()
     if os.path.isdir(SESSIONS_DIR):
-        words.update(d for d in os.listdir(SESSIONS_DIR)
-                      if os.path.isdir(os.path.join(SESSIONS_DIR, d)))
+        class_names_dirs.update(d for d in os.listdir(SESSIONS_DIR)
+                                 if os.path.isdir(os.path.join(SESSIONS_DIR, d)))
 
     rows = []
     total_clips = 0
-    for word in sorted(words):
-        n_clips = _count_files(os.path.join(SESSIONS_DIR, word, "clips"))
-        rows.append({"word": word, "clips": n_clips})
+    for class_name in sorted(class_names_dirs):
+        n_clips = _count_files(os.path.join(SESSIONS_DIR, class_name, "clips"))
+        palabra, correcta, tipo_error = _parse_clase_predicha(class_name)
+        rows.append({
+            "class_name": class_name, "palabra": palabra, "correcta": correcta,
+            "tipo_error": tipo_error, "clips": n_clips,
+        })
         total_clips += n_clips
 
     return {
@@ -582,11 +614,11 @@ def dataset_stats():
     }
 
 
-def _parse_clip_filename(word, filename):
-    """De '<palabra>_<persona>_0001.avi' saca la persona, o None si el clip
-    es viejo y no tiene persona en el nombre ('<palabra>_0001.avi')."""
+def _parse_clip_filename(class_name, filename):
+    """De '<clase>_<persona>_0001.avi' saca la persona, o None si el clip
+    es viejo y no tiene persona en el nombre ('<clase>_0001.avi')."""
     stem = os.path.splitext(filename)[0]
-    prefix = word + "_"
+    prefix = class_name + "_"
     rest = stem[len(prefix):] if stem.lower().startswith(prefix.lower()) else stem
     if "_" in rest:
         person, _seq = rest.rsplit("_", 1)
@@ -596,40 +628,45 @@ def _parse_clip_filename(word, filename):
 
 @app.get("/dataset/recordings")
 def dataset_recordings():
-    """Sesiones de grabación agrupadas por fecha + frase + persona, para la
-    pantalla de Capturas. Cada grupo incluye "thumbnail_file" -- el nombre
+    """Sesiones de práctica agrupadas por fecha + clase + persona, para la
+    pantalla de historial. Cada grupo incluye "thumbnail_file" -- el nombre
     del clip más reciente de ese grupo, para poder pedir una foto real del
-    momento con GET /dataset/thumbnail (ver más abajo). Para los clips viejos
-    del dataset de entrenamiento la app sigue mostrando el placeholder si
-    la miniatura no carga -- acá no cambia nada de esa lógica."""
+    momento con GET /dataset/thumbnail (ver más abajo). Cada grupo también
+    trae "palabra" y "correcta" (derivados del nombre de clase) para que la
+    app pueda mostrar el progreso por palabra sin tener que parsear nada
+    del lado del cliente."""
     if not os.path.isdir(SESSIONS_DIR):
         return {"recordings": []}
 
     grouped = defaultdict(list)
-    for word in os.listdir(SESSIONS_DIR):
-        clips_dir = os.path.join(SESSIONS_DIR, word, "clips")
+    for class_name in os.listdir(SESSIONS_DIR):
+        clips_dir = os.path.join(SESSIONS_DIR, class_name, "clips")
         if not os.path.isdir(clips_dir):
             continue
         for filename in os.listdir(clips_dir):
             if not filename.lower().endswith(VIDEO_EXTENSIONS):
                 continue
             path = os.path.join(clips_dir, filename)
-            person = _parse_clip_filename(word, filename) or "desconocido"
+            person = _parse_clip_filename(class_name, filename) or "desconocido"
             mtime = os.path.getmtime(path)
             date = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d")
-            grouped[(date, word, person)].append((mtime, filename))
+            grouped[(date, class_name, person)].append((mtime, filename))
 
     recordings = []
-    for (date, word, person), files in grouped.items():
+    for (date, class_name, person), files in grouped.items():
         files.sort(key=lambda f: f[0], reverse=True)
+        palabra, correcta, tipo_error = _parse_clase_predicha(class_name)
         recordings.append({
             "date": date,
-            # Hora de la captura más reciente del grupo -- no es una hora
-            # por captura individual (acá se agrupa por día+palabra+persona,
+            # Hora de la práctica más reciente del grupo -- no es una hora
+            # por intento individual (acá se agrupa por día+clase+persona,
             # no clip a clip), pero alcanza para mostrar "a qué hora fue la
             # última vez" en la app.
             "time": datetime.fromtimestamp(files[0][0]).strftime("%H:%M"),
-            "word": word,
+            "class_name": class_name,
+            "word": palabra,
+            "correcta": correcta,
+            "tipo_error": tipo_error,
             "person": person,
             "count": len(files),
             "thumbnail_file": files[0][1],
@@ -642,7 +679,10 @@ def dataset_recordings():
 @app.get("/dataset/thumbnail")
 def dataset_thumbnail(word: str, filename: str):
     """Devuelve un frame (JPEG) del medio de un clip guardado, para mostrar
-    una foto real en el diálogo de captura de la app en vez del placeholder.
+    una foto real en el diálogo de práctica de la app en vez del placeholder.
+    `word` acá es en realidad el nombre de CLASE completo (ej.
+    "perro_incorrecto"), tal como lo devuelve /dataset/recordings en
+    "class_name" -- se llama "word" en la URL por compatibilidad con la app.
     `filename` se valida con basename -- nunca se deja salir de clips_dir."""
     safe_filename = os.path.basename(filename)
     safe_word = os.path.basename(word)
@@ -678,26 +718,28 @@ def dataset_thumbnail(word: str, filename: str):
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
 
-def _save_web_capture(word, tmp_path, suffix):
-    """Guarda una copia del clip grabado desde la app web (pestaña "Grabar")
-    cuando /predict detecta una frase de riesgo real -- así queda registrada
-    en Capturas/Frases (GET /dataset/recordings), igual que un clip grabado
-    con grabar_video_continuo.py. Persona fija "web" para poder
-    distinguirlas de las del dataset de entrenamiento. Nunca tira: si falla
-    (ej. sin permisos de disco), la predicción igual se devuelve normal.
+def _save_practice_clip(class_name, tmp_path, suffix):
+    """Guarda una copia del clip grabado desde la app web (pestaña
+    "Practicar") -- queda registrado en el historial de práctica (GET
+    /dataset/recordings), igual que un clip grabado con
+    grabar_video_continuo.py. Se guarda bajo el nombre de CLASE completo
+    (ej. "perro_incorrecto/clips/"), no solo la palabra, para que el
+    historial pueda distinguir intentos correctos de incorrectos de la
+    misma palabra. Persona fija "web". Nunca tira: si falla (ej. sin
+    permisos de disco), la predicción igual se devuelve normal.
 
     Devuelve el nombre del archivo guardado (para que /predict lo mande de
     vuelta al cliente y la app pueda mostrar la foto real al toque, sin
-    esperar a la próxima carga de Capturas), o None si falló el guardado.
+    esperar a la próxima carga del historial), o None si falló el guardado.
     """
     try:
-        clips_dir = os.path.join(SESSIONS_DIR, word, "clips")
+        clips_dir = os.path.join(SESSIONS_DIR, class_name, "clips")
         os.makedirs(clips_dir, exist_ok=True)
-        dest_name = f"{word}_web_{int(time.time() * 1000)}{suffix}"
+        dest_name = f"{class_name}_web_{int(time.time() * 1000)}{suffix}"
         shutil.copy(tmp_path, os.path.join(clips_dir, dest_name))
         return dest_name
     except OSError as e:
-        print(f"[AVISO] No se pudo guardar la captura web ({e}).")
+        print(f"[AVISO] No se pudo guardar el clip de práctica ({e}).")
         return None
 
 
@@ -794,28 +836,42 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     top_prob = float(sorted_probs[0].item())
     second_prob = float(sorted_probs[1].item()) if len(sorted_probs) > 1 else 0.0
     margin = top_prob - second_prob
-    es_frase_de_riesgo = (
-        class_names[top_idx] in RISK_WORDS
-        and top_prob >= MIN_RISK_PROB
-        and margin >= MIN_RISK_MARGIN
-    )
+    clase_predicha = class_names[top_idx]
+    palabra, pronunciacion_correcta, tipo_error = _parse_clase_predicha(clase_predicha)
+
+    # Solo confiamos en el resultado (bien o mal) si el modelo está seguro
+    # -- si no llega al umbral, se lo tratamos como "no concluyente" en vez
+    # de arriesgar una devolución equivocada al chico.
+    confianza_suficiente = top_prob >= MIN_CONFIDENCE_PROB and margin >= MIN_CONFIDENCE_MARGIN
 
     all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
 
+    # Guardamos el clip siempre que haya un resultado confiable (correcto o
+    # incorrecto) -- así el historial de práctica sirve tanto para mostrar
+    # avances como para que el logopeda/padre revise los errores.
     capture_file = None
-    if es_frase_de_riesgo:
-        capture_file = _save_web_capture(class_names[top_idx], tmp_path, suffix)
+    if confianza_suficiente:
+        capture_file = _save_practice_clip(clase_predicha, tmp_path, suffix)
 
     return {
         "valid": True,
-        "word": class_names[top_idx],
+        "palabra": palabra,
+        "correcta": pronunciacion_correcta if confianza_suficiente else None,
+        # Subtipo de error (ej. "lambdacismo") si la clase lo trae y la
+        # confianza alcanza -- None si fue correcta, si no hay confianza
+        # suficiente, o si el checkpoint no distingue subtipos para esa
+        # palabra (solo tiene "<palabra>_incorrecto" genérico).
+        "tipo_error": tipo_error if confianza_suficiente else None,
+        # Nombre de clase completo (ej. "perro_incorrecto_lambdacismo") -- lo
+        # necesita el cliente para armar la URL de GET /dataset/thumbnail?word=...
+        "class_name": clase_predicha,
         "prob": top_prob,
         "detected": detected,
         "total": total,
-        "es_frase_de_riesgo": es_frase_de_riesgo,
+        "confianza_suficiente": confianza_suficiente,
         # Nombre del clip guardado (o None) -- la app arma la URL de la
         # foto real con GET /dataset/thumbnail?word=...&filename=... usando
-        # este valor, sin tener que esperar a recargar Capturas.
+        # este valor, sin tener que esperar a recargar el historial.
         "capture_file": capture_file,
         "all_probs": all_probs,
     }

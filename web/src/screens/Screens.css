@@ -1,7 +1,7 @@
 .screen-scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 20px 120px;
+  padding: 12px 20px 140px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -11,6 +11,17 @@
   padding: 40px;
   text-align: center;
   color: var(--text-secondary);
+}
+
+.mock-banner {
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: rgba(255, 184, 77, 0.15);
+  border: 2px solid rgba(255, 184, 77, 0.35);
+  color: #a66a1f;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: center;
 }
 
 /* Hero summary strip (Capturas) */
@@ -137,23 +148,44 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 13px 16px;
+  padding: 14px 16px;
 }
 
 .recording-tile.with-border {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 2px solid var(--border);
 }
 
 .recording-avatar {
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  font-size: 12.5px;
+  font-weight: 800;
+  font-size: 14px;
   flex-shrink: 0;
+}
+
+.recording-avatar-word {
+  width: 50px;
+  height: 50px;
+  border-radius: 16px;
+  font-size: 26px;
+}
+
+.recording-person-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 800;
+  margin-right: 4px;
+  vertical-align: middle;
 }
 
 .recording-info {
@@ -163,8 +195,8 @@
 
 .recording-word {
   color: var(--text-primary);
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: 700;
+  font-size: 15px;
   text-transform: capitalize;
   white-space: nowrap;
   overflow: hidden;
@@ -183,12 +215,33 @@
   text-transform: none;
 }
 
+.recording-result-chip {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.recording-result-chip.success {
+  background: rgba(46, 204, 143, 0.15);
+  color: var(--accent2);
+}
+
+.recording-result-chip.retry {
+  background: rgba(255, 107, 107, 0.15);
+  color: var(--danger);
+}
+
 .recording-camera-btn {
-  background: transparent;
-  border: none;
-  font-size: 18px;
+  background: var(--surface-alt);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 16px;
   cursor: pointer;
-  padding: 4px;
+  padding: 6px 8px;
+  flex-shrink: 0;
 }
 
 /* Capture dialog */
@@ -355,12 +408,17 @@
 /* Phrase grid */
 .phrase-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 14px;
 }
 
 .phrase-card {
   cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.phrase-card:active {
+  transform: scale(0.97);
 }
 
 .phrase-card-top {
@@ -370,35 +428,61 @@
 }
 
 .phrase-card-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 28px;
 }
 
 .phrase-card-count {
-  padding: 3px 8px;
-  border-radius: 8px;
-  background: rgba(255, 92, 122, 0.15);
-  color: var(--danger);
+  padding: 4px 9px;
+  border-radius: 10px;
   font-size: 11px;
   font-weight: 800;
 }
 
 .phrase-card-word {
   color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 700;
-  margin-top: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  margin-top: 12px;
   text-transform: capitalize;
   line-height: 1.2;
 }
 
+.phrase-card-stars {
+  margin-top: 6px;
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+
+.phrase-card-stars .star {
+  filter: grayscale(1) opacity(0.35);
+}
+
+.phrase-card-stars .star.filled {
+  filter: none;
+}
+
+.phrase-card-bar-track {
+  margin-top: 8px;
+  height: 8px;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+
+.phrase-card-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
 .phrase-card-spacer {
-  height: 14px;
+  height: 12px;
 }
 
 .phrase-card-last {
@@ -407,6 +491,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.phrase-card-progress {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 6px;
 }
 
 .people-row {
@@ -457,9 +548,19 @@
   align-items: flex-start;
 }
 
+.phrase-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.phrase-detail-emoji {
+  font-size: 30px;
+}
+
 .phrase-detail-word {
   color: var(--text-primary);
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 800;
   text-transform: capitalize;
 }

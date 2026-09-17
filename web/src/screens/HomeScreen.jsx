@@ -10,29 +10,8 @@ import "./HomeScreen.css";
 const MAX_RECORDING_MS = 6000;
 const CONNECTION_REFRESH_MS = 20000;
 
-// Modo "vigilancia" (cámara de seguridad) -- un solo tap arranca, y la
-// cámara graba segmentos cortos encadenados uno tras otro sola, mandando
-// cada uno a predecir en segundo plano, hasta que se apaga con otro tap.
-const VIGILANCE_SEGMENT_MS = 5000; // duración de cada segmento
-// La GPU procesa UNA predicción a la vez (ver semáforo en server/main.py) y
-// puede tardar bastante más que un segmento -- si dejáramos encolar todos
-// los segmentos sin límite, la cola crecería sin parar y las alertas
-// llegarían cada vez más tarde respecto al momento real. Por eso, pasado
-// este tope de predicciones pendientes, se DESCARTAN segmentos nuevos en
-// vez de acumularlos -- es vigilancia en vivo, no un archivo para revisar
-// después. En 1: mientras una predicción sigue en curso (adentro del
-// modelo), cualquier segmento nuevo se descarta directo -- nunca hay una
-// segunda esperando en fila para el modelo, solo se vuelve a grabar/mandar
-// recién cuando la anterior termina de verdad.
-const MAX_QUEUED_PREDICTIONS = 1;
-
-// Pausa entre que termina una predicción y arranca a grabar el siguiente
-// segmento -- le da un respiro a la GPU en vez de mandarle pedidos pegados
-// uno atrás de otro sin parar (ver nota larga en finishVigilanceSegment).
-const VIGILANCE_COOLDOWN_MS = 2000;
-
 // Overlay de puntos EN VIVO -- solo visual, no afecta la predicción real
-// (que corre en el servidor con HRNet). Mismo modelo y esquema de puntos
+// (que corre en el servidor con FAN). Mismo modelo y esquema de puntos
 // que usaba PREVIEW_LIP_INDICES en home_screen.dart / probar_modelo.py
 // (malla de 468 puntos de MediaPipe FaceMesh, 40 de ellos son labios).
 const MEDIAPIPE_MODEL_URL =
@@ -59,8 +38,8 @@ function pickMimeType() {
   return "";
 }
 
-/// Pestaña "Grabar" -- cámara en tiempo real + predicción, igual que
-/// home_screen.dart (HomeScreen).
+/// Pestaña "Practicar" -- cámara en tiempo real + evaluación de
+/// pronunciación por palabra.
 export default function HomeScreen() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -68,37 +47,30 @@ export default function HomeScreen() {
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const autoStopTimerRef = useRef(null);
-  const vigilanceCooldownTimerRef = useRef(null);
-  const nextCaptureId = useRef(0);
+  const nextAttemptId = useRef(0);
   const pendingTimersRef = useRef([]);
   const landmarkerRef = useRef(null);
   const rafRef = useRef(null);
   const frameCountRef = useRef(0);
-  // Espejos en ref de processingCount/vigilanceMode -- se leen de forma
-  // síncrona dentro del loop de segmentos (finishVigilanceSegment), donde
-  // un closure sobre el state de React podría quedar desactualizado.
   const processingCountRef = useRef(0);
-  const vigilanceModeRef = useRef(false);
   // Cadena de promesas que garantiza que las predicciones se manden al
   // servidor de a una, nunca en paralelo (ver runPrediction más abajo).
   const predictQueueRef = useRef(Promise.resolve());
 
   const [cameraError, setCameraError] = useState(null);
   const [recording, setRecording] = useState(false);
-  const [vigilanceMode, setVigilanceMode] = useState(false);
   // Cantidad de predicciones corriendo en segundo plano -- a diferencia de un
   // booleano "predicting", esto permite que el usuario grabe la siguiente
-  // toma sin esperar a que el servidor termine de analizar la anterior (así
-  // no se traba la app mientras varias personas hablan seguido).
+  // toma sin esperar a que el servidor termine de analizar la anterior.
   const [processingCount, setProcessingCount] = useState(0);
   const [serverUrl, setServerUrlState] = useState(getServerUrl());
   const [connState, setConnState] = useState("unknown"); // unknown | ok | fail
   const [lastResult, setLastResult] = useState(null);
   const [lastError, setLastError] = useState(null);
   const [retryingPredict, setRetryingPredict] = useState(false);
-  const [captures, setCaptures] = useState([]);
+  const [attempts, setAttempts] = useState([]);
   const [fadingOutIds, setFadingOutIds] = useState(new Set());
-  const [discardedCount, setDiscardedCount] = useState(0);
+  const [unclearCount, setUnclearCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
 
   const refreshConnection = useCallback(async (url) => {
@@ -189,7 +161,7 @@ export default function HomeScreen() {
         let color = "rgba(255,0,0,0.5)";
         if (PREVIEW_LIP_INDICES.has(i)) {
           radius = 2.5;
-          color = "#35C9C1";
+          color = "#2ECC8F";
         } else if (PREVIEW_EYE_CORNERS.has(i)) {
           radius = 3.5;
           color = "#FFD84D";
@@ -222,33 +194,30 @@ export default function HomeScreen() {
     return () => {
       pendingTimersRef.current.forEach(clearTimeout);
       if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
-      if (vigilanceCooldownTimerRef.current) clearTimeout(vigilanceCooldownTimerRef.current);
     };
   }, []);
 
-  // isRiesgo viene DIRECTO del servidor (result.es_frase_de_riesgo) -- ahí
-  // es donde se decide de verdad (softmax + margen + distancia al centroide
-  // de la clase, ver server/main.py), no acá. Si no es riesgo, ni siquiera
-  // mostramos la palabra que el modelo creyó reconocer -- el modelo SIEMPRE
-  // tiene que elegir alguna de las 20 clases entrenadas aunque no sea
-  // ninguna de verdad, así que mostrar esa palabra "adivinada" para algo
-  // que en realidad no dijiste confunde más de lo que ayuda. Se descarta
-  // directo, sin tarjeta ni fade.
-  function registerCapture(word, prob, captureFile, isRiesgo) {
-    if (!isRiesgo) {
-      setDiscardedCount((n) => n + 1);
+  // "correcta" viene DIRECTO del servidor (result.correcta: true/false/null)
+  // -- ahí es donde se decide de verdad (softmax + margen, ver
+  // server/main.py), no acá. null significa "no hubo confianza suficiente"
+  // (MIN_CONFIDENCE_PROB/MARGIN) -- en ese caso no se registra como intento
+  // real, solo se suma al contador de "no reconocidas", porque mostrar una
+  // palabra "adivinada" con baja confianza confunde más de lo que ayuda.
+  function registerAttempt(palabra, prob, captureFile, className, correcta) {
+    if (correcta === null || correcta === undefined) {
+      setUnclearCount((n) => n + 1);
       return;
     }
-    const id = nextCaptureId.current++;
+    const id = nextAttemptId.current++;
     // Foto real del momento (frame del clip guardado) -- si el servidor no
     // pudo guardarla, photoUrl queda null y el panel cae al ícono genérico.
-    const photoUrl = captureFile ? thumbnailUrl(serverUrl, word, captureFile) : null;
-    const entry = { id, word, prob, isRisk: true, time: new Date(), photoUrl };
-    setCaptures((prev) => [entry, ...prev]);
+    const photoUrl = captureFile ? thumbnailUrl(serverUrl, className, captureFile) : null;
+    const entry = { id, palabra, prob, correcta, time: new Date(), photoUrl };
+    setAttempts((prev) => [entry, ...prev]);
   }
 
-  function dismissCapture(id) {
-    setCaptures((prev) => prev.filter((c) => c.id !== id));
+  function dismissAttempt(id) {
+    setAttempts((prev) => prev.filter((c) => c.id !== id));
     setFadingOutIds((prev) => {
       const next = new Set(prev);
       next.delete(id);
@@ -256,8 +225,8 @@ export default function HomeScreen() {
     });
   }
 
-  function clearCaptures() {
-    setCaptures([]);
+  function clearAttempts() {
+    setAttempts([]);
     setFadingOutIds(new Set());
   }
 
@@ -287,8 +256,8 @@ export default function HomeScreen() {
           setLastResult(result);
           setLastError(null);
           setConnState("ok");
-          if (result.valid && result.word) {
-            registerCapture(result.word, result.prob ?? 0, result.capture_file, !!result.es_frase_de_riesgo);
+          if (result.valid && result.palabra) {
+            registerAttempt(result.palabra, result.prob ?? 0, result.capture_file, result.class_name, result.correcta);
           }
         } catch (e) {
           setRetryingPredict(false);
@@ -306,10 +275,6 @@ export default function HomeScreen() {
         }
       };
 
-      // Devuelve la promesa para que el modo vigilancia pueda esperar a que
-      // ESTA predicción puntual termine antes de grabar el siguiente
-      // segmento (ver finishVigilanceSegment) -- la grabación manual la
-      // ignora, sigue siendo "fire and forget" como antes.
       const jobPromise = predictQueueRef.current.then(run);
       predictQueueRef.current = jobPromise;
       return jobPromise;
@@ -379,126 +344,6 @@ export default function HomeScreen() {
     }
   }
 
-  // --- Modo vigilancia: segmentos encadenados sin volver a tocar nada ---
-
-  // Ref hacia la última versión de finishVigilanceSegment -- así
-  // startVigilanceSegment puede quedar memoizado para siempre (deps [], no
-  // depende de nada reactivo) sin arrastrar un closure viejo si serverUrl
-  // cambia (ej. el usuario edita la URL del servidor en Configuración
-  // mientras la vigilancia está prendida).
-  const finishVigilanceSegmentRef = useRef(() => {});
-
-  const startVigilanceSegment = useCallback(() => {
-    const stream = streamRef.current;
-    if (!stream || !vigilanceModeRef.current) return;
-
-    try {
-      const mimeType = pickMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      chunksRef.current = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorderRef.current = recorder;
-      recorder.start();
-      setRecording(true);
-
-      autoStopTimerRef.current = setTimeout(
-        () => finishVigilanceSegmentRef.current(),
-        VIGILANCE_SEGMENT_MS
-      );
-    } catch (e) {
-      setLastError(`No se pudo grabar el segmento: ${e.message || e}`);
-      vigilanceModeRef.current = false;
-      setVigilanceMode(false);
-    }
-  }, []);
-
-  const finishVigilanceSegment = useCallback(async () => {
-    const recorder = recorderRef.current;
-    if (!recorder || recorder.state === "inactive") return;
-
-    const stopped = new Promise((resolve) => {
-      recorder.onstop = resolve;
-    });
-    recorder.stop();
-    await stopped;
-    setRecording(false);
-
-    const mimeType = recorder.mimeType || "video/webm";
-    const blob = new Blob(chunksRef.current, { type: mimeType });
-    const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-
-    // Si el servidor ya tiene demasiadas predicciones pendientes, este
-    // segmento se descarta en vez de sumarse a una cola que crecería sin
-    // parar -- vigilancia en vivo, no un archivo para revisar después.
-    if (processingCountRef.current < MAX_QUEUED_PREDICTIONS) {
-      const jobPromise = runPrediction(blob, `segment.${ext}`);
-      // OJO: acá NO se encadena el siguiente segmento de una -- se espera a
-      // que ESTA predicción termine + una pausa corta (VIGILANCE_COOLDOWN_MS)
-      // antes de volver a grabar. Mandar predicciones pegadas una atrás de
-      // otra sin ninguna pausa es justo lo que parece disparar el cuelgue de
-      // driver visto en uso intenso -- con probar_modelo.py nunca pasa
-      // porque ahí SIEMPRE hay una pausa natural (grabás vos a mano). Esto
-      // sacrifica cobertura continua (hay un hueco corto sin grabar) a
-      // cambio de no freír la GPU.
-      jobPromise.finally(() => {
-        if (vigilanceModeRef.current) {
-          vigilanceCooldownTimerRef.current = setTimeout(() => {
-            vigilanceCooldownTimerRef.current = null;
-            startVigilanceSegment();
-          }, VIGILANCE_COOLDOWN_MS);
-        }
-      });
-      return;
-    }
-
-    // Se descartó el segmento (cola llena) -- no hay ninguna predicción en
-    // curso que esperar, así que se puede volver a grabar ya mismo.
-    if (vigilanceModeRef.current) {
-      startVigilanceSegment();
-    }
-  }, [runPrediction, startVigilanceSegment]);
-
-  useEffect(() => {
-    finishVigilanceSegmentRef.current = finishVigilanceSegment;
-  }, [finishVigilanceSegment]);
-
-  function toggleVigilance() {
-    if (vigilanceMode) {
-      vigilanceModeRef.current = false;
-      setVigilanceMode(false);
-      if (autoStopTimerRef.current) {
-        clearTimeout(autoStopTimerRef.current);
-        autoStopTimerRef.current = null;
-      }
-      // Este es el timer que faltaba cancelar -- la pausa entre que termina
-      // una predicción y arranca a grabar el siguiente segmento (ver
-      // finishVigilanceSegment). Sin esto, apagar vigilancia justo durante
-      // esa pausa no cortaba nada de verdad: 2s después igual arrancaba a
-      // grabar un segmento nuevo solo.
-      if (vigilanceCooldownTimerRef.current) {
-        clearTimeout(vigilanceCooldownTimerRef.current);
-        vigilanceCooldownTimerRef.current = null;
-      }
-      const recorder = recorderRef.current;
-      if (recorder && recorder.state !== "inactive") {
-        // Se apaga sin mandar el segmento a medio grabar -- descarta y listo.
-        recorder.onstop = null;
-        recorder.stop();
-      }
-      setRecording(false);
-    } else {
-      setLastResult(null);
-      setLastError(null);
-      vigilanceModeRef.current = true;
-      setVigilanceMode(true);
-      startVigilanceSegment();
-    }
-  }
-
   function handleSaveSettings(url) {
     const trimmed = url.trim();
     if (trimmed) {
@@ -514,30 +359,17 @@ export default function HomeScreen() {
   const connClass = { ok: "conn-ok", fail: "conn-fail", unknown: "conn-unknown" }[connState];
 
   return (
-    <div className="home-screen">
-      <div className="camera-area">
-        {cameraError ? (
-          <div className="center-message">{cameraError}</div>
-        ) : (
-          <>
-            <video ref={videoRef} className="camera-preview" autoPlay playsInline muted />
-            <canvas ref={canvasRef} className="camera-overlay" />
-          </>
-        )}
-
-        <div className="top-bar">
-          <button className={`conn-chip ${connClass}`} onClick={() => refreshConnection()}>
-            <span className="conn-dot" />
-            {connLabel}
-          </button>
-          <div className="top-bar-actions">
-            <button
-              className={`vigilance-toggle ${vigilanceMode ? "active" : ""}`}
-              onClick={toggleVigilance}
-              disabled={recording && !vigilanceMode}
-              title="Modo vigilancia: graba y predice sola en segmentos, sin volver a tocar nada"
-            >
-              👁 {vigilanceMode ? "Vigilando" : "Vigilancia"}
+    <div className="practice-screen">
+      <div className="practice-main">
+        <div className="practice-header">
+          <div className="brand">
+            <span className="brand-mascot">🗣️</span>
+            <span>SpeakShadow</span>
+          </div>
+          <div className="header-actions">
+            <button className={`conn-chip ${connClass}`} onClick={() => refreshConnection()}>
+              <span className="conn-dot" />
+              {connLabel}
             </button>
             <button className="icon-button" onClick={() => setShowSettings(true)} title="Configuración servidor">
               ⚙
@@ -545,44 +377,54 @@ export default function HomeScreen() {
           </div>
         </div>
 
-        <div className="status-area">
-          {retryingPredict && (
-            <div className="card">⏳ El servidor se colgó, esperando a que vuelva para reintentar solo...</div>
-          )}
-          {!retryingPredict && lastError && <div className="card error-card">⚠ {lastError}</div>}
-          {!retryingPredict && lastResult && <ResultCard result={lastResult} />}
-        </div>
+        <div className="practice-stage">
+          <div className={`camera-frame ${recording ? "is-recording" : ""}`}>
+            {cameraError ? (
+              <div className="center-message">{cameraError}</div>
+            ) : (
+              <>
+                <video ref={videoRef} className="camera-preview" autoPlay playsInline muted />
+                <canvas ref={canvasRef} className="camera-overlay" />
+              </>
+            )}
+          </div>
 
-        <div className="record-control">
-          <div className="record-hint">
-            {vigilanceMode
-              ? `👁 Vigilando -- segmento cada ${VIGILANCE_SEGMENT_MS / 1000}s (tocá para apagar)`
+          <div className="stage-hint">
+            {retryingPredict
+              ? "⏳ El servidor se colgó, esperando a que vuelva para reintentar solo..."
+              : lastError
+              ? `⚠ ${lastError}`
               : recording
               ? "Grabando... tocá para terminar"
               : processingCount > 0
-              ? `Tocá para grabar (analizando ${processingCount} en 2do plano...)`
-              : "Tocá para grabar"}
+              ? `Analizando ${processingCount} intento(s)...`
+              : "Decí la palabra y tocá el botón para grabar"}
           </div>
+
           <div className="record-button-wrap">
             <button
-              className={`record-button ${recording || vigilanceMode ? "recording" : ""}`}
-              onClick={vigilanceMode ? toggleVigilance : toggleRecording}
+              className={`record-button ${recording ? "recording" : ""}`}
+              onClick={toggleRecording}
               disabled={!!cameraError}
             >
-              <span className={recording || vigilanceMode ? "square" : "circle"} />
+              <span className={recording ? "square" : "circle"} />
             </button>
             {processingCount > 0 && <span className="processing-badge">{processingCount}</span>}
           </div>
         </div>
       </div>
 
-      <CapturesPanel
-        captures={captures}
+      <PracticeHistoryPanel
+        attempts={attempts}
         fadingOutIds={fadingOutIds}
-        discardedCount={discardedCount}
-        onDismiss={dismissCapture}
-        onClear={captures.length ? clearCaptures : null}
+        unclearCount={unclearCount}
+        onDismiss={dismissAttempt}
+        onClear={attempts.length ? clearAttempts : null}
       />
+
+      {!retryingPredict && lastResult && (
+        <ResultOverlay result={lastResult} onClose={() => setLastResult(null)} />
+      )}
 
       {showSettings && (
         <SettingsDialog
@@ -595,53 +437,85 @@ export default function HomeScreen() {
   );
 }
 
-function ResultCard({ result }) {
+/// Tarjeta grande centrada con el resultado del intento -- se tapa sola
+/// apenas arranca la próxima grabación (ver startRecording), o el chico
+/// puede tocar afuera para cerrarla antes.
+function ResultOverlay({ result, onClose }) {
   if (!result.valid) {
-    return <div className="card error-card">⚠ {result.reason || "Toma no válida, repetí."}</div>;
-  }
-  // La decisión de riesgo es del servidor (softmax + margen + distancia al
-  // centroide de la clase) -- no se recalcula acá. Si no es riesgo, no se
-  // muestra la palabra "adivinada": el modelo siempre elige una de las 20
-  // clases aunque no hayas dicho ninguna, así que mostrarla como si fuera
-  // un resultado real confunde más de lo que ayuda.
-  if (!result.es_frase_de_riesgo) {
     return (
-      <div className="card result-card">
-        <div className="result-badge no-risk">Palabra desconocida -- descartada</div>
+      <div className="result-overlay" onClick={onClose}>
+        <div className="result-overlay-card" onClick={(e) => e.stopPropagation()}>
+          <div className="result-overlay-emoji">🤔</div>
+          <div className="result-overlay-message">{result.reason || "Toma no válida, repetí."}</div>
+          <button className="result-overlay-button neutral" onClick={onClose}>
+            Entendido
+          </button>
+        </div>
       </div>
     );
   }
-  const pct = ((result.prob ?? 0) * 100).toFixed(1);
+
+  const palabra = (result.palabra || "?").replaceAll("_", " ");
+
+  // La decisión (bien/mal dicha) es del servidor (softmax + margen sobre
+  // clases "<palabra>_correcto"/"<palabra>_incorrecto", ver server/main.py)
+  // -- no se recalcula acá.
+  if (!result.confianza_suficiente) {
+    return (
+      <div className="result-overlay" onClick={onClose}>
+        <div className="result-overlay-card" onClick={(e) => e.stopPropagation()}>
+          <div className="result-overlay-emoji">👂</div>
+          <div className="result-overlay-message">No pude escucharla bien -- ¡repetí la toma!</div>
+          <button className="result-overlay-button neutral" onClick={onClose}>
+            Dale, de nuevo
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const pct = ((result.prob ?? 0) * 100).toFixed(0);
   return (
-    <div className="card result-card">
-      <div className="result-word">{(result.word || "?").replaceAll("_", " ")}</div>
-      <div className="result-badge risk">Frase de riesgo -- {pct}%</div>
+    <div className="result-overlay" onClick={onClose}>
+      <div className={`result-overlay-card ${result.correcta ? "success" : "retry"}`} onClick={(e) => e.stopPropagation()}>
+        <div className="result-overlay-emoji">{result.correcta ? "🎉" : "🔁"}</div>
+        <div className="result-overlay-word">{palabra}</div>
+        {result.correcta ? (
+          <div className="result-overlay-message">¡Muy bien dicho! -- {pct}% de seguridad</div>
+        ) : (
+          <div className="result-overlay-message">Casi... practiquemos de nuevo -- {pct}%</div>
+        )}
+        <button className={`result-overlay-button ${result.correcta ? "success" : "retry"}`} onClick={onClose}>
+          {result.correcta ? "¡Genial! 🌟" : "Intentar de nuevo"}
+        </button>
+      </div>
     </div>
   );
 }
 
-/// Foto real de la captura (frame del clip guardado en el servidor) -- cae
-/// al ícono genérico si no hay foto (frase no guardada) o si falla la carga.
-function CaptureAvatar({ photoUrl }) {
+/// Foto real del intento (frame del clip guardado en el servidor) -- cae
+/// al ícono genérico si no hay foto o si falla la carga.
+function AttemptAvatar({ photoUrl }) {
   const [failed, setFailed] = useState(false);
   if (!photoUrl || failed) {
-    return <div className="capture-avatar">👤</div>;
+    return <div className="capture-avatar">🗣</div>;
   }
   return (
     <div className="capture-avatar capture-avatar-photo">
-      <img src={photoUrl} alt="Foto de la persona" onError={() => setFailed(true)} />
+      <img src={photoUrl} alt="Foto del intento" onError={() => setFailed(true)} />
     </div>
   );
 }
 
-function CapturesPanel({ captures, fadingOutIds, discardedCount, onDismiss, onClear }) {
-  const riskCount = captures.filter((c) => c.isRisk).length;
+function PracticeHistoryPanel({ attempts, fadingOutIds, unclearCount, onDismiss, onClear }) {
+  const correctCount = attempts.filter((c) => c.correcta).length;
+  const incorrectCount = attempts.filter((c) => !c.correcta).length;
   return (
     <div className="captures-panel">
       <div className="captures-header">
         <div className="captures-title">
-          <div className="captures-title-text">Personas capturadas</div>
-          <div className="captures-subtitle">{captures.length} en esta sesión</div>
+          <div className="captures-title-text">⭐ Racha de hoy</div>
+          <div className="captures-subtitle">{attempts.length} intentos en esta sesión</div>
         </div>
         {onClear && (
           <button className="icon-button" onClick={onClear} title="Limpiar sesión">
@@ -650,43 +524,41 @@ function CapturesPanel({ captures, fadingOutIds, discardedCount, onDismiss, onCl
         )}
       </div>
       <div className="captures-note">
-        Cada detección es independiente: todavía no reconoce si dos capturas son la misma persona.
+        Cada intento se evalúa por separado -- practicá las veces que quieras.
       </div>
       <div className="mini-stats">
-        <div className="mini-stat risk">⚠ {riskCount} De riesgo</div>
-        <div className="mini-stat muted">⏱ {discardedCount} Descartadas</div>
+        <div className="mini-stat correct">✅ {correctCount} Bien dichas</div>
+        <div className="mini-stat risk">🔁 {incorrectCount} Para practicar</div>
+        <div className="mini-stat muted">❔ {unclearCount} No reconocidas</div>
       </div>
       <div className="captures-list">
-        {captures.length === 0 ? (
+        {attempts.length === 0 ? (
           <div className="captures-empty">
-            Todavía no se detectó a nadie.
+            Todavía no practicaste ninguna palabra.
             <br />
-            Cuando alguien hable, va a aparecer acá.
+            Grabate diciendo una y va a aparecer acá.
           </div>
         ) : (
-          captures.map((entry) => (
+          attempts.map((entry) => (
             <div
               key={entry.id}
-              className={`capture-card ${entry.isRisk ? "risk" : ""} ${fadingOutIds.has(entry.id) ? "fading" : ""}`}
+              className={`capture-card ${entry.correcta ? "" : "risk"} ${fadingOutIds.has(entry.id) ? "fading" : ""}`}
             >
-              <CaptureAvatar photoUrl={entry.photoUrl} />
+              <AttemptAvatar photoUrl={entry.photoUrl} />
               <div className="capture-info">
                 <div className="capture-row">
-                  <span className="capture-word">{entry.word.replaceAll("_", " ")}</span>
+                  <span className="capture-word">{entry.palabra.replaceAll("_", " ")}</span>
                   <button className="dismiss-button" onClick={() => onDismiss(entry.id)}>
                     ✕
                   </button>
-                </div>
-                <div className="capture-sub">
-                  {entry.photoUrl ? "Foto real de este momento" : "Persona no identificada"}
                 </div>
                 <div className="capture-sub">
                   {entry.time.getHours().toString().padStart(2, "0")}:
                   {entry.time.getMinutes().toString().padStart(2, "0")} ·{" "}
                   {(entry.prob * 100).toFixed(0)}%
                 </div>
-                <div className={`capture-tag ${entry.isRisk ? "risk" : ""}`}>
-                  {entry.isRisk ? "Guardado en Capturas" : "Descartando..."}
+                <div className={`capture-tag ${entry.correcta ? "" : "risk"}`}>
+                  {entry.correcta ? "✅ Bien dicha" : "🔁 Para practicar de nuevo"}
                 </div>
               </div>
             </div>

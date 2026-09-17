@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { getRecordings, getServerUrl, thumbnailUrl } from "../api.js";
-import { AppBackground, AppCard, EmptyState, ErrorState, HeroCard, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
+import { mockRecordings } from "../mockData.js";
+import { iconFor } from "../wordIcons.js";
+import { AppBackground, AppCard, EmptyState, HeroCard, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
 import "./Screens.css";
 
@@ -20,29 +22,34 @@ function initialsFor(person) {
   return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase();
 }
 
-/// Historial de sesiones grabadas, agrupadas por fecha -- igual que
-/// captures_screen.dart (CapturesScreen).
+/// Historial de intentos de práctica, agrupados por fecha -- igual que
+/// captures_screen.dart (CapturesScreen), reconvertido a seguimiento de
+/// pronunciación.
 export default function CapturesScreen() {
   const [recordings, setRecordings] = useState(null);
-  const [error, setError] = useState(null);
+  const [usingMock, setUsingMock] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState(null);
   const [dialogRecording, setDialogRecording] = useState(null);
 
   async function load() {
-    setError(null);
     try {
       const serverUrl = getServerUrl();
       const data = await getRecordings(serverUrl);
-      setRecordings(data.recordings || []);
+      const real = data.recordings || [];
+      // Todavía no hay dataset real grabado -- mientras esté vacío, mostramos
+      // datos de EJEMPLO (mockRecordings, claramente marcados como tal en la
+      // UI) para poder ver el diseño completo. Apenas haya práctica real
+      // guardada en el servidor, esto deja de usarse solo.
+      setUsingMock(real.length === 0);
+      setRecordings(real.length > 0 ? real : mockRecordings());
     } catch (e) {
       // Si YA había datos reales cargados, un refresh fallido (ej. el
       // servidor está ocupado con una predicción) NO debe reemplazarlos --
-      // eso hacía que la lista pareciera "cambiar sola". Nunca se cae a
-      // datos inventados: si no hay nada real todavía, se muestra el error.
+      // eso hacía que la lista pareciera "cambiar sola".
       setRecordings((prev) => {
-        if (!prev || prev.length === 0) {
-          setError(e.message || "No se pudo conectar al servidor.");
-          return [];
+        if (!prev || prev.length === 0 || usingMock) {
+          setUsingMock(true);
+          return mockRecordings();
         }
         return prev;
       });
@@ -56,17 +63,8 @@ export default function CapturesScreen() {
   if (recordings === null) {
     return (
       <AppBackground>
-        <ScreenHeader title="Capturas" subtitle="Historial de sesiones grabadas" icon="🗓" />
+        <ScreenHeader title="Mi Diario" subtitle="Tus días de práctica" icon="📔" />
         <div className="screen-loading">Cargando...</div>
-      </AppBackground>
-    );
-  }
-
-  if (error) {
-    return (
-      <AppBackground>
-        <ScreenHeader title="Capturas" subtitle="Historial de sesiones grabadas" icon="🗓" />
-        <ErrorState message={error} onRetry={load} />
       </AppBackground>
     );
   }
@@ -74,8 +72,8 @@ export default function CapturesScreen() {
   if (recordings.length === 0) {
     return (
       <AppBackground>
-        <ScreenHeader title="Capturas" subtitle="Historial de sesiones grabadas" icon="🗓" />
-        <EmptyState icon="🗓✕" message="Todavía no hay grabaciones." />
+        <ScreenHeader title="Mi Diario" subtitle="Tus días de práctica" icon="📔" />
+        <EmptyState icon="🗓✕" message="Todavía no hay intentos de práctica." />
       </AppBackground>
     );
   }
@@ -96,14 +94,17 @@ export default function CapturesScreen() {
 
   return (
     <AppBackground>
-      <ScreenHeader title="Capturas" subtitle="Historial de sesiones grabadas" icon="🗓" onAction={load} />
+      <ScreenHeader title="Mi Diario" subtitle="Tus días de práctica" icon="📔" onAction={load} />
       <div className="screen-scroll">
+        {usingMock && (
+          <div className="mock-banner">📋 Mostrando datos de ejemplo -- todavía no hay práctica real guardada.</div>
+        )}
         <HeroCard>
           <div className="summary-strip">
             <div className="summary-stat">
               <div className="summary-icon">🎥</div>
               <div className="summary-value">{recordings.length}</div>
-              <div className="summary-label">Sesiones</div>
+              <div className="summary-label">Intentos</div>
             </div>
             <div className="summary-divider" />
             <div className="summary-stat">
@@ -142,7 +143,7 @@ export default function CapturesScreen() {
         <SectionLabel>Línea de tiempo</SectionLabel>
         <div className="timeline">
           {dates.length === 0 ? (
-            <EmptyState icon="🔍" message="Esta persona todavía no grabó ninguna frase." />
+            <EmptyState icon="🔍" message="Esta persona todavía no practicó ninguna palabra." />
           ) : (
             dates.map((date, i) => (
               <TimelineDay key={date} date={date} items={grouped[date]} isLast={i === dates.length - 1}
@@ -170,7 +171,7 @@ function TimelineDay({ date, items, isLast, onOpen }) {
         <div className="timeline-date-header">
           <span className="timeline-date">{date}</span>
           <span className="timeline-count">
-            · {items.length} {items.length === 1 ? "frase" : "frases"}
+            · {items.length} {items.length === 1 ? "intento" : "intentos"}
           </span>
         </div>
         <AppCard padded={false}>
@@ -187,17 +188,23 @@ function RecordingTile({ recording, isLast, onOpen }) {
   const color = AVATAR_PALETTE[hashCode(recording.person) % AVATAR_PALETTE.length];
   return (
     <div className={`recording-tile ${isLast ? "" : "with-border"}`}>
-      <div className="recording-avatar" style={{ background: `${color}2e`, color }}>
-        {initialsFor(recording.person)}
+      <div className="recording-avatar recording-avatar-word" style={{ background: `${color}2e` }}>
+        {iconFor(recording.word)}
       </div>
       <div className="recording-info">
         <div className="recording-word">{recording.word.replaceAll("_", " ")}</div>
         <div className="recording-person">
+          <span className="recording-person-avatar" style={{ background: color }}>
+            {initialsFor(recording.person)}
+          </span>
           {recording.person.replaceAll("-", " ")}
           {recording.time && <span className="recording-time"> · {recording.time}</span>}
         </div>
       </div>
-      <button className="recording-camera-btn" style={{ color }} onClick={() => onOpen(recording)} title="Ver captura">
+      <span className={`recording-result-chip ${recording.correcta ? "success" : "retry"}`}>
+        {recording.correcta ? "✅ Bien" : "🔁 De nuevo"}
+      </span>
+      <button className="recording-camera-btn" style={{ color }} onClick={() => onOpen(recording)} title="Ver intento">
         📷
       </button>
     </div>
@@ -213,7 +220,7 @@ function CaptureDialog({ recording, onClose }) {
   const [photoFailed, setPhotoFailed] = useState(false);
   const photoUrl =
     recording.thumbnail_file && !photoFailed
-      ? thumbnailUrl(getServerUrl(), recording.word, recording.thumbnail_file)
+      ? thumbnailUrl(getServerUrl(), recording.class_name, recording.thumbnail_file)
       : null;
 
   return (
@@ -243,7 +250,9 @@ function CaptureDialog({ recording, onClose }) {
           </button>
         </div>
         <div className="capture-dialog-body">
-          <div className="capture-dialog-title">{recording.word.replaceAll("_", " ")}</div>
+          <div className="capture-dialog-title">
+            {recording.word.replaceAll("_", " ")} {recording.correcta ? "✅ Bien dicha" : "🔁 Para practicar"}
+          </div>
           <div className="capture-dialog-row">👤 {displayName}</div>
           <div className="capture-dialog-row">
             📅 {recording.date}

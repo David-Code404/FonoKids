@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { getRecordings, getServerUrl } from "../api.js";
-import { AppCard, AppBackground, EmptyState, ErrorState, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
+import { mockRecordings } from "../mockData.js";
+import { iconFor } from "../wordIcons.js";
+import { AppCard, AppBackground, EmptyState, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
 import "./Screens.css";
 
@@ -9,6 +11,13 @@ const SORT_MODES = [
   { key: "recent", icon: "🕓", label: "Más recientes primero" },
   { key: "alphabetical", icon: "🔤", label: "Alfabético" },
 ];
+
+function starsFor(pct) {
+  if (pct >= 80) return 3;
+  if (pct >= 50) return 2;
+  if (pct > 0) return 1;
+  return 0;
+}
 
 function hashCode(str) {
   let h = 0;
@@ -23,39 +32,44 @@ function aggregate(recordings) {
   }
   return Object.entries(grouped).map(([word, items]) => {
     const sorted = [...items].sort((a, b) => b.date.localeCompare(a.date));
+    const correctCount = items.filter((r) => r.correcta).reduce((sum, r) => sum + r.count, 0);
+    const incorrectCount = items.filter((r) => !r.correcta).reduce((sum, r) => sum + r.count, 0);
     return {
       word,
-      count: sorted.length,
+      count: correctCount + incorrectCount,
+      correctCount,
+      incorrectCount,
       lastDate: sorted[0].date,
       people: [...new Set(sorted.map((r) => r.person))],
     };
   });
 }
 
-/// Frases de riesgo agrupadas (cuántas veces se dijo cada una, quién y
-/// cuándo) -- igual que phrases_screen.dart (PhrasesScreen).
+/// Palabras objetivo agrupadas (progreso de pronunciación por palabra: cuántas
+/// veces se dijo bien/mal, quién y cuándo) -- igual que phrases_screen.dart
+/// (PhrasesScreen), reconvertido a seguimiento de pronunciación.
 export default function PhrasesScreen() {
   const [recordings, setRecordings] = useState(null);
-  const [error, setError] = useState(null);
+  const [usingMock, setUsingMock] = useState(false);
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("mostSaid");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
   const [detail, setDetail] = useState(null);
 
   async function load() {
-    setError(null);
     try {
       const serverUrl = getServerUrl();
       const data = await getRecordings(serverUrl);
-      setRecordings(data.recordings || []);
+      const real = data.recordings || [];
+      // Ver el mismo comentario en CapturesScreen.jsx -- mientras no haya
+      // dataset real, se muestran datos de EJEMPLO marcados como tales.
+      setUsingMock(real.length === 0);
+      setRecordings(real.length > 0 ? real : mockRecordings());
     } catch (e) {
-      // Ver el mismo comentario en CapturesScreen.jsx -- no pisar datos
-      // reales ya cargados en un refresh fallido, y nunca caer a datos
-      // inventados: si no hay nada real todavía, se muestra el error.
       setRecordings((prev) => {
-        if (!prev || prev.length === 0) {
-          setError(e.message || "No se pudo conectar al servidor.");
-          return [];
+        if (!prev || prev.length === 0 || usingMock) {
+          setUsingMock(true);
+          return mockRecordings();
         }
         return prev;
       });
@@ -80,13 +94,13 @@ export default function PhrasesScreen() {
 
   return (
     <AppBackground>
-      <ScreenHeader title="Frases" subtitle="Frases de riesgo detectadas" icon="🗣" />
+      <ScreenHeader title="Logros" subtitle="Tus estrellas por palabra" icon="🏆" />
 
       <div className="phrases-toolbar">
         <div className="search-field">
           <span className="search-icon">🔍</span>
           <input
-            placeholder="Buscar frase..."
+            placeholder="Buscar palabra..."
             onChange={(e) => setQuery(e.target.value.trim().toLowerCase())}
           />
         </div>
@@ -114,13 +128,15 @@ export default function PhrasesScreen() {
       </div>
 
       <div className="screen-scroll">
-        {recordings === null && !error && <div className="screen-loading">Cargando...</div>}
-        {error && <ErrorState message={error} onRetry={load} />}
-        {recordings !== null && !error && aggregate(recordings).length === 0 && (
-          <EmptyState icon="🗣" message="Todavía no se detectó ninguna frase de riesgo." />
+        {usingMock && recordings !== null && (
+          <div className="mock-banner">📋 Mostrando datos de ejemplo -- todavía no hay práctica real guardada.</div>
         )}
-        {recordings !== null && !error && aggregate(recordings).length > 0 && filtered.length === 0 && (
-          <EmptyState icon="🔍✕" message="Ninguna frase coincide con la búsqueda." />
+        {recordings === null && <div className="screen-loading">Cargando...</div>}
+        {recordings !== null && aggregate(recordings).length === 0 && (
+          <EmptyState icon="🗣" message="Todavía no se practicó ninguna palabra." />
+        )}
+        {recordings !== null && aggregate(recordings).length > 0 && filtered.length === 0 && (
+          <EmptyState icon="🔍✕" message="Ninguna palabra coincide con la búsqueda." />
         )}
         {filtered.length > 0 && (
           <div className="phrase-grid">
@@ -142,16 +158,33 @@ export default function PhrasesScreen() {
 }
 
 function PhraseCard({ agg, color, onOpen }) {
+  const pct = agg.count > 0 ? Math.round((100 * agg.correctCount) / agg.count) : 0;
+  const stars = starsFor(pct);
   return (
     <div className="phrase-card" onClick={onOpen}>
       <AppCard>
         <div className="phrase-card-top">
-          <div className="phrase-card-icon" style={{ background: `${color}26`, color }}>
-            🗣
+          <div className="phrase-card-icon" style={{ background: `${color}26` }}>
+            {iconFor(agg.word)}
           </div>
-          <div className="phrase-card-count">{agg.count}x</div>
+          <div className="phrase-card-count" style={{ background: `${color}22`, color }}>
+            {agg.count}x
+          </div>
         </div>
         <div className="phrase-card-word">{agg.word.replaceAll("_", " ")}</div>
+        <div className="phrase-card-stars">
+          {[1, 2, 3].map((n) => (
+            <span key={n} className={n <= stars ? "star filled" : "star"}>
+              ⭐
+            </span>
+          ))}
+        </div>
+        <div className="phrase-card-bar-track">
+          <div className="phrase-card-bar-fill" style={{ width: `${pct}%`, background: color }} />
+        </div>
+        <div className="phrase-card-progress">
+          ✅ {agg.correctCount} · 🔁 {agg.incorrectCount}
+        </div>
         <div className="phrase-card-spacer" />
         <div className="phrase-card-last">🕓 Última vez: {agg.lastDate}</div>
         <PeopleRow people={agg.people} />
@@ -186,13 +219,17 @@ function PhraseDetailDialog({ agg, onClose }) {
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="phrase-detail-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="phrase-detail-header">
-          <div className="phrase-detail-word">{agg.word.replaceAll("_", " ")}</div>
+          <div className="phrase-detail-title">
+            <span className="phrase-detail-emoji">{iconFor(agg.word)}</span>
+            <div className="phrase-detail-word">{agg.word.replaceAll("_", " ")}</div>
+          </div>
           <button className="dismiss-button" onClick={onClose}>
             ✕
           </button>
         </div>
         <div className="phrase-detail-sub">
-          Se dijo {agg.count} {agg.count === 1 ? "vez" : "veces"} -- última el {agg.lastDate}.
+          Practicada {agg.count} {agg.count === 1 ? "vez" : "veces"} -- {agg.correctCount} bien dichas,{" "}
+          {agg.incorrectCount} para seguir practicando -- última el {agg.lastDate}.
         </div>
         <SectionLabel>Personas</SectionLabel>
         <div className="phrase-detail-people">

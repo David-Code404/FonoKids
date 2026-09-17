@@ -1,4 +1,4 @@
-// Piezas compartidas por Capturas/Frases -- equivalentes a AppBackground,
+// Piezas compartidas por Historial/Palabras -- equivalentes a AppBackground,
 // AppCard, HeroCard, ScreenHeader, SectionLabel, ErrorState y EmptyState de
 // app_theme.dart, para que las pantallas compartan el mismo lenguaje visual.
 import "./Shared.css";
