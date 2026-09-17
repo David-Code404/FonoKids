@@ -30,6 +30,13 @@ Ejemplo:
 """
 import sys
 
+# La consola de Windows por defecto usa cp1252, que no tiene la mayoría de
+# los símbolos IPA (ɾ, ʝ, ɲ, etc.) -- sin esto, print() tira
+# UnicodeEncodeError o muestra "?" en vez del fonema real. reconfigure()
+# existe desde Python 3.7.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import numpy as np
 import torch
 import torchaudio
@@ -190,13 +197,30 @@ def texto_a_fonemas(palabra):
 def load_model(device=None):
     import json
     from huggingface_hub import hf_hub_download
-    from transformers import Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
+    from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
 
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Cargando {MODEL_NAME} (primera vez tarda, baja ~1.2GB)...")
 
     feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(MODEL_NAME)
-    model = Wav2Vec2ForCTC.from_pretrained(MODEL_NAME).to(device)
+
+    # OJO: a propósito NO se usa Wav2Vec2ForCTC.from_pretrained(MODEL_NAME)
+    # -- ese checkpoint solo existe en el repo como pytorch_model.bin (sin
+    # versión safetensors), y transformers >=4.5x bloquea directamente
+    # cargar .bin con torch.load si torch < 2.6 (CVE-2025-32434), aunque el
+    # torch instalado (2.5.1, el que usa el resto del proyecto para el
+    # pipeline visual con GPU) SÍ soporta torch.load(weights_only=True) de
+    # forma segura -- es transformers el que lo bloquea igual, no torch. En
+    # vez de forzar una actualización de torch que podría romper la
+    # compatibilidad de CUDA para el modelo visual, se arma el modelo desde
+    # su config y se cargan los pesos a mano, con weights_only=True (evita
+    # ejecutar código arbitrario del pickle, que es el riesgo real del CVE).
+    config = Wav2Vec2Config.from_pretrained(MODEL_NAME)
+    model = Wav2Vec2ForCTC(config)
+    weights_path = hf_hub_download(MODEL_NAME, "pytorch_model.bin")
+    state_dict = torch.load(weights_path, map_location="cpu", weights_only=True)
+    model.load_state_dict(state_dict)
+    model.to(device)
     model.eval()
 
     vocab_path = hf_hub_download(MODEL_NAME, "vocab.json")

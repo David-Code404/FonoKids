@@ -63,11 +63,12 @@ import numpy as np
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # =====================================================================
-# CAMBIÁ ESTA RUTA si querés sacar landmarks de otro dataset (ej. uno que
-# armaste con unir_dataset.py en otra carpeta, o un pendrive). Por defecto
-# apunta al dataset normal de esta PC (data/sesiones_continuas).
+# CAMBIÁ ESTA RUTA si querés sacar landmarks de otro dataset (ej. uno
+# armado a mano en otra carpeta, o un pendrive). Por defecto apunta al
+# dataset normal de esta PC (data/sesiones_continuas) -- el mismo que
+# escribe scripts/grabar_video_continuo.py y lee server/main.py.
 # =====================================================================
-RUTA_CLIPS = os.path.join(BASE_DIR, "prueba")
+RUTA_CLIPS = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 
 # =====================================================================
 # 100% detección verificada en este dataset) o "hrnet" (red tipo FAN/HRNet
