@@ -159,9 +159,9 @@ def build_dataloaders(data_dir=DEFAULT_DATA_DIR, max_frames=60, batch_size=32,
 
     Split ESTRATIFICADO por clase: separa val_ratio de CADA clase por
     separado (no un permutation al azar sobre TODO el dataset) -- con
-    clases de tamaños muy distintos (ej. "no_es_riesgo" con cientos de
-    clips vs una frase de bullying con 200), un split global podía dejar
-    alguna clase chica con pocas o CERO muestras de validación."""
+    clases de tamaños muy distintos (ej. "perro_correcto" con cientos de
+    clips vs "perro_incorrecto_dentalizacion" con 50), un split global podía
+    dejar alguna clase chica con pocas o CERO muestras de validación."""
     reference = LipReadingDataset(data_dir=data_dir, max_frames=max_frames)
     file_paths = reference.file_paths
 
