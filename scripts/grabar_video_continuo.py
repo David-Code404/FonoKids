@@ -9,22 +9,31 @@ Muestra en vivo (con MediaPipe, el mismo detector que usa la extracción real)
 un recuadro sobre la boca detectada + una ventana aparte con el recorte
 agrandado, para que veas el encuadre ANTES de terminar de grabar, no después.
 
+Cada toma graba TAMBIÉN el audio (micrófono por defecto del sistema, 16kHz
+mono -- la frecuencia que espera wav2vec2), guardado como .wav aparte con el
+mismo nombre que el .avi. cv2.VideoWriter no graba audio (no es una
+limitación de este script, es una limitación de OpenCV), por eso el audio se
+graba con `sounddevice` en paralelo, no mezclado en el mismo archivo.
+
 Controles:
-    S -> Empieza a grabar una toma nueva
+    S -> Empieza a grabar una toma nueva (video + audio)
     A -> Detiene y GUARDA esa toma (el programa sigue abierto, listo para la próxima)
     Q -> Sale del programa
 
 Salida:
     sesiones_continuas/<palabra>/clips/<palabra>_0001.avi, 0002.avi, ...
+    sesiones_continuas/<palabra>/clips/<palabra>_0001.wav, 0002.wav, ...
 
 Después corré:
     python extraer_landmarks_npy.py <palabra>
 """
 import os
 import unicodedata
+import wave
 
 import cv2
 import numpy as np
+import sounddevice as sd
 
 from extraer_landmarks_npy import (
     _build_mediapipe_landmarker,
@@ -51,6 +60,29 @@ LIVE_DETECT_EVERY = 2      # correr MediaPipe cada N frames (rendimiento en vivo
 LIVE_PREVIEW_SIZE = 260
 MAIN_WINDOW = "SpeakShadow - Grabar tomas"
 MOUTH_WINDOW = "SpeakShadow - Boca (preview)"
+
+# 16kHz mono -- la frecuencia de muestreo que espera wav2vec2 (y la mayoría
+# de los modelos de voz pre-entrenados). Grabar directo a esta frecuencia
+# evita tener que resamplear después.
+AUDIO_SAMPLE_RATE = 16000
+AUDIO_CHANNELS = 1
+AUDIO_DTYPE = "int16"  # 2 bytes por muestra -- coincide con sampwidth=2 al guardar el .wav
+
+
+def save_wav(path, audio_chunks, sample_rate=AUDIO_SAMPLE_RATE, channels=AUDIO_CHANNELS):
+    """audio_chunks: lista de arrays (frames, channels) int16, tal como los
+    entrega el callback de sounddevice. Si está vacía (ej. no había
+    micrófono disponible), no escribe nada -- el .avi de video se guarda
+    igual, solo falta el audio de esa toma."""
+    if not audio_chunks:
+        return False
+    audio_data = np.concatenate(audio_chunks, axis=0)
+    with wave.open(path, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(audio_data.tobytes())
+    return True
 
 
 def ask_word():
@@ -160,6 +192,33 @@ def main():
     print("Cargando MediaPipe Face Landmarker (para el preview en vivo)...")
     landmarker = build_landmarker()
 
+    # El micrófono se abre UNA sola vez al arrancar (no cada toma) -- abrir
+    # y cerrar un InputStream por toma es lo que suele disparar clics/pops
+    # al principio de la grabación en Windows. audio_state["on"] es lo que
+    # realmente prende/apaga la captura -- el callback corre siempre en su
+    # propio hilo, pero solo junta frames mientras audio_state["on"] es True.
+    audio_state = {"on": False}
+    audio_chunks = []
+
+    def audio_callback(indata, frames, time_info, status):
+        if status:
+            print(f"[AVISO] audio: {status}")
+        if audio_state["on"]:
+            audio_chunks.append(indata.copy())
+
+    try:
+        audio_stream = sd.InputStream(
+            samplerate=AUDIO_SAMPLE_RATE, channels=AUDIO_CHANNELS,
+            dtype=AUDIO_DTYPE, callback=audio_callback,
+        )
+        audio_stream.start()
+        print(f"Micrófono abierto ({AUDIO_SAMPLE_RATE}Hz mono).")
+    except Exception as e:
+        # Sin micrófono disponible, seguimos grabando solo video -- mejor
+        # perder el audio de esta sesión que no poder grabar nada.
+        print(f"[AVISO] No se pudo abrir el micrófono ({e}) -- se graba SOLO video, sin audio.")
+        audio_stream = None
+
     fourcc = cv2.VideoWriter_fourcc(*"XVID")
     writer = None
     recording = False
@@ -206,28 +265,37 @@ def main():
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord('s') and not recording:
-                out_path = os.path.join(clips_dir, f"{word}_{n_saved + 1:04d}.avi")
+                base_name = f"{word}_{n_saved + 1:04d}"
+                out_path = os.path.join(clips_dir, f"{base_name}.avi")
+                audio_out_path = os.path.join(clips_dir, f"{base_name}.wav")
                 writer = cv2.VideoWriter(out_path, fourcc, FPS, real_frame_size)
                 if not writer.isOpened():
                     print(f"[ERROR] No se pudo crear el archivo de video en {out_path} "
                           "-- revisá que la carpeta exista y tengas permisos de escritura.")
                     writer = None
                     continue
+                audio_chunks.clear()
+                audio_state["on"] = audio_stream is not None
                 recording = True
                 print(f"-> Grabando toma #{n_saved + 1}...")
 
             elif key == ord('a') and recording:
                 recording = False
+                audio_state["on"] = False
                 if writer is not None:
                     writer.release()
                     writer = None
+                if save_wav(audio_out_path, audio_chunks):
+                    audio_chunks.clear()
                 n_saved += 1
                 print(f"-> Guardada toma #{n_saved}. Apretá S para grabar otra.")
 
             elif key == ord('q'):
                 if recording and writer is not None:
+                    audio_state["on"] = False
                     writer.release()
                     writer = None
+                    save_wav(audio_out_path, audio_chunks)
                     n_saved += 1
                     print(f"-> Toma en curso guardada como #{n_saved} antes de salir.")
                 break
@@ -236,15 +304,20 @@ def main():
         # curso se cierra bien -- si no, el .avi queda sin el header/index
         # final y no se puede leer después (esto era el bug real).
         if writer is not None:
+            audio_state["on"] = False
             writer.release()
+            save_wav(audio_out_path, audio_chunks)
             n_saved += 1
             print(f"-> Toma en curso guardada como #{n_saved} antes de cerrar.")
+        if audio_stream is not None:
+            audio_stream.stop()
+            audio_stream.close()
         landmarker.close()
         cap.release()
         cv2.destroyAllWindows()
 
     print(f"\nListo. Total de tomas de '{word}': {n_saved}")
-    print(f"Guardadas en: {clips_dir}")
+    print(f"Guardadas en: {clips_dir} (.avi con video, .wav con audio 16kHz mono)")
     print(f"Ahora corré: python extraer_landmarks_npy.py {word}")
 
 
