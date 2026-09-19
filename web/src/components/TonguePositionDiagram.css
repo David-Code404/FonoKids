@@ -1,0 +1,114 @@
+.tongue-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.tongue-diagram-svg {
+  width: 100%;
+  aspect-ratio: 200 / 140;
+  background: radial-gradient(circle, #fff8ec 0%, #ffe8c4 100%);
+  border: 6px solid var(--surface);
+  border-radius: 24px;
+  box-shadow: 0 0 0 4px var(--accent3), 0 16px 32px rgba(255, 184, 77, 0.25);
+}
+
+.td-cavity {
+  fill: #ffe0c2;
+  stroke: #b5556b;
+  stroke-width: 3;
+}
+
+.td-palate {
+  fill: none;
+  stroke: #b5556b;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.td-uvula {
+  fill: none;
+  stroke: #b5556b;
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.td-teeth {
+  fill: #ffffff;
+  stroke: #d8c9b8;
+  stroke-width: 1.5;
+}
+
+.td-lip {
+  fill: none;
+  stroke: #d17a8a;
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+
+.td-contact-point {
+  fill: var(--accent2);
+  opacity: 0.85;
+  animation: td-pulse 1.4s ease-in-out infinite;
+}
+
+.td-tongue {
+  fill: #ff8fa3;
+  stroke: #d1556e;
+  stroke-width: 2.5;
+  transform-box: fill-box;
+  transform-origin: 90% 50%;
+}
+
+@keyframes td-pulse {
+  0%, 100% { r: 5; opacity: 0.6; }
+  50% { r: 8; opacity: 1; }
+}
+
+/* Vibrante (r) -- toque rápido, como un tamborcito, con pausa entre toques. */
+.tongue-vibrante {
+  animation: td-tap 1.3s ease-in-out infinite;
+}
+@keyframes td-tap {
+  0%, 55%, 100% { transform: translate(0, 0); }
+  65% { transform: translate(-2px, -24px); }
+  75% { transform: translate(0, 0); }
+}
+
+/* Lateral (l) -- sube y se queda pegada un rato (el error: no suelta). */
+.tongue-lateral {
+  animation: td-hold 2.6s ease-in-out infinite;
+}
+@keyframes td-hold {
+  0%, 15% { transform: translate(0, 0); }
+  35%, 75% { transform: translate(-2px, -26px); }
+  95%, 100% { transform: translate(0, 0); }
+}
+
+/* Dental (d/t) -- toca más adelante, en los dientes, no en el paladar. */
+.tongue-dental {
+  animation: td-dental 2.2s ease-in-out infinite;
+}
+@keyframes td-dental {
+  0%, 20% { transform: translate(0, 0); }
+  45%, 70% { transform: translate(-10px, -17px); }
+  95%, 100% { transform: translate(0, 0); }
+}
+
+.tongue-diagram-label {
+  font-weight: 800;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.tongue-diagram-tip {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.4;
+}

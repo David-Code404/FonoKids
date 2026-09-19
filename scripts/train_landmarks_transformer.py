@@ -49,7 +49,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # =====================================================================
 RUTA_DATASET = os.path.join(BASE_DIR, "data", "landmarks_npy")
 
-MODEL_PATH = os.path.join(BASE_DIR, "models", "mejor_modelo_landmarks_conformer.pth")
+MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")
 
 SEED = 42
 torch.manual_seed(SEED)

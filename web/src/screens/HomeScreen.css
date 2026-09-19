@@ -96,8 +96,14 @@
 
 .camera-frame {
   position: relative;
-  width: min(420px, 88vw);
-  aspect-ratio: 3 / 4;
+  /* clamp con vw -- crece con el ancho de ventana en pantallas grandes en
+     vez de quedar chico rodeado de espacio en blanco. */
+  width: clamp(280px, 52vw, 680px);
+  flex: 0 0 auto;
+  /* 4:3 en vez de 3:4 -- el recuadro angosto (tipo selfie) recortaba
+     demasiado de los costados y dejaba muy poco margen para encuadrar bien
+     la cara completa; 4:3 (más ancho que alto) da mucho más aire. */
+  aspect-ratio: 4 / 3;
   max-height: 100%;
   border-radius: 32px;
   overflow: hidden;
@@ -152,6 +158,111 @@
   font-size: 14.5px;
   min-height: 20px;
   max-width: 420px;
+}
+
+.word-picker {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: min(420px, 90vw);
+  padding: 2px 2px 4px;
+}
+
+.word-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.word-chip.selected {
+  background: var(--hero-gradient);
+  border-color: transparent;
+  color: #fff;
+}
+
+.word-chip:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.word-chip-icon {
+  font-size: 16px;
+}
+
+.target-word-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.target-word-banner-word {
+  color: var(--text-primary);
+  font-weight: 800;
+  font-size: 18px;
+  text-transform: capitalize;
+}
+
+.live-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 5px 11px;
+  border-radius: 14px;
+  background: rgba(255, 107, 107, 0.9);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  animation: live-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+.stage-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.live-toggle-button {
+  padding: 10px 16px;
+  border-radius: 16px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.live-toggle-button.active {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.live-toggle-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .record-button-wrap {

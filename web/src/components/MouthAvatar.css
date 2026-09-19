@@ -1,0 +1,18 @@
+.mouth-avatar {
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffe8c4 0%, #ffd9a8 100%);
+  box-shadow: 0 6px 18px rgba(140, 107, 255, 0.2);
+}
+
+.mouth-avatar-outer {
+  fill: #e08a8a;
+  stroke: #b5556b;
+  stroke-width: 3;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.mouth-avatar-inner {
+  fill: #6b2f3a;
+  stroke: none;
+}
