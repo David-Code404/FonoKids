@@ -51,6 +51,17 @@ TARGET_SAMPLE_RATE = 16000
 # grabaciones reales de sobra para ver la distribución típica de scores.
 GOP_SUSPICIOUS_THRESHOLD = -3.0
 
+# forced_align OBLIGA al audio a encajar contra los fonemas esperados, pase
+# lo que pase -- si decís "pedo" cuando la palabra era "perro", igual arma
+# una alineación (mala, pero alineación), así que el GOP por sí solo no
+# siempre detecta que dijiste OTRA palabra. Por eso se compara además el
+# reconocimiento LIBRE (sin forzar nada) contra lo esperado, con distancia
+# de edición normalizada -- por encima de este umbral, se considera que no
+# dijo la palabra pedida, más allá de cómo haya salido el GOP fonema por
+# fonema. 0.5 = hasta la mitad de los fonemas pueden diferir antes de
+# marcarlo (tolera errores de pronunciación reales, no exige match exacto).
+PALABRA_MISMATCH_THRESHOLD = 0.5
+
 
 # =====================================================================
 # Texto -> fonemas (reglas de español, sin depender de espeak-ng)
@@ -242,6 +253,33 @@ def load_audio_16k(wav_path):
     return waveform.squeeze(0)
 
 
+# Dimensión del embedding que devuelve extract_embedding() -- depende del
+# modelo (wav2vec2-xlsr-53 grande = 1024). La usan train_audio_classifier.py
+# (para armar la capa de entrada) y server/main.py (para validar que el
+# checkpoint guardado coincide con el modelo cargado en runtime).
+EMBEDDING_DIM = 1024
+
+
+def extract_embedding(wav_path, model, feature_extractor, device):
+    """Vector fijo (EMBEDDING_DIM,) que resume el AUDIO completo del clip --
+    a diferencia de score_pronunciation() (que da un puntaje por fonema
+    esperado), esto es lo que usa el clasificador entrenado con datos reales
+    (train_audio_classifier.py) para decidir directamente "correcto" vs
+    cada tipo de error, igual que el modelo visual hace con landmarks.
+
+    Es el promedio en el tiempo del último estado oculto del encoder wav2vec2
+    (antes de la cabeza CTC de fonemas) -- una representación acústica
+    general del clip, no atada a ninguna palabra esperada."""
+    waveform = load_audio_16k(wav_path)
+    inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors="pt")
+    with torch.inference_mode():
+        # model.wav2vec2 es el encoder base (sin la cabeza de fonemas) --
+        # Wav2Vec2ForCTC lo expone como submódulo con ese nombre.
+        hidden = model.wav2vec2(inputs.input_values.to(device)).last_hidden_state  # (1, T, 1024)
+        pooled = hidden.mean(dim=1).squeeze(0)  # (1024,)
+    return pooled.cpu().numpy()
+
+
 def _phoneme_to_token_ids(fonemas, vocab):
     """Mapea cada símbolo IPA de texto_a_fonemas() a su id en el vocabulario
     del modelo. Si algún fonema no está en el vocabulario (no debería pasar
@@ -261,15 +299,47 @@ def _phoneme_to_token_ids(fonemas, vocab):
 def _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id):
     """Decodificación CTC libre (sin forzar ninguna palabra) -- colapsa
     repeticiones consecutivas y saca el blank, igual que hace
-    processor.batch_decode() normalmente. Solo para mostrar en el reporte
-    qué "escuchó" el modelo de verdad, no se usa para el score."""
+    processor.batch_decode() normalmente. Devuelve la lista de símbolos
+    (no un string) porque además de mostrarse en el reporte, se usa para
+    comparar contra los fonemas esperados (ver _distancia_edicion)."""
     fonemas = []
     anterior = None
     for tid in pred_ids:
         if tid != anterior and tid != blank_id:
             fonemas.append(id_to_phoneme.get(tid, "?"))
         anterior = tid
-    return " ".join(fonemas)
+    return fonemas
+
+
+# Inverso aproximado de texto_a_fonemas() -- para mostrarle al chico/padre
+# QUÉ sonó, no solo "está mal". No es una transcripción fonética seria (evo
+# ese título no hace falta acá), es nada más un texto legible parecido a como
+# se escribiría en español lo que el modelo reconoció libremente.
+_FONEMA_A_LETRA = {"r": "rr", "ɾ": "r", "x": "j", "ɡ": "g", "tʃ": "ch", "ʝ": "ll", "ɲ": "ñ"}
+
+
+def fonemas_a_texto_aproximado(fonemas):
+    """['p','e','l','o'] -> 'pelo'. Solo para mostrar, no para comparar."""
+    return "".join(_FONEMA_A_LETRA.get(f, f) for f in fonemas)
+
+
+def _distancia_edicion(a, b):
+    """Distancia de Levenshtein entre dos listas de símbolos -- cuántas
+    inserciones/borrados/sustituciones hacen falta para convertir `a` en
+    `b`. Programación dinámica clásica, O(len(a)*len(b))."""
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        dp[i][0] = i
+    for j in range(m + 1):
+        dp[0][j] = j
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if a[i - 1] == b[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
+            else:
+                dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+    return dp[n][m]
 
 
 def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, device):
@@ -342,11 +412,18 @@ def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, devi
         if s is not None and s < GOP_SUSPICIOUS_THRESHOLD
     ]
 
+    distancia = _distancia_edicion(fonemas_usados, reconocido_libre)
+    normalizada = distancia / max(len(fonemas_usados), len(reconocido_libre), 1)
+    palabra_reconocida = normalizada <= PALABRA_MISMATCH_THRESHOLD
+
     return {
         "fonemas": fonemas_usados,
         "scores": scores_por_fonema,
         "sospechosos": sospechosos,
-        "reconocido_libre": reconocido_libre,
+        "reconocido_libre": " ".join(reconocido_libre),
+        "sonido_reconocido": fonemas_a_texto_aproximado(reconocido_libre),
+        "distancia_normalizada": normalizada,
+        "palabra_reconocida": palabra_reconocida,
     }
 
 
@@ -364,6 +441,10 @@ def print_report(palabra, resultado):
         print(f"\n-> Posible error de pronunciación en: {', '.join(letras)}")
     else:
         print("\n-> Todos los fonemas dentro de lo esperado.")
+    if not resultado["palabra_reconocida"]:
+        print(f"-> OJO: lo reconocido libremente se parece poco a '{palabra}' "
+              f"(distancia normalizada {resultado['distancia_normalizada']:.2f}) -- "
+              "probablemente dijo otra palabra.")
 
 
 if __name__ == "__main__":

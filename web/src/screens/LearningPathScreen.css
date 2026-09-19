@@ -1,0 +1,281 @@
+.path-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--background, #fff8ec);
+  overflow-y: auto;
+}
+
+.path-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 16px 22px;
+  background: var(--surface);
+  border-bottom: 2px solid var(--border);
+  flex-shrink: 0;
+}
+
+.path-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+/* Indicador de progreso -- lo más cercano a un "puntaje" que se puede
+   mostrar sin inventar un sistema de puntos que todavía no existe: cuántas
+   etapas ya tienen datos entrenados (desbloqueadas) sobre el total. */
+.path-progress-pill {
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--hero-gradient);
+  padding: 8px 16px;
+  border-radius: 16px;
+  white-space: nowrap;
+}
+
+/* Mascota (el emoji de boca hablando) con un rebote suave constante --
+   pedido explícito de que la app se sienta "con vida" para los chicos. */
+.path-mascot {
+  display: inline-block;
+  animation: mascot-bounce 1.8s ease-in-out infinite;
+}
+
+@keyframes mascot-bounce {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-4px) rotate(-6deg); }
+}
+
+/* Etapas (nivel 1) -- tarjetas rectangulares, apiladas. Los PASOS dentro de
+   una etapa (nivel 2) son los que van en círculos (.path-node más abajo). */
+.etapa-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 32px 28px 90px;
+  max-width: 820px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.etapa-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 28px 32px;
+  border-radius: 26px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 10px 20px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  opacity: 0;
+  animation: etapa-card-in 0.4s ease forwards;
+}
+
+/* Rebote al tocar/pasar el mouse -- "más vida" para que se sienta juguetona,
+   no una lista plana de opciones. */
+.etapa-card:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 9px 0 rgba(0, 0, 0, 0.14), 0 14px 24px rgba(0, 0, 0, 0.14);
+}
+
+@keyframes etapa-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.etapa-card:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* Vida/color: cada tarjeta rota entre los 4 colores de la paleta en vez de
+   quedar todas blancas -- pedido explícito ("dale más vida"). */
+.etapa-color-0 { background: linear-gradient(135deg, #efe9ff, #d9ccff); }
+.etapa-color-1 { background: linear-gradient(135deg, #e3fbf1, #c3f3dd); }
+.etapa-color-2 { background: linear-gradient(135deg, #fff2df, #ffe0ad); }
+.etapa-color-3 { background: linear-gradient(135deg, #ffe9e9, #ffc9c9); }
+
+.etapa-card-tag {
+  font-size: 13px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--accent);
+  padding: 6px 14px;
+  border-radius: 14px;
+  white-space: nowrap;
+}
+
+.etapa-color-0 .etapa-card-tag { background: var(--accent); }
+.etapa-color-1 .etapa-card-tag { background: var(--accent2); }
+.etapa-color-2 .etapa-card-tag { background: var(--accent3); }
+.etapa-color-3 .etapa-card-tag { background: var(--danger); }
+
+.etapa-card-word {
+  flex: 1;
+  text-align: left;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-primary);
+  text-transform: capitalize;
+}
+
+/* Ícono bien grande -- un chico que todavía no lee fluido reconoce el
+   dibujo antes que la palabra, así que el dibujo tiene que ganar. */
+.etapa-card-icon {
+  display: inline-block;
+  font-size: 44px;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+
+.etapa-card:hover .etapa-card-icon {
+  animation: icon-wiggle 0.5s ease;
+}
+
+@keyframes icon-wiggle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(-8deg) scale(1.1); }
+  75% { transform: rotate(8deg) scale(1.1); }
+}
+
+.etapa-card-action {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* Pasos dentro de una etapa -- tarjetas apiladas (igual que .etapa-card),
+   reemplaza el zigzag de nodos redondos: con la barra lateral más ancha
+   los nodos quedaban perdidos en medio de mucho espacio vacío. */
+.paso-list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 32px 28px 90px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.paso-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 28px;
+  border-radius: 24px;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 10px 20px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.paso-card:hover {
+  transform: translateY(-3px) scale(1.01);
+  box-shadow: 0 9px 0 rgba(0, 0, 0, 0.14), 0 14px 24px rgba(0, 0, 0, 0.14);
+}
+
+.paso-card:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+/* Reusa los mismos 4 colores por paso que ya existían. */
+.step-0 { background: var(--accent3, #ffb84d); }
+.step-1 { background: var(--danger, #ff6b6b); }
+.step-2 { background: var(--accent, #8c6bff); }
+.step-3 { background: var(--accent2, #2ecc8f); }
+
+.paso-card-badge {
+  flex-shrink: 0;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.paso-card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.paso-card-hint {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.paso-card-desc {
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0.92;
+}
+
+.paso-card-arrow {
+  font-size: 22px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.repeat-stage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: center;
+}
+
+.repeat-word {
+  font-size: clamp(48px, 10vw, 96px);
+  font-weight: 900;
+  color: var(--accent);
+  letter-spacing: 2px;
+}
+
+.repeat-hint {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.repeat-note {
+  max-width: 340px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.path-cta {
+  margin-top: 16px;
+  padding: 14px 28px;
+  border-radius: 20px;
+  border: none;
+  background: var(--hero-gradient, linear-gradient(135deg, #8c6bff, #2ecc8f));
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.15), 0 8px 16px rgba(0, 0, 0, 0.18);
+}
+
+.path-cta:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.18);
+}

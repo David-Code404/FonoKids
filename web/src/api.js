@@ -56,6 +56,55 @@ export async function checkHealth(baseUrl) {
   }
 }
 
+/// Igual que checkHealth pero devuelve el cuerpo entero (incluye "classes",
+/// la lista de clases que reconoce el modelo cargado) en vez de solo
+/// true/false -- lo usa el selector de palabra objetivo en Practicar.
+/// null si el server no responde (mismo criterio que checkHealth).
+export async function getHealth(baseUrl) {
+  try {
+    const res = await withTimeout(
+      (signal) => fetch(`${normalize(baseUrl)}/health`, { signal }),
+      5000,
+      "timeout"
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/// Secuencia real de puntos de labios (20 puntos x,y por frame) de un clip
+/// "<palabra>_correcto" -- para animar la boquita de referencia. Null si
+/// todavía no hay ningún clip correcto grabado de esa palabra.
+export async function getReferenceLandmarks(baseUrl, palabra) {
+  try {
+    const res = await withTimeout(
+      (signal) => fetch(`${normalize(baseUrl)}/reference/${encodeURIComponent(palabra)}`, { signal }),
+      20000,
+      "timeout"
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+/// De la lista de clases del modelo ("perro_correcto", "perro_incorrecto_
+/// lambdacismo", ...) saca las palabras objetivo ÚNICAS ("perro", ...),
+/// mismo criterio que _parse_clase_predicha() en server/main.py -- corta
+/// en "_correcto" o en "_incorrecto" (lo que aparezca primero).
+export function wordsFromClasses(classNames) {
+  if (!Array.isArray(classNames)) return [];
+  const words = new Set();
+  for (const c of classNames) {
+    const idx = c.endsWith("_correcto") ? c.length - "_correcto".length : c.indexOf("_incorrecto");
+    words.add(idx > 0 ? c.slice(0, idx) : c);
+  }
+  return [...words].sort();
+}
+
 // 20s en vez de 5s -- estas consultas son livianas (listar archivos), pero
 // comparten servidor con /predict: si justo hay una predicción corriendo,
 // pueden demorar un poco más de lo normal en contestar. Con solo 5s
@@ -100,10 +149,15 @@ async function waitForServerBack(baseUrl, maxWaitMs = 60000) {
   return false;
 }
 
-async function predictOnce(baseUrl, videoBlob, filename) {
+async function predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra) {
   const uri = `${normalize(baseUrl)}/predict`;
   const form = new FormData();
   form.append("file", videoBlob, filename);
+  // Audio y palabra son OPCIONALES -- si no hay micrófono (o el navegador
+  // lo bloqueó), el servidor sigue funcionando solo con el video, igual que
+  // antes de agregar el análisis de sonido.
+  if (audioBlob) form.append("audio", audioBlob, "clip.wav");
+  if (palabra) form.append("palabra", palabra);
 
   let response;
   try {
@@ -155,9 +209,11 @@ async function predictOnce(baseUrl, videoBlob, filename) {
 // que el servidor vuelva a responder /health y reintentamos el MISMO clip
 // una sola vez automáticamente -- en la mayoría de los casos ya funciona
 // en el segundo intento, sin que el usuario tenga que hacer nada.
-export async function predict(baseUrl, videoBlob, filename = "clip.webm", onRetrying = null) {
+export async function predict(
+  baseUrl, videoBlob, filename = "clip.webm", onRetrying = null, audioBlob = null, palabra = null
+) {
   try {
-    return await predictOnce(baseUrl, videoBlob, filename);
+    return await predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra);
   } catch (e) {
     if (e.status !== 504) throw e;
 
@@ -168,6 +224,6 @@ export async function predict(baseUrl, videoBlob, filename = "clip.webm", onRetr
         "El servidor se colgó y todavía no volvió a responder -- probá de nuevo en un ratito."
       );
     }
-    return await predictOnce(baseUrl, videoBlob, filename);
+    return await predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra);
   }
 }

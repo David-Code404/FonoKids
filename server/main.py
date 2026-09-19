@@ -1,7 +1,7 @@
 """
 server/main.py
 ---------------
-API HTTP de SpeakShadow para práctica de pronunciación infantil. Recibe un
+API HTTP de FonoKids para práctica de pronunciación infantil. Recibe un
 video corto (grabado desde el navegador, un chico diciendo una palabra
 objetivo), corre EXACTAMENTE el mismo pipeline que scripts/probar_modelo.py
 (FAN -> landmarks de labios -> TCN + Conformer) y devuelve si la pronunció
@@ -24,6 +24,7 @@ Uso:
 import math
 import os
 import shutil
+import sys
 import tempfile
 import time
 from collections import defaultdict
@@ -33,11 +34,28 @@ import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# audio_pronunciation.py vive en scripts/, no es un paquete instalado --
+# scripts/ no está en sys.path por default cuando este archivo se corre
+# como "python server/main.py" desde la raíz del proyecto.
+SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
+from audio_pronunciation import (  # noqa: E402
+    EMBEDDING_DIM,
+    extract_embedding,
+    load_model as load_audio_model,
+    score_pronunciation,
+)
+
+from train_audio_classifier import AudioClassifierHead  # noqa: E402
+
+AUDIO_CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "audio_classifier.pth")
 
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")  # igual que probar_modelo.py
@@ -452,7 +470,7 @@ def safe_torch_load(path):
         return torch.load(path, weights_only=False)
 
 
-app = FastAPI(title="SpeakShadow API")
+app = FastAPI(title="FonoKids API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -462,7 +480,17 @@ app.add_middleware(
 
 # Estado global: modelo y landmarker se cargan UNA sola vez al arrancar,
 # no en cada request (cargar el modelo por request sería lentísimo).
-_state = {"model": None, "landmarker": None, "class_names": None, "max_frames": None}
+_state = {
+    "model": None, "landmarker": None, "class_names": None, "max_frames": None,
+    "audio_model": None, "audio_feature_extractor": None, "audio_vocab": None,
+    # Clasificador de audio ENTRENADO con clips reales (ver
+    # train_audio_classifier.py) -- distinto del audio_model de wav2vec2 de
+    # arriba (que es genérico, sin entrenar, usado para el GOP fonema por
+    # fonema). Este predice directamente la clase (correcto/incorrecto_*)
+    # a partir del embedding del clip, igual que el modelo visual hace con
+    # landmarks. None si todavía no se entrenó ninguno.
+    "audio_clf": None, "audio_clf_classes": None, "audio_clf_mean": None, "audio_clf_std": None,
+}
 
 # =====================================================================
 # TODO el trabajo de GPU (carga del modelo, precalentamiento, y CADA
@@ -531,6 +559,45 @@ async def load_everything():
 
     _state.update(model=model, landmarker=landmarker, class_names=class_names, max_frames=max_frames)
     print(f"Listo. Device: {DEVICE}. Clases ({len(class_names)}): {class_names}")
+
+    # Modelo de audio (fonemas, wav2vec2) -- opcional: si falla la carga (ej.
+    # sin internet la primera vez, que baja ~1.2GB), el server sigue
+    # funcionando solo con el veredicto visual, sin tirar todo abajo.
+    try:
+        print("Cargando modelo de audio (wav2vec2, puede tardar la primera vez)...")
+        audio_model, audio_fe, audio_vocab, _ = load_audio_model(device=DEVICE)
+        _state.update(audio_model=audio_model, audio_feature_extractor=audio_fe, audio_vocab=audio_vocab)
+        print("Modelo de audio listo.")
+    except Exception as e:
+        print(f"[AVISO] No se pudo cargar el modelo de audio ({e}) -- "
+              "el veredicto va a usar solo el video, sin análisis de sonido.")
+
+    # Clasificador de audio entrenado con clips reales -- opcional (puede no
+    # existir todavía si nadie corrió train_audio_classifier.py). Sin esto,
+    # el análisis de audio sigue funcionando con el GOP genérico de arriba,
+    # solo que sin el refuerzo directo entrenado con tus datos.
+    if os.path.exists(AUDIO_CLASSIFIER_PATH):
+        try:
+            ckpt = safe_torch_load(AUDIO_CLASSIFIER_PATH)
+            clf = AudioClassifierHead(
+                ckpt["embedding_dim"], ckpt["hidden_dim"], len(ckpt["class_names"]), dropout=0.0,
+            ).to(DEVICE)
+            clf.load_state_dict(ckpt["state_dict"])
+            clf.eval()
+            _state.update(
+                audio_clf=clf,
+                audio_clf_classes=ckpt["class_names"],
+                audio_clf_mean=ckpt["mean"],
+                audio_clf_std=ckpt["std"],
+            )
+            print(f"Clasificador de audio entrenado cargado ({len(ckpt['class_names'])} clases, "
+                  f"val_acc guardado: {ckpt.get('val_acc', '?')}).")
+        except Exception as e:
+            print(f"[AVISO] No se pudo cargar el clasificador de audio entrenado ({e}) -- "
+                  "sigo solo con el GOP genérico.")
+    else:
+        print(f"[AVISO] No hay clasificador de audio entrenado todavía ({AUDIO_CLASSIFIER_PATH} "
+              "no existe) -- corré train_audio_classifier.py cuando tengas datos suficientes.")
 
 
 @app.on_event("shutdown")
@@ -718,6 +785,100 @@ def dataset_thumbnail(word: str, filename: str):
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
 
+# Cachea la secuencia de puntos ya calculada por palabra -- correrla de
+# nuevo en cada GET sería carísimo (FAN por HRNet) para algo que no cambia
+# a menos que se agreguen clips nuevos de esa palabra. Se invalida sola si
+# el nombre del archivo elegido cambia (ver _pick_reference_clip).
+_reference_cache = {}
+
+
+def _pick_reference_clip(palabra):
+    """Elige un clip de "<palabra>_correcto/clips/" para usar de modelo a
+    imitar -- el MÁS LARGO de los que haya (más frames = más margen para
+    que la extracción encuentre uno bien encuadrado), no simplemente el
+    primero por orden alfabético."""
+    clips_dir = os.path.join(SESSIONS_DIR, f"{palabra}_correcto", "clips")
+    if not os.path.isdir(clips_dir):
+        return None
+    candidatos = [f for f in os.listdir(clips_dir) if f.lower().endswith(VIDEO_EXTENSIONS)]
+    if not candidatos:
+        return None
+
+    def _n_frames(filename):
+        cap = cv2.VideoCapture(os.path.join(clips_dir, filename))
+        n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        cap.release()
+        return n
+
+    mejor = max(candidatos, key=_n_frames)
+    return os.path.join(clips_dir, mejor), mejor
+
+
+@app.get("/reference/{palabra}")
+def reference_landmarks(palabra: str):
+    """Secuencia de posición de los 20 puntos de labios (SIN velocidad ni
+    aceleración -- acá solo hace falta la forma, no la dinámica derivada)
+    de un clip real de "<palabra>_correcto", para animar una "boquita" de
+    referencia en la app y que el chico tenga algo real que imitar antes de
+    grabar. Corre el detector DIRECTO sobre el clip (no depende de
+    data/landmarks_npy/, que es una carpeta de trabajo transitoria que
+    puede no estar generada, o desactualizada)."""
+    if _state["landmarker"] is None:
+        raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo.")
+
+    safe_palabra = os.path.basename(palabra)
+    elegido = _pick_reference_clip(safe_palabra)
+    if elegido is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay clips grabados en {safe_palabra}_correcto/clips/ todavía.",
+        )
+    clip_path, filename = elegido
+
+    cached = _reference_cache.get(safe_palabra)
+    if cached is not None and cached["filename"] == filename:
+        return cached["response"]
+
+    cap = cv2.VideoCapture(clip_path)
+    if not cap.isOpened():
+        cap.release()
+        raise HTTPException(status_code=422, detail="No se pudo leer el clip de referencia.")
+    frames = []
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        h, w = frame.shape[:2]
+        if w > MAX_FRAME_WIDTH:
+            scale = MAX_FRAME_WIDTH / w
+            frame = cv2.resize(frame, (MAX_FRAME_WIDTH, round(h * scale)), interpolation=cv2.INTER_AREA)
+        frames.append(frame)
+    cap.release()
+
+    landmarks_por_frame = detect_landmarks_batch(_state["landmarker"], frames)
+    positions = []
+    last_valid_vector = None
+    for landmarks_px in landmarks_por_frame:
+        vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
+        if vector is not None and is_outlier(vector, last_valid_vector):
+            vector = None
+        if vector is not None:
+            last_valid_vector = vector
+        positions.append(vector)
+
+    filled = fill_missing_frames(positions)
+    if filled is None:
+        raise HTTPException(status_code=422, detail="No se detectó ninguna cara en el clip de referencia.")
+    smoothed = smooth_positions(filled)
+
+    # (T, 40) -> lista de frames, cada uno lista de 20 pares [x, y] --
+    # formato directo para dibujar en el canvas del cliente sin reprocesar.
+    frames_out = [smoothed[t].reshape(20, 2).tolist() for t in range(smoothed.shape[0])]
+    response = {"palabra": safe_palabra, "frames": frames_out}
+    _reference_cache[safe_palabra] = {"filename": filename, "response": response}
+    return response
+
+
 def _save_practice_clip(class_name, tmp_path, suffix):
     """Guarda una copia del clip grabado desde la app web (pestaña
     "Practicar") -- queda registrado en el historial de práctica (GET
@@ -753,7 +914,69 @@ def _save_practice_clip(class_name, tmp_path, suffix):
 PREDICT_HARD_TIMEOUT_S = 90
 
 
-def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, max_frames):
+def _score_audio_pronunciation(audio_path, palabra):
+    """Envoltorio fino sobre audio_pronunciation.score_pronunciation() --
+    nunca tira: si el audio no se pudo leer/puntuar, devuelve None y el
+    veredicto final cae solo en el video (ver _run_prediction_pipeline)."""
+    if audio_path is None or not palabra:
+        return None
+    if _state["audio_model"] is None:
+        return None
+    try:
+        return score_pronunciation(
+            audio_path, palabra,
+            _state["audio_model"], _state["audio_feature_extractor"], _state["audio_vocab"], DEVICE,
+        )
+    except Exception as e:
+        print(f"[AVISO] Falló el análisis de audio ({e}) -- sigo solo con video.")
+        return None
+
+
+def _classify_audio(audio_path, palabra):
+    """Clasificador de audio ENTRENADO con clips reales (ver
+    train_audio_classifier.py) -- a diferencia del GOP de arriba (que fuerza
+    el audio contra la palabra esperada pase lo que pase), esto predice
+    directamente entre las clases que existan para esa palabra
+    ("<palabra>_correcto", "<palabra>_incorrecto_*"), así que SÍ puede
+    reconocer que el audio no se parece a nada de lo esperado.
+
+    Devuelve {"clase_predicha", "prob", "es_correcto"} o None si no hay
+    clasificador entrenado, o si esa palabra no tiene clases entrenadas
+    todavía (el clasificador solo conoce las palabras con clips grabados)."""
+    clf = _state["audio_clf"]
+    if clf is None or audio_path is None or not palabra:
+        return None
+    class_names = _state["audio_clf_classes"]
+    # Solo tiene sentido clasificar si HAY clases de esta palabra entre las
+    # que el clasificador aprendió -- si pedís "perro" pero solo entrenaste
+    # con "carro", no hay nada que comparar.
+    clases_de_la_palabra = [c for c in class_names if c.startswith(f"{palabra}_")]
+    if not clases_de_la_palabra:
+        return None
+    try:
+        emb = extract_embedding(audio_path, _state["audio_model"], _state["audio_feature_extractor"], DEVICE)
+        emb_norm = (emb - _state["audio_clf_mean"]) / _state["audio_clf_std"]
+        # mean/std se guardaron con shape (1, 1024) (ver train_audio_
+        # classifier.py) -- emb_norm ya sale (1, 1024) por el broadcasting,
+        # así que reshape en vez de unsqueeze (que agregaba una dimensión de
+        # más y rompía el softmax/indexado de abajo).
+        x = torch.from_numpy(emb_norm.reshape(1, -1)).float().to(DEVICE)
+        with torch.no_grad():
+            probs = torch.softmax(clf(x), dim=1)[0]
+        idx = int(torch.argmax(probs).item())
+        clase_predicha = class_names[idx]
+        return {
+            "clase_predicha": clase_predicha,
+            "prob": float(probs[idx].item()),
+            "es_correcto": clase_predicha == f"{palabra}_correcto",
+        }
+    except Exception as e:
+        print(f"[AVISO] Falló el clasificador de audio entrenado ({e}) -- sigo solo con el GOP.")
+        return None
+
+
+def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, max_frames,
+                              audio_path=None, palabra_esperada=None):
     """Todo el trabajo pesado (lectura de frames, HRNet, Conformer) -- código
     100% sincrónico y bloqueante a propósito, para correrlo en el hilo
     dedicado de GPU (ver _gpu_worker_loop) y no congelar el event loop de
@@ -853,10 +1076,73 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     if confianza_suficiente:
         capture_file = _save_practice_clip(clase_predicha, tmp_path, suffix)
 
+    # Análisis de AUDIO (sonido, no video) -- ver audio_pronunciation.py. Se
+    # compara contra la palabra que el chico tenía que decir (la que eligió
+    # en la app), no la que "cree" el modelo visual, para que sea una
+    # segunda señal independiente de verdad, no un eco de la primera.
+    audio_resultado = _score_audio_pronunciation(audio_path, palabra_esperada or palabra)
+    # "palabra_reconocida" (comparación contra el reconocimiento LIBRE, sin
+    # forzar nada) hace falta ADEMÁS de "sospechosos" (que sale de forced_align,
+    # que siempre encaja el audio contra la palabra esperada pase lo que
+    # pase) -- confirmado con un caso real: dijo "pedo" en vez de "perro" y
+    # forced_align igual armó una alineación sin marcar fonemas sospechosos.
+    audio_ok = (
+        audio_resultado is not None
+        and len(audio_resultado["sospechosos"]) == 0
+        and audio_resultado["palabra_reconocida"]
+    )
+
+    # Clasificador de audio ENTRENADO con tus clips reales -- señal más
+    # fuerte que el GOP (que solo fuerza fonema por fonema): aprendió
+    # directo de ejemplos reales de cada clase. Si existe (ver
+    # train_audio_classifier.py), pesa más que el GOP en la decisión final.
+    audio_clf_resultado = _classify_audio(audio_path, palabra_esperada or palabra)
+    print(f"[predict] audio GOP {'OK' if audio_resultado is None else ('bien' if audio_ok else 'sospechoso')} | "
+          f"clasificador {'sin entrenar' if audio_clf_resultado is None else audio_clf_resultado['clase_predicha']} "
+          f"({time.time() - t_start:.1f}s total)")
+
+    # Veredicto ÚNICO combinado (labios + sonido), pedido explícitamente así
+    # -- un chico no tiene que interpretar varios números separados. El
+    # audio solo puede DEGRADAR un "bien" visual a "a practicar" (si el
+    # sonido no acompaña), nunca al revés -- si el video ya dice que está
+    # mal, no hace falta el audio para confirmarlo.
+    #
+    # OJO: el chequeo de "palabra_reconocida" (GOP, más abajo) se evalúa
+    # SIEMPRE, no solo cuando no hay clasificador entrenado -- caso real
+    # confirmado: dijo "pelo" en vez de "perro", y como el clasificador
+    # entrenado NUNCA vio "pelo" en sus datos (solo conoce
+    # perro_correcto/dentalización/lambdacismo/omisión), lo metió en la
+    # clase más parecida (perro_correcto) en vez de reconocer que es una
+    # palabra totalmente distinta. El clasificador entrenado es fuerte para
+    # detectar los errores QUE CONOCE, pero no para detectar "esto no es
+    # ninguna de mis clases" -- para eso está el reconocimiento libre (sin
+    # forzar la palabra esperada) del GOP, que si nunca coincide con "perro"
+    # lo cacha sin depender de haber entrenado esa palabra específica antes.
+    if not confianza_suficiente:
+        veredicto_final = "no_concluyente"
+    elif not pronunciacion_correcta:
+        veredicto_final = "a_practicar"
+    elif audio_resultado is not None and not audio_ok:
+        veredicto_final = "a_practicar"
+    elif audio_clf_resultado is not None and not audio_clf_resultado["es_correcto"]:
+        veredicto_final = "a_practicar"
+    else:
+        veredicto_final = "bien"
+
     return {
         "valid": True,
         "palabra": palabra,
         "correcta": pronunciacion_correcta if confianza_suficiente else None,
+        "veredicto_final": veredicto_final,
+        "audio": {
+            "fonemas": audio_resultado["fonemas"],
+            "scores": audio_resultado["scores"],
+            "sospechosos": audio_resultado["sospechosos"],
+            "reconocido_libre": audio_resultado["reconocido_libre"],
+            "sonido_reconocido": audio_resultado["sonido_reconocido"],
+            "palabra_reconocida": audio_resultado["palabra_reconocida"],
+        } if audio_resultado is not None else None,
+        "audio_clasificador": audio_clf_resultado,
         # Subtipo de error (ej. "lambdacismo") si la clase lo trae y la
         # confianza alcanza -- None si fue correcta, si no hay confianza
         # suficiente, o si el checkpoint no distingue subtipos para esa
@@ -878,7 +1164,11 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(
+    file: UploadFile = File(...),
+    audio: UploadFile = File(None),
+    palabra: str = Form(None),
+):
     if _state["model"] is None:
         raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo.")
 
@@ -892,18 +1182,35 @@ async def predict(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
 
+    # El audio es OPCIONAL a propósito (compatibilidad con clientes viejos
+    # que todavía no lo mandan, y para no romper /predict si el navegador
+    # del chico no tiene micrófono).
+    audio_path = None
+    if audio is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+            shutil.copyfileobj(audio.file, tmp_audio)
+            audio_path = tmp_audio.name
+
     try:
         # Llamada DIRECTA y bloqueante, en el mismo hilo que el event loop
         # (el principal) -- ver el comentario grande sobre esto más arriba.
         # Si esto se cuelga, ya no hay timeout interno que lo detecte (el
         # propio hilo que lo controlaría queda bloqueado) -- lo detecta y
         # mata el proceso el vigilante EXTERNO (ver server/watchdog.sh).
-        return _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, max_frames)
+        return _run_prediction_pipeline(
+            tmp_path, suffix, landmarker, model, class_names, max_frames,
+            audio_path=audio_path, palabra_esperada=palabra,
+        )
     finally:
         try:
             os.remove(tmp_path)
         except OSError:
             pass
+        if audio_path is not None:
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

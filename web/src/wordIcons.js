@@ -23,6 +23,11 @@ export const WORD_ICONS = {
   lapiz: "✏️",
   tenedor: "🍴",
   pelota: "⚽",
+  tren: "🚂",
+  fresa: "🍓",
+  rueda: "🛞",
+  sombrero: "🎩",
+  bicicleta: "🚲",
 };
 
 export const ICON_FALLBACK = "🗣";

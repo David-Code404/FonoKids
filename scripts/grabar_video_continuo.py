@@ -39,6 +39,8 @@ from extraer_landmarks_npy import (
     _build_mediapipe_landmarker,
     _detect_mediapipe,
     LIP_INDICES,
+    RIGHT_EYE_OUTER,
+    LEFT_EYE_OUTER,
     choose_camera,
     open_camera,
 )
@@ -58,8 +60,8 @@ FPS = 25
 FRAME_SIZE = (640, 480)
 LIVE_DETECT_EVERY = 2      # correr MediaPipe cada N frames (rendimiento en vivo)
 LIVE_PREVIEW_SIZE = 260
-MAIN_WINDOW = "SpeakShadow - Grabar tomas"
-MOUTH_WINDOW = "SpeakShadow - Boca (preview)"
+MAIN_WINDOW = "FonoKids - Grabar tomas"
+MOUTH_WINDOW = "FonoKids - Boca (preview)"
 
 # 16kHz mono -- la frecuencia de muestreo que espera wav2vec2 (y la mayoría
 # de los modelos de voz pre-entrenados). Grabar directo a esta frecuencia
@@ -103,6 +105,33 @@ def count_existing_clips(clips_dir):
     return len([f for f in os.listdir(clips_dir) if f.endswith(".avi")])
 
 
+def check_framing(landmarks_px, frame_shape):
+    """Avisa en vivo si la cara completa (con OJOS incluidos) entra en el
+    cuadro y a una distancia razonable de la cámara. Esto es justo lo que
+    faltó en varias tomas grabadas antes (perro_incorrecto_*): la cámara
+    quedaba tan cerca que los ojos se salían del encuadre, y como la
+    normalización de labios depende de la distancia entre ojos (ver
+    normalize_lip_landmarks en server/main.py), esos clips quedaban con muy
+    mala detección. Los umbrales son heurísticos (no hay "distancia
+    correcta" única), pensados para avisar casos claramente mal encuadrados,
+    no para exigir una posición exacta."""
+    if landmarks_px is None:
+        return False, "SIN CARA DETECTADA"
+    h, w = frame_shape[:2]
+    right_eye = landmarks_px[RIGHT_EYE_OUTER]
+    left_eye = landmarks_px[LEFT_EYE_OUTER]
+    margin = 0.06
+    for x, y in (right_eye, left_eye):
+        if x < w * margin or x > w * (1 - margin) or y < h * margin or y > h * (1 - margin):
+            return False, "MUY CERCA: SE CORTAN LOS OJOS -- ALEJATE"
+    eye_dist = float(np.hypot(*(left_eye - right_eye)))
+    if eye_dist > w * 0.30:
+        return False, "MUY CERCA -- ALEJATE UN POCO"
+    if eye_dist < w * 0.06:
+        return False, "MUY LEJOS -- ACERCATE UN POCO"
+    return True, "ENCUADRE OK"
+
+
 def compute_mouth_box(landmarks_px, frame_shape, margin_ratio=1.3):
     lip_pts = landmarks_px[LIP_INDICES]
     center = lip_pts.mean(axis=0)
@@ -132,7 +161,7 @@ def build_mouth_preview(frame, mouth_box, size=LIVE_PREVIEW_SIZE, recording=Fals
     return canvas
 
 
-def draw_overlay(frame, recording, word, n_saved, mouth_box):
+def draw_overlay(frame, recording, word, n_saved, mouth_box, framing_ok, framing_msg):
     h, w = frame.shape[:2]
 
     status_text, color = ("GRABANDO", (0, 0, 255)) if recording else ("LISTO (S para grabar)", (0, 200, 0))
@@ -147,6 +176,10 @@ def draw_overlay(frame, recording, word, n_saved, mouth_box):
 
     cv2.putText(frame, f"Palabra: {word}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 0), 2)
     cv2.putText(frame, f"Tomas guardadas: {n_saved}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+    framing_color = (0, 200, 0) if framing_ok else (0, 0, 255)
+    cv2.putText(frame, framing_msg, (10, 120), cv2.FONT_HERSHEY_SIMPLEX, 0.65, framing_color, 2)
+
     cv2.putText(frame, "S: grabar | A: detener y guardar | Q: salir",
                 (10, h - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
     return frame
@@ -226,6 +259,7 @@ def main():
     timestamp_ms = 0
     frame_ms = int(1000 / FPS)
     last_mouth_box = None
+    framing_ok, framing_msg = False, "SIN CARA DETECTADA"
     lecturas_fallidas_seguidas = 0
     MAX_LECTURAS_FALLIDAS = 30  # ~1 segundo a 30fps -- ahí sí asumimos que la cámara se desconectó
 
@@ -256,8 +290,9 @@ def main():
                     landmarker, frame, timestamp_ms, frame_ms=frame_ms * LIVE_DETECT_EVERY
                 )
                 last_mouth_box = compute_mouth_box(landmarks_px, frame.shape) if landmarks_px is not None else None
+                framing_ok, framing_msg = check_framing(landmarks_px, frame.shape)
 
-            display = draw_overlay(frame.copy(), recording, word, n_saved, last_mouth_box)
+            display = draw_overlay(frame.copy(), recording, word, n_saved, last_mouth_box, framing_ok, framing_msg)
             mouth_preview = build_mouth_preview(frame, last_mouth_box, recording=recording)
 
             cv2.imshow(MAIN_WINDOW, display)

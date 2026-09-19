@@ -1,0 +1,84 @@
+/* Encabezado de categoría (estilo "Vocales"/"Consonantes" de la
+   referencia) -- separa la grilla en grupos por tipo de sonido. */
+.sounds-category {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 820px;
+  margin: 8px auto 0;
+  padding: 0 28px;
+  text-align: center;
+}
+
+.sounds-category-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.sounds-category-hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* Grilla de sonidos estilo Duolingo (pedido explícito con captura de
+   referencia): tarjetas cuadradas chicas en grilla, en vez de la lista de
+   filas largas que se usa en Aprender. */
+.sounds-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 18px;
+  padding: 28px 28px 90px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+.sound-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  aspect-ratio: 1 / 1;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 10px 18px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  opacity: 0;
+  animation: etapa-card-in 0.4s ease forwards;
+}
+
+.sound-card:hover {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 9px 0 rgba(0, 0, 0, 0.14), 0 14px 22px rgba(0, 0, 0, 0.16);
+}
+
+.sound-card:hover .sound-card-icon {
+  animation: icon-wiggle 0.5s ease;
+}
+
+.sound-card:active {
+  transform: translateY(4px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.sound-card-sound {
+  font-size: 30px;
+  font-weight: 900;
+  color: var(--text-primary);
+}
+
+.sound-card-icon {
+  font-size: 30px;
+  display: inline-block;
+}
+
+.sound-card-word {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}

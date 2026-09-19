@@ -368,8 +368,13 @@ def _build_hrnet_detector():
         print("[AVISO] No hay GPU disponible -- HRNet/FAN en CPU va a ser MUY lento "
               "(mucho más que MediaPipe en CPU). Se recomienda GPU para este backend.")
 
+    # compile=False: face-alignment 1.5.0 compila su red con torch.compile
+    # por defecto -- en Windows (sin build de Triton) ese warm-up no tira
+    # excepción, se queda COLGADO para siempre en vez de caer a modo eager
+    # (confirmado en server/main.py, mismo bug). Con compile=False corre
+    # directo en modo eager, sin ese paso.
     detector = face_alignment.FaceAlignment(
-        face_alignment.LandmarksType.TWO_D, device=device, flip_input=False,
+        face_alignment.LandmarksType.TWO_D, device=device, flip_input=False, compile=False,
     )
     print(f">>> Detector HRNet/FAN corriendo en {device.upper()}. <<<")
     return detector
@@ -716,12 +721,26 @@ def main():
         out_dir = os.path.join(OUT_DIR, word)
         os.makedirs(out_dir, exist_ok=True)
 
-        print(f"\n[{word}] label {label_map[word]}. {len(clip_paths)} clips a procesar.")
-        for i, clip_path in enumerate(clip_paths, 1):
+        # Salteamos clips que YA tienen su .npy (de una corrida anterior) --
+        # sin esto, cada vez que grabás más datos y volvés a correr este
+        # script, reprocesa TODOS los clips viejos de nuevo con HRNet (lento,
+        # minutos por clip cuando la GPU anda floja), no solo los nuevos.
+        pendientes = [
+            cp for cp in clip_paths
+            if not os.path.exists(os.path.join(out_dir, os.path.splitext(os.path.basename(cp))[0] + ".npy"))
+        ]
+        ya_hechos = len(clip_paths) - len(pendientes)
+        if ya_hechos:
+            print(f"\n[{word}] {ya_hechos} clips ya tenían landmarks (se saltean), "
+                  f"{len(pendientes)} nuevos a procesar.")
+        else:
+            print(f"\n[{word}] label {label_map[word]}. {len(pendientes)} clips a procesar.")
+
+        for i, clip_path in enumerate(pendientes, 1):
             sequence, detected, total, timestamp_ms = process_clip(landmarker, clip_path, timestamp_ms)
 
             if sequence is None:
-                print(f"  [{word} {i}/{len(clip_paths)}] {os.path.basename(clip_path)}: "
+                print(f"  [{word} {i}/{len(pendientes)}] {os.path.basename(clip_path)}: "
                       f"NINGÚN frame detectó cara ({total} frames) -- clip descartado.")
                 total_fail += 1
                 continue
@@ -731,11 +750,16 @@ def main():
             np.save(npy_path, sequence)
 
             total_ok += 1
-            if i % 25 == 0 or i == len(clip_paths):
-                print(f"  [{word} {i}/{len(clip_paths)}] {base_name}: cara en {detected}/{total} frames "
+            if i % 25 == 0 or i == len(pendientes):
+                print(f"  [{word} {i}/{len(pendientes)}] {base_name}: cara en {detected}/{total} frames "
                       f"(resto rellenado bfill/ffill) -> guardado {sequence.shape}")
 
-    landmarker.close()
+    # FaceAlignment (backend HRNet/FAN) no tiene .close() -- solo el
+    # landmarker de MediaPipe lo necesita. hasattr() en vez de un try/except
+    # silencioso, para no esconder un error real si algún día sí lo tiene y
+    # falla por otro motivo.
+    if hasattr(landmarker, "close"):
+        landmarker.close()
     print(f"\n=== TOTAL: {total_ok} guardados | {total_fail} descartados (sin cara en ningún frame) ===")
     print(f"Dataset en: {OUT_DIR}")
 

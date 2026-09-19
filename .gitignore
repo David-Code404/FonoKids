@@ -37,3 +37,8 @@ Thumbs.db
 
 # PID del server en vivo (lo usa server/watchdog.sh) -- runtime, no es parte del repo
 /server/.server.pid
+
+# Assets del avatar 3D abandonado (experimento descartado, "quita todo") --
+# pesan cientos de MB/GB (Blender, .glb) y no son parte de la app actual.
+/tools/
+/web/public/models/

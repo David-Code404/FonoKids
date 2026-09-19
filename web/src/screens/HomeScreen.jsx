@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { checkHealth, getServerUrl, predict, setServerUrl as saveServerUrl, thumbnailUrl } from "../api.js";
+import {
+  checkHealth, getHealth, getServerUrl, predict,
+  setServerUrl as saveServerUrl, thumbnailUrl, wordsFromClasses,
+} from "../api.js";
+import { iconFor } from "../wordIcons.js";
 import SettingsDialog from "../components/SettingsDialog.jsx";
 import "./HomeScreen.css";
 
@@ -9,6 +13,18 @@ import "./HomeScreen.css";
 // para detener, esto corta solo en vez de mandar un clip cada vez más largo.
 const MAX_RECORDING_MS = 6000;
 const CONNECTION_REFRESH_MS = 20000;
+
+// Modo "en vivo" -- a diferencia de la vieja Vigilancia (sacada del
+// proyecto: grababa en segundo plano sin que nadie la prendiera a
+// propósito, un problema de privacidad para este uso), este modo lo prende
+// el propio chico/persona que está practicando, mientras sigue mirando la
+// cámara -- graba en segmentos cortos encadenados y da feedback rápido de
+// cada uno, sin tener que tocar "grabar" después de cada intento.
+const LIVE_SEGMENT_MS = 3000;
+const LIVE_COOLDOWN_MS = 1200;
+// En modo en vivo el resultado se cierra solo (no bloquea esperando un tap)
+// para no cortar el flujo de práctica continua.
+const LIVE_RESULT_AUTOCLOSE_MS = 2500;
 
 // Overlay de puntos EN VIVO -- solo visual, no afecta la predicción real
 // (que corre en el servidor con FAN). Mismo modelo y esquema de puntos
@@ -25,6 +41,45 @@ const PREVIEW_LIP_INDICES = new Set([
 const PREVIEW_EYE_CORNERS = new Set([33, 263]);
 const LIVE_DETECT_EVERY = 2; // correr el detector del preview cada N frames
 
+// Arma un .wav de 16 bits mono a partir de los chunks Float32 que entrega
+// el ScriptProcessorNode -- header RIFF/WAVE de 44 bytes escrito a mano
+// (sin librerías: es un formato simple y así queda controlado 100%).
+function encodeWav(chunks, sampleRate) {
+  let totalLength = 0;
+  for (const c of chunks) totalLength += c.length;
+
+  const pcm16 = new Int16Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    for (let i = 0; i < chunk.length; i++) {
+      const s = Math.max(-1, Math.min(1, chunk[i]));
+      pcm16[offset++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+  }
+
+  const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (pos, str) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(pos + i, str.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + pcm16.length * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte rate (16 bits * 1 canal)
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits por muestra
+  writeStr(36, "data");
+  view.setUint32(40, pcm16.length * 2, true);
+  new Int16Array(buffer, 44).set(pcm16);
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
 function pickMimeType() {
   const candidates = [
     "video/webm;codecs=vp9",
@@ -40,7 +95,7 @@ function pickMimeType() {
 
 /// Pestaña "Practicar" -- cámara en tiempo real + evaluación de
 /// pronunciación por palabra.
-export default function HomeScreen() {
+export default function HomeScreen({ initialWord = null, onBack = null }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -56,9 +111,30 @@ export default function HomeScreen() {
   // Cadena de promesas que garantiza que las predicciones se manden al
   // servidor de a una, nunca en paralelo (ver runPrediction más abajo).
   const predictQueueRef = useRef(Promise.resolve());
+  // Refs espejo de liveMode/targetWord -- se leen desde dentro del loop de
+  // segmentos (finishLiveSegment), donde un closure sobre el state de React
+  // podría quedar desactualizado entre renders.
+  const liveModeRef = useRef(false);
+  const liveCooldownTimerRef = useRef(null);
+  const finishLiveSegmentRef = useRef(() => {});
+  const targetWordRef = useRef(null);
+  // Captura de audio en paralelo al video -- ver startAudioCapture/
+  // stopAudioCapture más abajo. Un ScriptProcessorNode en vez de
+  // MediaRecorder para el audio: MediaRecorder graba webm/opus, que el
+  // servidor NO puede decodificar (torchaudio ahí solo tiene el backend
+  // "soundfile", sin soporte de opus) -- grabando PCM crudo y armando el
+  // .wav a mano (mismo criterio que grabar_video_continuo.py, que usa
+  // sounddevice + wave por la misma razón) se evita ese problema de raíz.
+  const audioCtxRef = useRef(null);
+  const audioProcessorRef = useRef(null);
+  const audioSourceRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   const [cameraError, setCameraError] = useState(null);
   const [recording, setRecording] = useState(false);
+  const [liveMode, setLiveMode] = useState(false);
+  const [targetWords, setTargetWords] = useState([]);
+  const [targetWord, setTargetWord] = useState(null);
   // Cantidad de predicciones corriendo en segundo plano -- a diferencia de un
   // booleano "predicting", esto permite que el usuario grabe la siguiente
   // toma sin esperar a que el servidor termine de analizar la anterior.
@@ -84,7 +160,7 @@ export default function HomeScreen() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user" },
-          audio: false,
+          audio: true,
         });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
@@ -190,10 +266,39 @@ export default function HomeScreen() {
     return () => clearInterval(id);
   }, [serverUrl, refreshConnection]);
 
+  // Palabras objetivo -- se sacan de las clases que el modelo cargado
+  // realmente reconoce (GET /health), no de una lista hardcodeada acá, así
+  // si el checkpoint cambia (nuevas palabras entrenadas) esto se actualiza
+  // solo sin tocar código.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const health = await getHealth(serverUrl);
+      if (cancelled || !health) return;
+      const words = wordsFromClasses(health.classes);
+      setTargetWords(words);
+      // Si llegamos acá desde el camino de etapas (initialWord), esa
+      // palabra manda -- no la pisa la primera de la lista del server.
+      setTargetWord((prev) =>
+        initialWord && words.includes(initialWord) ? initialWord
+        : prev && words.includes(prev) ? prev
+        : words[0] ?? null
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [serverUrl, connState]);
+
+  useEffect(() => {
+    targetWordRef.current = targetWord;
+  }, [targetWord]);
+
   useEffect(() => {
     return () => {
       pendingTimersRef.current.forEach(clearTimeout);
       if (autoStopTimerRef.current) clearTimeout(autoStopTimerRef.current);
+      if (liveCooldownTimerRef.current) clearTimeout(liveCooldownTimerRef.current);
     };
   }, []);
 
@@ -245,14 +350,28 @@ export default function HomeScreen() {
   // Encadenando client-side, cada request arranca su cronómetro recién
   // cuando el servidor la empieza a procesar de verdad.
   const runPrediction = useCallback(
-    (blob, filename) => {
+    (blob, filename, audioBlob) => {
       processingCountRef.current += 1;
       setProcessingCount(processingCountRef.current);
 
       const run = async () => {
         try {
-          const result = await predict(serverUrl, blob, filename, () => setRetryingPredict(true));
+          const result = await predict(
+            serverUrl, blob, filename, () => setRetryingPredict(true),
+            audioBlob, targetWordRef.current
+          );
           setRetryingPredict(false);
+          // Veredicto ÚNICO combinado (labios + sonido) que ya calculó el
+          // servidor -- lo mapeamos sobre "correcta" para que el resto de
+          // la UI (overlay de resultado, tarjetas del historial, contador
+          // de racha) siga funcionando igual, sin tener que enterarse de
+          // que ahora hay dos señales detrás en vez de una.
+          if (result.valid && result.veredicto_final) {
+            result.correcta =
+              result.veredicto_final === "bien" ? true
+              : result.veredicto_final === "a_practicar" ? false
+              : null;
+          }
           setLastResult(result);
           setLastError(null);
           setConnState("ok");
@@ -282,6 +401,66 @@ export default function HomeScreen() {
     [serverUrl]
   );
 
+  // Arranca la captura de audio crudo (PCM) EN PARALELO al MediaRecorder de
+  // video -- mismo stream, pista de audio aparte. Si el micrófono no está
+  // disponible (permiso denegado, sin hardware), no rompe nada: sigue
+  // grabando solo video, como antes de agregar esto.
+  function startAudioCapture() {
+    audioChunksRef.current = [];
+    const stream = streamRef.current;
+    const audioTrack = stream?.getAudioTracks?.()[0];
+    if (!audioTrack) return;
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
+      // ScriptProcessorNode está deprecado pero sigue soportado en todos
+      // los navegadores evergreen -- AudioWorklet exige cargar un archivo
+      // aparte, innecesario para algo tan simple como juntar PCM crudo.
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (e) => {
+        audioChunksRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      // Conectar a destination es necesario para que Chrome/Firefox sigan
+      // llamando onaudioprocess -- el audio real no se re-emite al usuario
+      // porque la pista que llega acá nunca pasa por un <audio>/<video> con
+      // sonido activado (el <video> de preview está muted).
+      processor.connect(ctx.destination);
+      audioCtxRef.current = ctx;
+      audioSourceRef.current = source;
+      audioProcessorRef.current = processor;
+    } catch (e) {
+      console.warn("No se pudo iniciar la captura de audio:", e);
+    }
+  }
+
+  // Corta la captura y devuelve un Blob .wav ya armado, o null si no había
+  // audio (mismo criterio "degrada con gracia" que el resto de la app).
+  function stopAudioCapture() {
+    const ctx = audioCtxRef.current;
+    const processor = audioProcessorRef.current;
+    const source = audioSourceRef.current;
+    const chunks = audioChunksRef.current;
+    audioCtxRef.current = null;
+    audioProcessorRef.current = null;
+    audioSourceRef.current = null;
+    audioChunksRef.current = [];
+
+    if (!ctx) return null;
+    const sampleRate = ctx.sampleRate;
+    try {
+      processor?.disconnect();
+      source?.disconnect();
+      ctx.close();
+    } catch {
+      // no crítico -- el contexto se cierra solo eventualmente igual
+    }
+    if (chunks.length === 0) return null;
+    return encodeWav(chunks, sampleRate);
+  }
+
   const stopAndPredict = useCallback(async () => {
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") return;
@@ -296,6 +475,7 @@ export default function HomeScreen() {
     });
     recorder.stop();
     await stopped;
+    const audioBlob = stopAudioCapture();
 
     // Cortar la grabación es instantáneo -- apenas termina, el botón queda
     // libre para la siguiente toma. La predicción sigue su curso sola.
@@ -304,7 +484,7 @@ export default function HomeScreen() {
     const mimeType = recorder.mimeType || "video/webm";
     const blob = new Blob(chunksRef.current, { type: mimeType });
     const ext = mimeType.includes("mp4") ? "mp4" : "webm";
-    runPrediction(blob, `clip.${ext}`);
+    runPrediction(blob, `clip.${ext}`, audioBlob);
   }, [runPrediction]);
 
   const startRecording = useCallback(() => {
@@ -324,6 +504,7 @@ export default function HomeScreen() {
       };
       recorderRef.current = recorder;
       recorder.start();
+      startAudioCapture();
       setRecording(true);
 
       autoStopTimerRef.current = setTimeout(() => {
@@ -341,6 +522,101 @@ export default function HomeScreen() {
       startRecording();
     } else {
       stopAndPredict();
+    }
+  }
+
+  // --- Modo en vivo: segmentos cortos encadenados, prendido por el propio
+  // usuario mientras practica, para no tener que tocar "grabar" después de
+  // cada intento (ver constantes LIVE_* arriba). ---
+  const startLiveSegment = useCallback(() => {
+    const stream = streamRef.current;
+    if (!stream || !liveModeRef.current) return;
+
+    try {
+      const mimeType = pickMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      startAudioCapture();
+      setRecording(true);
+
+      autoStopTimerRef.current = setTimeout(
+        () => finishLiveSegmentRef.current(),
+        LIVE_SEGMENT_MS
+      );
+    } catch (e) {
+      setLastError(`No se pudo grabar el segmento: ${e.message || e}`);
+      liveModeRef.current = false;
+      setLiveMode(false);
+    }
+  }, []);
+
+  const finishLiveSegment = useCallback(async () => {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+
+    const stopped = new Promise((resolve) => {
+      recorder.onstop = resolve;
+    });
+    recorder.stop();
+    await stopped;
+    const audioBlob = stopAudioCapture();
+    setRecording(false);
+
+    const mimeType = recorder.mimeType || "video/webm";
+    const blob = new Blob(chunksRef.current, { type: mimeType });
+    const ext = mimeType.includes("mp4") ? "mp4" : "webm";
+
+    // Encadena el siguiente segmento recién cuando ESTA predicción termina
+    // + una pausa corta -- mandar segmentos pegados uno atrás de otro sin
+    // pausa es lo que dispara cuelgues intermitentes del driver de GPU (ver
+    // el comentario grande sobre esto en server/main.py).
+    const jobPromise = runPrediction(blob, `segment.${ext}`, audioBlob);
+    jobPromise.finally(() => {
+      if (liveModeRef.current) {
+        liveCooldownTimerRef.current = setTimeout(() => {
+          liveCooldownTimerRef.current = null;
+          startLiveSegment();
+        }, LIVE_COOLDOWN_MS);
+      }
+    });
+  }, [runPrediction, startLiveSegment]);
+
+  useEffect(() => {
+    finishLiveSegmentRef.current = finishLiveSegment;
+  }, [finishLiveSegment]);
+
+  function toggleLiveMode() {
+    if (liveMode) {
+      liveModeRef.current = false;
+      setLiveMode(false);
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+      if (liveCooldownTimerRef.current) {
+        clearTimeout(liveCooldownTimerRef.current);
+        liveCooldownTimerRef.current = null;
+      }
+      const recorder = recorderRef.current;
+      if (recorder && recorder.state !== "inactive") {
+        recorder.onstop = null; // se apaga sin mandar el segmento a medio grabar
+        recorder.stop();
+      }
+      stopAudioCapture(); // corta y descarta -- este segmento no se manda
+      setRecording(false);
+    } else {
+      setLastResult(null);
+      setLastError(null);
+      liveModeRef.current = true;
+      setLiveMode(true);
+      startLiveSegment();
     }
   }
 
@@ -363,8 +639,13 @@ export default function HomeScreen() {
       <div className="practice-main">
         <div className="practice-header">
           <div className="brand">
+            {onBack && (
+              <button className="icon-button" onClick={onBack} title="Volver">
+                ←
+              </button>
+            )}
             <span className="brand-mascot">🗣️</span>
-            <span>SpeakShadow</span>
+            <span>FonoKids</span>
           </div>
           <div className="header-actions">
             <button className={`conn-chip ${connClass}`} onClick={() => refreshConnection()}>
@@ -378,7 +659,29 @@ export default function HomeScreen() {
         </div>
 
         <div className="practice-stage">
-          <div className={`camera-frame ${recording ? "is-recording" : ""}`}>
+          {!initialWord && targetWords.length > 0 && (
+            <div className="word-picker">
+              {targetWords.map((w) => (
+                <button
+                  key={w}
+                  className={`word-chip ${targetWord === w ? "selected" : ""}`}
+                  onClick={() => setTargetWord(w)}
+                  disabled={recording || liveMode}
+                >
+                  <span className="word-chip-icon">{iconFor(w)}</span>
+                  {w.replaceAll("_", " ")}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {targetWord && (
+            <div className="target-word-banner">
+              Decí: <span className="target-word-banner-word">{iconFor(targetWord)} {targetWord.replaceAll("_", " ")}</span>
+            </div>
+          )}
+
+          <div className={`camera-frame ${recording ? "is-recording" : ""} ${liveMode ? "is-live" : ""}`}>
             {cameraError ? (
               <div className="center-message">{cameraError}</div>
             ) : (
@@ -387,6 +690,7 @@ export default function HomeScreen() {
                 <canvas ref={canvasRef} className="camera-overlay" />
               </>
             )}
+            {liveMode && <div className="live-badge">🔴 EN VIVO</div>}
           </div>
 
           <div className="stage-hint">
@@ -394,6 +698,8 @@ export default function HomeScreen() {
               ? "⏳ El servidor se colgó, esperando a que vuelva para reintentar solo..."
               : lastError
               ? `⚠ ${lastError}`
+              : liveMode
+              ? `Modo en vivo -- segmento cada ${LIVE_SEGMENT_MS / 1000}s, seguí hablando`
               : recording
               ? "Grabando... tocá para terminar"
               : processingCount > 0
@@ -401,15 +707,25 @@ export default function HomeScreen() {
               : "Decí la palabra y tocá el botón para grabar"}
           </div>
 
-          <div className="record-button-wrap">
+          <div className="stage-controls">
             <button
-              className={`record-button ${recording ? "recording" : ""}`}
-              onClick={toggleRecording}
-              disabled={!!cameraError}
+              className={`live-toggle-button ${liveMode ? "active" : ""}`}
+              onClick={toggleLiveMode}
+              disabled={!!cameraError || (recording && !liveMode)}
+              title="Modo en vivo: graba y evalúa en segmentos cortos automáticos, mientras seguís hablando"
             >
-              <span className={recording ? "square" : "circle"} />
+              {liveMode ? "⏹ Parar" : "🔴 En vivo"}
             </button>
-            {processingCount > 0 && <span className="processing-badge">{processingCount}</span>}
+            <div className="record-button-wrap">
+              <button
+                className={`record-button ${recording ? "recording" : ""}`}
+                onClick={liveMode ? toggleLiveMode : toggleRecording}
+                disabled={!!cameraError || (liveMode && recording)}
+              >
+                <span className={recording ? "square" : "circle"} />
+              </button>
+              {processingCount > 0 && <span className="processing-badge">{processingCount}</span>}
+            </div>
           </div>
         </div>
       </div>
@@ -423,7 +739,11 @@ export default function HomeScreen() {
       />
 
       {!retryingPredict && lastResult && (
-        <ResultOverlay result={lastResult} onClose={() => setLastResult(null)} />
+        <ResultOverlay
+          result={lastResult}
+          onClose={() => setLastResult(null)}
+          autoCloseMs={liveMode ? LIVE_RESULT_AUTOCLOSE_MS : null}
+        />
       )}
 
       {showSettings && (
@@ -439,8 +759,17 @@ export default function HomeScreen() {
 
 /// Tarjeta grande centrada con el resultado del intento -- se tapa sola
 /// apenas arranca la próxima grabación (ver startRecording), o el chico
-/// puede tocar afuera para cerrarla antes.
-function ResultOverlay({ result, onClose }) {
+/// puede tocar afuera para cerrarla antes. En modo en vivo (autoCloseMs)
+/// se cierra sola después de un rato, para no cortar la práctica continua
+/// esperando un tap que en ese modo nadie va a hacer.
+function ResultOverlay({ result, onClose, autoCloseMs }) {
+  useEffect(() => {
+    if (!autoCloseMs) return undefined;
+    const timer = setTimeout(onClose, autoCloseMs);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, autoCloseMs]);
+
   if (!result.valid) {
     return (
       <div className="result-overlay" onClick={onClose}>
@@ -475,6 +804,14 @@ function ResultOverlay({ result, onClose }) {
   }
 
   const pct = ((result.prob ?? 0) * 100).toFixed(0);
+  // Pedido explícito: cuando está MAL, no mostrar un "% de seguridad" (eso
+  // solo tiene sentido para el "bien dicho") -- en cambio, mostrar lo que
+  // realmente se escuchó (sonido_reconocido, ver audio_pronunciation.py),
+  // así el chico/padre ve "sonó como 'pelo'" en vez de un número sin
+  // contexto que además, para casos como "pelo" vs "perro" (1 solo fonema
+  // distinto, la distancia de edición los toma como "misma palabra"), podía
+  // mostrar "perro" como si eso fuera lo que se dijo.
+  const sonidoReconocido = result.audio?.sonido_reconocido;
   return (
     <div className="result-overlay" onClick={onClose}>
       <div className={`result-overlay-card ${result.correcta ? "success" : "retry"}`} onClick={(e) => e.stopPropagation()}>
@@ -482,8 +819,12 @@ function ResultOverlay({ result, onClose }) {
         <div className="result-overlay-word">{palabra}</div>
         {result.correcta ? (
           <div className="result-overlay-message">¡Muy bien dicho! -- {pct}% de seguridad</div>
+        ) : sonidoReconocido ? (
+          <div className="result-overlay-message">
+            Sonó como "{sonidoReconocido}" -- practiquemos "{palabra}" de nuevo
+          </div>
         ) : (
-          <div className="result-overlay-message">Casi... practiquemos de nuevo -- {pct}%</div>
+          <div className="result-overlay-message">Casi... practiquemos de nuevo</div>
         )}
         <button className={`result-overlay-button ${result.correcta ? "success" : "retry"}`} onClick={onClose}>
           {result.correcta ? "¡Genial! 🌟" : "Intentar de nuevo"}
