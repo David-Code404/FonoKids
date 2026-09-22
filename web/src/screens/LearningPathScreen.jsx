@@ -8,10 +8,7 @@ import "./LearningPathScreen.css";
 // número de "Etapa" -- no viene del server (que solo lista las que YA
 // tienen clases entrenadas), esta es la lista completa del plan, así se
 // pueden ver las etapas bloqueadas (sin grabar/entrenar todavía) también.
-const ALL_WORDS = [
-  "perro", "carro", "raton", "mariposa", "tren",
-  "fresa", "rueda", "sombrero", "bicicleta",
-];
+const ALL_WORDS = ["perro", "carro", "burro", "gorra", "torre"];
 
 // Desglose en 4 pasos (sonido suelto -> doble -> palabra a medias ->
 // palabra completa) -- MISMO patrón para cualquier palabra, a propósito
@@ -41,11 +38,20 @@ function buildSteps(word) {
   ];
 }
 
+// Nombre de la FAMILIA de clases que le corresponde a un paso -- "completa"
+// usa la palabra tal cual ("perro"), los demás pasos son sub-familias
+// ("perro_doble", "perro_medias", "perro_sonido") -- mismo criterio que
+// server/main.py (_classify_audio filtra clases por este prefijo, y ahora
+// también rechaza un resultado si la clase ganadora es de OTRA familia).
+function familyForStep(word, stepKey) {
+  return stepKey === "completa" ? word : `${word}_${stepKey}`;
+}
+
 /// Camino de aprendizaje tipo Duolingo: Etapas (una por palabra) -> Pasos
-/// (4 nodos redondos por palabra) -> Práctica real (cámara + IA, solo en
-/// el último paso -- los primeros 3 son de repetición SIN evaluación,
-/// porque no hay forma de calificar un sonido aislado con el modelo actual,
-/// que solo sabe evaluar la palabra completa).
+/// (4 nodos redondos por palabra) -> Práctica real (cámara + IA) en los
+/// pasos que YA tienen datos entrenados para esa familia -- los que
+/// todavía no (ver `unlockedWords`) quedan como repetición libre sin
+/// evaluación, honesto en vez de fingir que califican algo que no aprendieron.
 export default function LearningPathScreen() {
   const [unlockedWords, setUnlockedWords] = useState([]);
   const [view, setView] = useState("etapas"); // etapas | pasos | repetir | practicar
@@ -77,11 +83,21 @@ export default function LearningPathScreen() {
   function openPaso(idx) {
     setSelectedStepIdx(idx);
     const steps = buildSteps(selectedWord);
-    setView(idx === steps.length - 1 ? "practicar" : "repetir");
+    const familia = familyForStep(selectedWord, steps[idx].key);
+    setView(unlockedWords.includes(familia) ? "practicar" : "repetir");
   }
 
   if (view === "practicar" && selectedWord) {
-    return <HomeScreen initialWord={selectedWord} onBack={() => setView("pasos")} />;
+    const steps = buildSteps(selectedWord);
+    const step = steps[selectedStepIdx];
+    return (
+      <HomeScreen
+        initialWord={familyForStep(selectedWord, step.key)}
+        promptText={step.label}
+        promptIcon={selectedWord}
+        onBack={() => setView("pasos")}
+      />
+    );
   }
 
   if (view === "repetir" && selectedWord) {
@@ -97,8 +113,9 @@ export default function LearningPathScreen() {
           <div className="repeat-word">{step.label}</div>
           <div className="repeat-hint">{step.hint}</div>
           <div className="repeat-note">
-            Repetí en voz alta las veces que quieras -- este paso es solo para practicar,
-            todavía no evalúa (eso lo hace el último paso, con cámara).
+            Repetí en voz alta las veces que quieras -- todavía no grabamos suficientes
+            ejemplos de este paso para evaluarlo con IA, así que por ahora es solo práctica
+            libre (algunos de los otros pasos ya sí evalúan con cámara).
           </div>
           <button className="path-cta" onClick={() => openPaso(selectedStepIdx + 1)}>
             Listo, seguir →

@@ -103,6 +103,15 @@ MIN_DETECTION_CONFIDENCE = 0.7
 ROI_SIZE = 112
 MOUTH_MARGIN_RATIO = 1.3
 
+# Mismo umbral que usa el servidor en vivo para rechazar una toma real
+# (MIN_DETECTION_RATE_VALID en server/main.py) -- antes acá solo se
+# descartaba un clip si NINGÚN frame detectaba cara, así que clips con
+# "cara en 1/29 frames" (3%) igual entraban al dataset de entrenamiento,
+# rellenados casi enteros por bfill/ffill. Eso entrena al modelo con datos
+# peores de los que la app aceptaría de un usuario real -- entrenar con el
+# mismo estándar de calidad que se exige en producción.
+MIN_DETECTION_RATE_TRAIN = 0.6
+
 MAX_CAMERAS_TO_CHECK = 5  # cuántos índices probar al buscar cámaras conectadas
 
 # Épsilon para evitar división por cero/NaN al normalizar por la distancia
@@ -111,11 +120,13 @@ SCALE_EPSILON = 1e-6
 
 if DETECTOR_BACKEND == "hrnet":
     # Esquema iBUG/300W de 68 puntos (el que usa face-alignment/HRNet):
-    # boca = índices 48-67 (12 del contorno exterior + 8 del interior),
-    # ojos = 36-41 (derecho) y 42-47 (izquierdo).
+    # boca = índices 48-67 (12 del contorno exterior + 8 del interior).
     LIP_INDICES = list(range(48, 68))          # 20 puntos de labios
-    RIGHT_EYE_OUTER = 36                        # esquina externa ojo derecho
-    LEFT_EYE_OUTER = 45                         # esquina externa ojo izquierdo
+    # Comisuras de la boca (48 = derecha, 54 = izquierda) -- reemplazan a
+    # los ojos como referencia de normalización (ver más abajo, el porqué
+    # del cambio). Son las dos puntas del contorno exterior de labios.
+    MOUTH_RIGHT_CORNER = 48
+    MOUTH_LEFT_CORNER = 54
 else:
     # Índices de labios (interior+exterior) del esquema de 468 puntos de
     # MediaPipe FaceMesh (constante estándar FACEMESH_LIPS -- hardcodeada
@@ -127,11 +138,10 @@ else:
         78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308,
         191, 80, 81, 82, 13, 312, 311, 310, 415,
     })
-    # Esquinas externas de los ojos -- estables incluso mientras la boca se
-    # mueve mucho, por eso se usan como referencia para normalizar (no los
-    # landmarks de labios, que cambian de forma todo el tiempo con el habla).
-    RIGHT_EYE_OUTER = 33
-    LEFT_EYE_OUTER = 263
+    # Comisuras de la boca en el esquema MediaPipe (61 = derecha, 291 =
+    # izquierda) -- ya están incluidas en LIP_INDICES de arriba.
+    MOUTH_RIGHT_CORNER = 61
+    MOUTH_LEFT_CORNER = 291
 
 # Cantidad final de números por frame: posición + velocidad + aceleración
 # de los landmarks de labios. Depende de cuántos puntos de labios tenga el
@@ -248,8 +258,14 @@ def detect_landmarks_batch(landmarker, frames_bgr, timestamp_ms=0, frame_ms=40):
         else:
             faces = detected_faces[i] if i < len(detected_faces) else []
             if not len(faces):
-                # El batch SÍ corrió para este frame y no encontró cara --
-                # no hay que volver a detectar, es "no hay cara" de verdad.
+                # Probado y descartado: forzar el frame completo como cuadro
+                # cuando SFD no encuentra cara (ej. recorte muy cerrado, sin
+                # frente ni ojos) NO rescata el frame -- el regresor FAN
+                # igual devuelve 68 puntos (no sabe decir "no hay nada acá"),
+                # pero apretujados cerca de donde esperaría la cara completa,
+                # lejos de la boca real. Es peor que descartar: parece un
+                # dato válido y es basura. Mejor tratarlo como "no
+                # detectado" de verdad, que rellene por bfill/ffill.
                 resultados.append(None)
                 continue
             preds = landmarker.get_landmarks_from_image(frame_rgb, detected_faces=faces)
@@ -263,8 +279,8 @@ def detect_frame_landmarks(landmarker, frame_bgr, timestamp_ms, frame_ms=40):
     Devuelve (landmarks_px, next_timestamp_ms):
         landmarks_px: array (N, 2) en píxeles, o None si no detectó cara.
                       N y el significado de cada índice dependen de
-                      DETECTOR_BACKEND (ver LIP_INDICES/RIGHT_EYE_OUTER/
-                      LEFT_EYE_OUTER).
+                      DETECTOR_BACKEND (ver LIP_INDICES/MOUTH_RIGHT_CORNER/
+                      MOUTH_LEFT_CORNER).
         next_timestamp_ms: para MediaPipe hay que seguir pasándolo al
                       siguiente frame (exige timestamps crecientes); HRNet
                       no lo necesita pero se devuelve igual para que el
@@ -428,24 +444,32 @@ def get_mouth_crop(frame, landmarks_px, roi_size=ROI_SIZE, margin_ratio=MOUTH_MA
 def normalize_lip_landmarks(landmarks_px):
     """landmarks_px: array (478, 2) en pixeles. Devuelve un vector (80,)
     con los 40 puntos de labios normalizados (traslación+rotación+escala),
-    o None si algo sale mal (ej. ojos muy pegados -> escala ~0)."""
-    right_eye = landmarks_px[RIGHT_EYE_OUTER]
-    left_eye = landmarks_px[LEFT_EYE_OUTER]
+    o None si algo sale mal (ej. comisuras casi superpuestas -> escala ~0).
 
-    eye_center = (right_eye + left_eye) / 2.0
-    eye_vector = left_eye - right_eye
-    scale = np.linalg.norm(eye_vector)
+    Normaliza contra las COMISURAS DE LA BOCA (antes se usaba la distancia
+    entre los ojos) -- pedido explícito: si la cámara queda encuadrada muy
+    cerca (algo muy común grabando en selfie), los ojos se salen del cuadro
+    y el detector de cara fallaba en el 90%+ de los frames, aunque la boca
+    se viera perfecto. Usando la boca misma como referencia, el encuadre de
+    los ojos deja de importar -- solo hace falta que la boca esté visible,
+    que es lo único que en verdad usa el modelo."""
+    right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+    left_corner = landmarks_px[MOUTH_LEFT_CORNER]
+
+    mouth_center = (right_corner + left_corner) / 2.0
+    mouth_vector = left_corner - right_corner
+    scale = np.linalg.norm(mouth_vector)
     if scale < 1e-3:
-        # Degenerado (ojos casi superpuestos) -- se trata como "no detectado"
-        # para que se rellene por bfill/ffill en vez de meter ruido.
+        # Degenerado (comisuras casi superpuestas) -- se trata como "no
+        # detectado" para que se rellene por bfill/ffill en vez de meter ruido.
         return None
-    angle = math.atan2(eye_vector[1], eye_vector[0])
+    angle = math.atan2(mouth_vector[1], mouth_vector[0])
 
     cos_a, sin_a = math.cos(-angle), math.sin(-angle)
     rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
 
     lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)          # (40, 2)
-    translated = lip_pts - eye_center                                # traslación
+    translated = lip_pts - mouth_center                              # traslación
     rotated = translated @ rotation.T                                # rotación
     normalized = rotated / (scale + SCALE_EPSILON)                   # escala (+ épsilon)
 
@@ -744,6 +768,17 @@ def main():
                       f"NINGÚN frame detectó cara ({total} frames) -- clip descartado.")
                 total_fail += 1
                 continue
+
+            # Pedido explícito: no descartar NINGÚN clip que tenga al menos
+            # un frame con cara detectada -- el umbral del 60%
+            # (MIN_DETECTION_RATE_TRAIN) se probó y tiraba la gran mayoría
+            # del dataset ya grabado. Se guarda igual, avisando la tasa de
+            # detección real, y se rellena por bfill/ffill como siempre.
+            detection_rate = detected / total if total else 0
+            if detection_rate < MIN_DETECTION_RATE_TRAIN:
+                print(f"  [{word} {i}/{len(pendientes)}] {os.path.basename(clip_path)}: "
+                      f"cara en {detected}/{total} frames ({detection_rate*100:.0f}%) -- "
+                      "por debajo del ideal, pero se guarda igual (rellenado bfill/ffill).")
 
             base_name = os.path.splitext(os.path.basename(clip_path))[0]
             npy_path = os.path.join(out_dir, f"{base_name}.npy")
