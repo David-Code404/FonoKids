@@ -76,6 +76,15 @@ MAX_FRAME_WIDTH = 640
 MIN_CONFIDENCE_PROB = 0.40
 MIN_CONFIDENCE_MARGIN = 0.15
 
+# Umbral de confianza del CLASIFICADOR DE AUDIO entrenado -- separado del de
+# video de arriba porque el audio mide ~99% de accuracy real en validación
+# (contra ~79% del video, ver outputs/reporte_resultados.md), así que puede
+# decidir por su cuenta cuando el video no llega a su propio umbral (ver
+# audio_confiable en _run_prediction_pipeline). Sin este umbral, un
+# clasificador de audio con una predicción dudosa (probabilidad baja, cerca
+# del azar) también podría "salvar" un video incierto sin merecerlo.
+AUDIO_MIN_CONFIDENCE = 0.60
+
 # Convención de nombres de clase en el checkpoint: cada palabra objetivo
 # aporta la clase "<palabra>_correcto" y una o más clases de error
 # "<palabra>_incorrecto" o "<palabra>_incorrecto_<subtipo>" (ej.
@@ -111,13 +120,14 @@ def _parse_clase_predicha(nombre_clase):
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # =====================================================================
-# DETECCIÓN HRNet/FAN -- copiado de scripts/probar_modelo.py, esquema
-# iBUG/300W de 68 puntos: boca = índices 48-67 (20 puntos), ojos = 36
-# (der.) y 45 (izq.)
+# DETECCIÓN HRNet/FAN -- copiado de scripts/extraer_landmarks_npy.py,
+# esquema iBUG/300W de 68 puntos: boca = índices 48-67 (20 puntos).
 # =====================================================================
 LIP_INDICES = list(range(48, 68))
-RIGHT_EYE_OUTER = 36
-LEFT_EYE_OUTER = 45
+# Comisuras de la boca (48 = derecha, 54 = izquierda) -- referencia de
+# normalización en vez de los ojos, ver normalize_lip_landmarks más abajo.
+MOUTH_RIGHT_CORNER = 48
+MOUTH_LEFT_CORNER = 54
 SCALE_EPSILON = 1e-6
 HRNET_BATCH_CHUNK_SIZE = 4  # valor probado toda la sesión sin trabar la PC -- NO
 # subirlo sin probarlo antes: un sub-lote más grande manda más al GPU de una sola
@@ -190,6 +200,9 @@ def detect_landmarks_batch(detector, frames_bgr):
         else:
             faces = detected_faces[i] if i < len(detected_faces) else []
             if not len(faces):
+                # Probado y descartado (ver extraer_landmarks_npy.py): forzar
+                # el frame completo cuando SFD no encuentra cara no rescata
+                # nada, produce puntos inventados lejos de la boca real.
                 resultados.append(None)
                 continue
             preds = detector.get_landmarks_from_image(frame_rgb, detected_faces=faces)
@@ -200,22 +213,24 @@ def detect_landmarks_batch(detector, frames_bgr):
 def normalize_lip_landmarks(landmarks_px):
     """landmarks_px: array (68, 2) en píxeles (esquema HRNet). Devuelve un
     vector (40,) con los 20 puntos de labios normalizados (traslación +
-    rotación + escala), o None si algo sale mal (ej. ojos muy pegados)."""
-    right_eye = landmarks_px[RIGHT_EYE_OUTER]
-    left_eye = landmarks_px[LEFT_EYE_OUTER]
+    rotación + escala), o None si algo sale mal (ej. comisuras casi
+    superpuestas). Normaliza contra las COMISURAS DE LA BOCA, no los ojos
+    -- ver el comentario largo en extraer_landmarks_npy.py sobre por qué."""
+    right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+    left_corner = landmarks_px[MOUTH_LEFT_CORNER]
 
-    eye_center = (right_eye + left_eye) / 2.0
-    eye_vector = left_eye - right_eye
-    scale = np.linalg.norm(eye_vector)
+    mouth_center = (right_corner + left_corner) / 2.0
+    mouth_vector = left_corner - right_corner
+    scale = np.linalg.norm(mouth_vector)
     if scale < 1e-3:
         return None
-    angle = math.atan2(eye_vector[1], eye_vector[0])
+    angle = math.atan2(mouth_vector[1], mouth_vector[0])
 
     cos_a, sin_a = math.cos(-angle), math.sin(-angle)
     rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
 
     lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
-    translated = lip_pts - eye_center
+    translated = lip_pts - mouth_center
     rotated = translated @ rotation.T
     normalized = rotated / (scale + SCALE_EPSILON)
 
@@ -1060,27 +1075,66 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     second_prob = float(sorted_probs[1].item()) if len(sorted_probs) > 1 else 0.0
     margin = top_prob - second_prob
     clase_predicha = class_names[top_idx]
+    print(f"[predict] video: clase={clase_predicha} prob={top_prob:.2f} margin={margin:.2f} "
+          f"(2da opcion: {class_names[int(sorted_idx[1].item())] if len(sorted_idx) > 1 else '?'} "
+          f"{second_prob:.2f}) | esperado={palabra_esperada}")
     palabra, pronunciacion_correcta, tipo_error = _parse_clase_predicha(clase_predicha)
 
-    # Solo confiamos en el resultado (bien o mal) si el modelo está seguro
-    # -- si no llega al umbral, se lo tratamos como "no concluyente" en vez
-    # de arriesgar una devolución equivocada al chico.
-    confianza_suficiente = top_prob >= MIN_CONFIDENCE_PROB and margin >= MIN_CONFIDENCE_MARGIN
+    # Cada paso del camino (sonido suelto / doble / a medias / completa) es
+    # una FAMILIA de clases distinta ("perro", "perro_doble",
+    # "perro_medias", ...) -- si el chico está practicando "perro_medias"
+    # (decir "per") pero el modelo reconoce algo de OTRA familia (ej.
+    # "perro_correcto", la palabra completa), eso está MAL para este paso
+    # puntual aunque técnicamente haya sonado bien esa otra cosa -- por
+    # algo el camino separa los pasos, no sirve de nada si decir la
+    # palabra entera "aprueba" el paso del sonido suelto. Sin este chequeo,
+    # el veredicto de abajo solo miraba si la clase ganadora terminaba en
+    # "_correcto", sin importar de qué familia era.
+    #
+    # EXCEPCIÓN necesaria: si el paso pedido es la palabra COMPLETA (ej.
+    # "perro", sin sufijo de paso) y el modelo ganador es de la MISMA
+    # palabra pero dudó de paso (ej. "perro_medias_correcto" en vez de
+    # "perro_correcto") -- confirmado en la matriz de confusión, es justo
+    # donde más se confunde el modelo visual, porque decir "perro" entero
+    # y decir "per"/"rr" sueltos se ve muy parecido en los labios -- no
+    # tiene sentido penalizar la IDENTIDAD de la palabra ahí, ya sabemos
+    # que es la palabra correcta. El chequeo estricto de arriba solo debe
+    # aplicar cuando el paso pedido es uno PARCIAL (ahí sí importa que no
+    # se cuele la palabra entera u otro paso distinto).
+    def _palabra_base(nombre):
+        return nombre.split("_")[0]
+
+    if palabra_esperada is not None and palabra != palabra_esperada:
+        pidio_palabra_completa = palabra_esperada == _palabra_base(palabra_esperada)
+        misma_palabra_base = _palabra_base(palabra) == _palabra_base(palabra_esperada)
+        if not (pidio_palabra_completa and misma_palabra_base):
+            pronunciacion_correcta = False
+            tipo_error = None
+
+    # Confianza del VIDEO -- si no llega a su propio umbral, no se descarta
+    # todavía: más abajo el AUDIO puede rescatar el veredicto si está seguro
+    # (ver confianza_suficiente combinada).
+    confianza_video = top_prob >= MIN_CONFIDENCE_PROB and margin >= MIN_CONFIDENCE_MARGIN
 
     all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
-
-    # Guardamos el clip siempre que haya un resultado confiable (correcto o
-    # incorrecto) -- así el historial de práctica sirve tanto para mostrar
-    # avances como para que el logopeda/padre revise los errores.
-    capture_file = None
-    if confianza_suficiente:
-        capture_file = _save_practice_clip(clase_predicha, tmp_path, suffix)
 
     # Análisis de AUDIO (sonido, no video) -- ver audio_pronunciation.py. Se
     # compara contra la palabra que el chico tenía que decir (la que eligió
     # en la app), no la que "cree" el modelo visual, para que sea una
     # segunda señal independiente de verdad, no un eco de la primera.
-    audio_resultado = _score_audio_pronunciation(audio_path, palabra_esperada or palabra)
+    #
+    # OJO: el GOP convierte la palabra a fonemas de verdad (texto_a_fonemas),
+    # así que solo tiene sentido para una palabra real completa -- las
+    # familias de paso parcial (ej. "perro_medias", "perro_doble") no son
+    # texto pronunciable, son identificadores de clase. Para esos pasos el
+    # GOP se salta y la decisión queda en manos del video + el clasificador
+    # de audio entrenado (que sí filtran por familia correctamente, ver
+    # _classify_audio).
+    es_palabra_completa = (palabra_esperada or palabra) and "_" not in (palabra_esperada or palabra)
+    audio_resultado = (
+        _score_audio_pronunciation(audio_path, palabra_esperada or palabra)
+        if es_palabra_completa else None
+    )
     # "palabra_reconocida" (comparación contra el reconocimiento LIBRE, sin
     # forzar nada) hace falta ADEMÁS de "sospechosos" (que sale de forced_align,
     # que siempre encaja el audio contra la palabra esperada pase lo que
@@ -1101,38 +1155,56 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
           f"clasificador {'sin entrenar' if audio_clf_resultado is None else audio_clf_resultado['clase_predicha']} "
           f"({time.time() - t_start:.1f}s total)")
 
-    # Veredicto ÚNICO combinado (labios + sonido), pedido explícitamente así
-    # -- un chico no tiene que interpretar varios números separados. El
-    # audio solo puede DEGRADAR un "bien" visual a "a practicar" (si el
-    # sonido no acompaña), nunca al revés -- si el video ya dice que está
-    # mal, no hace falta el audio para confirmarlo.
-    #
-    # OJO: el chequeo de "palabra_reconocida" (GOP, más abajo) se evalúa
-    # SIEMPRE, no solo cuando no hay clasificador entrenado -- caso real
-    # confirmado: dijo "pelo" en vez de "perro", y como el clasificador
-    # entrenado NUNCA vio "pelo" en sus datos (solo conoce
-    # perro_correcto/dentalización/lambdacismo/omisión), lo metió en la
-    # clase más parecida (perro_correcto) en vez de reconocer que es una
-    # palabra totalmente distinta. El clasificador entrenado es fuerte para
-    # detectar los errores QUE CONOCE, pero no para detectar "esto no es
-    # ninguna de mis clases" -- para eso está el reconocimiento libre (sin
-    # forzar la palabra esperada) del GOP, que si nunca coincide con "perro"
-    # lo cacha sin depender de haber entrenado esa palabra específica antes.
+    # PRIORIDAD: el audio predomina sobre el video en este dataset -- el
+    # clasificador de audio entrenado mide ~99% de accuracy real en
+    # validación, contra ~79% del modelo visual (ver
+    # outputs/reporte_resultados.md). Con 20 clases visualmente parecidas
+    # (perro/carro/burro/gorra/torre comparten casi el mismo movimiento de
+    # labios en la RR), el video se equivoca bastante más seguido, a veces
+    # con MUCHA confianza (confirmado: "gorra" dicha bien, video dijo
+    # "gorra_incorrecto" con 91% de probabilidad). Por eso:
+    #   - Si el audio está SEGURO (ver AUDIO_MIN_CONFIDENCE), su veredicto
+    #     manda -- puede tanto CONFIRMAR como REVERTIR lo que dijo el video,
+    #     en cualquier dirección, incluso si el video no llegó a su propio
+    #     umbral de confianza (así no se pierde un buen audio solo porque
+    #     el video dudó).
+    #   - Si el audio no está disponible o no está seguro, se cae al
+    #     criterio de antes: decide el video (con el chequeo de familia de
+    #     palabra de más arriba), y el audio solo puede DEGRADAR un "bien"
+    #     si contradice claramente (GOP sospechoso, o clasificador entrenado
+    #     en desacuerdo con confianza), nunca al revés.
+    audio_confiable = audio_clf_resultado is not None and audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
+    audio_dice_bien = audio_clf_resultado is not None and audio_clf_resultado["es_correcto"] and (
+        audio_resultado is None or audio_ok
+    )
+    audio_dice_mal = (audio_resultado is not None and not audio_ok) or (
+        audio_clf_resultado is not None and not audio_clf_resultado["es_correcto"]
+    )
+
+    confianza_suficiente = confianza_video or audio_confiable
+
     if not confianza_suficiente:
         veredicto_final = "no_concluyente"
+    elif audio_confiable:
+        veredicto_final = "bien" if audio_dice_bien else "a_practicar"
     elif not pronunciacion_correcta:
         veredicto_final = "a_practicar"
-    elif audio_resultado is not None and not audio_ok:
-        veredicto_final = "a_practicar"
-    elif audio_clf_resultado is not None and not audio_clf_resultado["es_correcto"]:
+    elif audio_dice_mal:
         veredicto_final = "a_practicar"
     else:
         veredicto_final = "bien"
 
+    # Guardamos el clip siempre que haya un resultado confiable (correcto o
+    # incorrecto) -- así el historial de práctica sirve tanto para mostrar
+    # avances como para que el logopeda/padre revise los errores.
+    capture_file = None
+    if confianza_suficiente:
+        capture_file = _save_practice_clip(clase_predicha, tmp_path, suffix)
+
     return {
         "valid": True,
         "palabra": palabra,
-        "correcta": pronunciacion_correcta if confianza_suficiente else None,
+        "correcta": (veredicto_final == "bien") if confianza_suficiente else None,
         "veredicto_final": veredicto_final,
         "audio": {
             "fonemas": audio_resultado["fonemas"],
@@ -1147,7 +1219,7 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
         # confianza alcanza -- None si fue correcta, si no hay confianza
         # suficiente, o si el checkpoint no distingue subtipos para esa
         # palabra (solo tiene "<palabra>_incorrecto" genérico).
-        "tipo_error": tipo_error if confianza_suficiente else None,
+        "tipo_error": tipo_error if (confianza_suficiente and veredicto_final == "a_practicar") else None,
         # Nombre de clase completo (ej. "perro_incorrecto_lambdacismo") -- lo
         # necesita el cliente para armar la URL de GET /dataset/thumbnail?word=...
         "class_name": clase_predicha,

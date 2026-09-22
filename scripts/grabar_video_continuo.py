@@ -38,12 +38,27 @@ import sounddevice as sd
 from extraer_landmarks_npy import (
     _build_mediapipe_landmarker,
     _detect_mediapipe,
-    LIP_INDICES,
-    RIGHT_EYE_OUTER,
-    LEFT_EYE_OUTER,
     choose_camera,
     open_camera,
 )
+
+# OJO: el preview acá SIEMPRE usa MediaPipe (ver comentario abajo), así que
+# estos índices tienen que ser los del esquema MediaPipe (468 puntos)
+# SIEMPRE -- no los que exporta extraer_landmarks_npy.py, que cambian según
+# DETECTOR_BACKEND (hoy "hrnet", esquema de 68 puntos). Antes esto
+# importaba LIP_INDICES/RIGHT_EYE_OUTER/LEFT_EYE_OUTER de ese módulo
+# directo, lo cual agarraba índices de HRNet (48-67, 36, 45) aplicados
+# sobre landmarks de MediaPipe -- puntos que no son ni boca ni ojos, un bug
+# latente que quedó escondido porque solo afectaba al aviso visual en
+# pantalla, no al dataset guardado (eso sí usa el backend correcto).
+LIP_INDICES = sorted({
+    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
+    185, 40, 39, 37, 0, 267, 269, 270, 409,
+    78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308,
+    191, 80, 81, 82, 13, 312, 311, 310, 415,
+})
+MOUTH_RIGHT_CORNER = 61
+MOUTH_LEFT_CORNER = 291
 
 # El preview en vivo SIEMPRE usa MediaPipe (rápido, ~tiempo real), sin
 # importar qué DETECTOR_BACKEND esté elegido para la extracción real -- acá
@@ -106,28 +121,33 @@ def count_existing_clips(clips_dir):
 
 
 def check_framing(landmarks_px, frame_shape):
-    """Avisa en vivo si la cara completa (con OJOS incluidos) entra en el
-    cuadro y a una distancia razonable de la cámara. Esto es justo lo que
-    faltó en varias tomas grabadas antes (perro_incorrecto_*): la cámara
-    quedaba tan cerca que los ojos se salían del encuadre, y como la
-    normalización de labios depende de la distancia entre ojos (ver
-    normalize_lip_landmarks en server/main.py), esos clips quedaban con muy
-    mala detección. Los umbrales son heurísticos (no hay "distancia
+    """Avisa en vivo si la BOCA entra bien en el cuadro y a una distancia
+    razonable de la cámara. Antes este chequeo pedía ver los DOS OJOS
+    (porque la normalización de labios dependía de la distancia entre
+    ellos) -- eso causaba que, apenas la cámara quedaba un poco cerca (algo
+    muy común grabando en selfie), el aviso rechazara la toma aunque la
+    boca se viera perfecta. Ahora la normalización usa las comisuras de la
+    boca (ver normalize_lip_landmarks en extraer_landmarks_npy.py), así que
+    lo único que de verdad hace falta ver es la boca -- los ojos ya no
+    importan para nada. Los umbrales son heurísticos (no hay "distancia
     correcta" única), pensados para avisar casos claramente mal encuadrados,
     no para exigir una posición exacta."""
     if landmarks_px is None:
         return False, "SIN CARA DETECTADA"
     h, w = frame_shape[:2]
-    right_eye = landmarks_px[RIGHT_EYE_OUTER]
-    left_eye = landmarks_px[LEFT_EYE_OUTER]
-    margin = 0.06
-    for x, y in (right_eye, left_eye):
+    right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+    left_corner = landmarks_px[MOUTH_LEFT_CORNER]
+    margin = 0.04
+    for x, y in (right_corner, left_corner):
         if x < w * margin or x > w * (1 - margin) or y < h * margin or y > h * (1 - margin):
-            return False, "MUY CERCA: SE CORTAN LOS OJOS -- ALEJATE"
-    eye_dist = float(np.hypot(*(left_eye - right_eye)))
-    if eye_dist > w * 0.30:
+            return False, "MUY CERCA: SE CORTA LA BOCA -- ALEJATE"
+    # El ancho de boca (comisura a comisura) es bastante más chico que la
+    # distancia entre ojos que se usaba antes -- umbrales recalibrados a
+    # mano en base a eso (aprox. la mitad), no son una medida exacta.
+    mouth_width = float(np.hypot(*(left_corner - right_corner)))
+    if mouth_width > w * 0.15:
         return False, "MUY CERCA -- ALEJATE UN POCO"
-    if eye_dist < w * 0.06:
+    if mouth_width < w * 0.025:
         return False, "MUY LEJOS -- ACERCATE UN POCO"
     return True, "ENCUADRE OK"
 
@@ -315,6 +335,17 @@ def main():
                 print(f"-> Grabando toma #{n_saved + 1}...")
 
             elif key == ord('a') and recording:
+                # Bloqueo real, no solo aviso -- antes "framing_ok" solo se
+                # mostraba en pantalla pero A guardaba la toma igual, mal
+                # encuadrada o no. Resultado confirmado: la gran mayoría del
+                # dataset grabado así tenía la cara cortada (sin los ojos en
+                # cuadro) y el detector fallaba en el 95%+ de los frames. Con
+                # esto, si el encuadre está mal EN ESTE INSTANTE, no se deja
+                # guardar -- hay que arreglar la posición y volver a apretar A.
+                if not framing_ok:
+                    print(f"[NO GUARDADA] Encuadre: {framing_msg} -- "
+                          "acomodate y apretá A de nuevo (la toma sigue grabando).")
+                    continue
                 recording = False
                 audio_state["on"] = False
                 if writer is not None:
