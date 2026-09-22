@@ -49,11 +49,13 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 # =====================================================================
 # DETECCIÓN HRNet/FAN (real, la que ve el modelo) -- esquema iBUG/300W de
-# 68 puntos: boca = índices 48-67 (20 puntos), ojos = 36 (der.) y 45 (izq.)
+# 68 puntos: boca = índices 48-67 (20 puntos).
 # =====================================================================
 LIP_INDICES = list(range(48, 68))
-RIGHT_EYE_OUTER = 36
-LEFT_EYE_OUTER = 45
+# Comisuras de la boca (48 = derecha, 54 = izquierda) -- referencia de
+# normalización en vez de los ojos, ver normalize_lip_landmarks más abajo.
+MOUTH_RIGHT_CORNER = 48
+MOUTH_LEFT_CORNER = 54
 SCALE_EPSILON = 1e-6
 HRNET_BATCH_CHUNK_SIZE = 4  # valor probado toda la sesión sin trabar la PC -- NO
 # subirlo sin probarlo antes: un sub-lote más grande manda más al GPU de una sola
@@ -129,6 +131,9 @@ def detect_landmarks_batch(detector, frames_bgr):
         else:
             faces = detected_faces[i] if i < len(detected_faces) else []
             if not len(faces):
+                # Probado y descartado (ver extraer_landmarks_npy.py): forzar
+                # el frame completo cuando SFD no encuentra cara no rescata
+                # nada, produce puntos inventados lejos de la boca real.
                 resultados.append(None)
                 continue
             preds = detector.get_landmarks_from_image(frame_rgb, detected_faces=faces)
@@ -139,22 +144,23 @@ def detect_landmarks_batch(detector, frames_bgr):
 def normalize_lip_landmarks(landmarks_px):
     """landmarks_px: array (68, 2) en píxeles (esquema HRNet). Devuelve un
     vector (40,) con los 20 puntos de labios normalizados (traslación +
-    rotación + escala), o None si algo sale mal (ej. ojos muy pegados)."""
-    right_eye = landmarks_px[RIGHT_EYE_OUTER]
-    left_eye = landmarks_px[LEFT_EYE_OUTER]
+    rotación + escala), o None si algo sale mal (ej. comisuras casi
+    superpuestas). Normaliza contra las COMISURAS DE LA BOCA, no los ojos."""
+    right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+    left_corner = landmarks_px[MOUTH_LEFT_CORNER]
 
-    eye_center = (right_eye + left_eye) / 2.0
-    eye_vector = left_eye - right_eye
-    scale = np.linalg.norm(eye_vector)
+    mouth_center = (right_corner + left_corner) / 2.0
+    mouth_vector = left_corner - right_corner
+    scale = np.linalg.norm(mouth_vector)
     if scale < 1e-3:
         return None
-    angle = math.atan2(eye_vector[1], eye_vector[0])
+    angle = math.atan2(mouth_vector[1], mouth_vector[0])
 
     cos_a, sin_a = math.cos(-angle), math.sin(-angle)
     rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
 
     lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
-    translated = lip_pts - eye_center
+    translated = lip_pts - mouth_center
     rotated = translated @ rotation.T
     normalized = rotated / (scale + SCALE_EPSILON)
 
