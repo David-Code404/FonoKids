@@ -20,15 +20,15 @@ export default function SettingsDialog({ currentUrl, onSave, onClose }) {
   return (
     <div className="dialog-backdrop" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="dialog-title">Servidor de predicción</div>
+        <div className="dialog-title">Ajustes (para un adulto)</div>
         <p className="dialog-hint">
-          URL y puerto donde corre server/main.py.
+          Dirección de conexión -- normalmente no hace falta tocar esto.
         </p>
         <input
           className="dialog-input"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder="http://localhost:8000"
+          placeholder="Dirección del servidor"
         />
         <div className="dialog-test-row">
           <button className="dialog-test-button" onClick={testConnection} disabled={testing}>

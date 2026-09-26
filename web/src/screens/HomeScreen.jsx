@@ -5,6 +5,7 @@ import {
   setServerUrl as saveServerUrl, wordsFromClasses,
 } from "../api.js";
 import { iconFor } from "../wordIcons.js";
+import { tipoErrorInfo } from "../errorTips.js";
 import SettingsDialog from "../components/SettingsDialog.jsx";
 import "./HomeScreen.css";
 
@@ -13,6 +14,11 @@ import "./HomeScreen.css";
 // para detener, esto corta solo en vez de mandar un clip cada vez más largo.
 const MAX_RECORDING_MS = 6000;
 const CONNECTION_REFRESH_MS = 20000;
+// Pedido explícito: el chico decide si quiere prender la cámara, no se le
+// pide permiso al navegador de entrada apenas abre la pantalla -- se
+// recuerda en este navegador (localStorage) para no preguntar cada vez que
+// practica, pero siempre se puede "cambiar de opinión" desde la pantalla.
+const CAMERA_CONSENT_KEY = "fonokids_camera_consent";
 
 // Overlay de puntos EN VIVO -- solo visual, no afecta la predicción real
 // (que corre en el servidor con FAN). Mismo modelo y esquema de puntos
@@ -83,7 +89,13 @@ function pickMimeType() {
 
 /// Pestaña "Practicar" -- cámara en tiempo real + evaluación de
 /// pronunciación por palabra.
-export default function HomeScreen({ initialWord = null, promptText = null, promptIcon = null, onBack = null }) {
+export default function HomeScreen({
+  initialWord = null, promptText = null, promptIcon = null, onBack = null,
+  // Apartado separado "solo audio" (ver LearningPathScreen) -- acá NUNCA se
+  // pide ni se menciona la cámara, ni siquiera como opción. Arranca
+  // directo pidiendo el micrófono apenas se monta la pantalla.
+  forceAudioOnly = false,
+}) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -114,8 +126,25 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
   const audioProcessorRef = useRef(null);
   const audioSourceRef = useRef(null);
   const audioChunksRef = useRef([]);
+  // Stream de SOLO MICRÓFONO -- para cuando el chico elige practicar sin
+  // cámara (ver acceptAudioOnly más abajo). Separado de streamRef (que es
+  // el de cámara+mic juntos) porque son dos pedidos de permiso distintos.
+  const audioOnlyStreamRef = useRef(null);
+  const audioOnlyRecordingRef = useRef(false);
 
   const [cameraError, setCameraError] = useState(null);
+  // null = todavía no contestó, true = dijo que sí, false = dijo que no.
+  const [cameraConsent, setCameraConsent] = useState(() => {
+    try {
+      return localStorage.getItem(CAMERA_CONSENT_KEY) === "yes" ? true : null;
+    } catch {
+      return null;
+    }
+  });
+  // Modo de práctica SIN cámara, solo con el micrófono -- el modelo de
+  // audio solo (~99% de accuracy real) puede decidir el veredicto sin
+  // necesitar video, ver server/main.py (_run_audio_only_pipeline).
+  const [audioOnlyMode, setAudioOnlyMode] = useState(false);
   const [recording, setRecording] = useState(false);
   const [targetWords, setTargetWords] = useState([]);
   const [targetWord, setTargetWord] = useState(null);
@@ -139,6 +168,10 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
   }, [serverUrl]);
 
   useEffect(() => {
+    // No se pide cámara/micrófono hasta que el chico dice que sí -- ver
+    // CameraConsentGate más abajo.
+    if (cameraConsent !== true) return;
+
     let cancelled = false;
     (async () => {
       try {
@@ -162,7 +195,46 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
       cancelled = true;
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
+  }, [cameraConsent]);
+
+  function acceptCameraConsent() {
+    try {
+      localStorage.setItem(CAMERA_CONSENT_KEY, "yes");
+    } catch {
+      // localStorage puede fallar (modo privado, storage bloqueado) -- no
+      // pasa nada, simplemente va a volver a preguntar la próxima vez.
+    }
+    setCameraConsent(true);
+  }
+
+  // El chico eligió NO usar cámara -- practica solo con el micrófono, el
+  // clasificador de audio entrenado decide el veredicto solo (ver
+  // AUDIO_MIN_CONFIDENCE en server/main.py).
+  async function startAudioOnlyPractice() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioOnlyStreamRef.current = stream;
+      setAudioOnlyMode(true);
+      setCameraError(null);
+    } catch (e) {
+      setCameraError(`No se pudo usar el micrófono: ${e.message || e}`);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      audioOnlyStreamRef.current?.getTracks().forEach((t) => t.stop());
+    };
   }, []);
+
+  // Apartado "solo audio" -- pide el micrófono apenas se monta la pantalla,
+  // sin preguntar nada y sin mostrar la cámara en ningún momento (a
+  // diferencia del modo normal, que primero pregunta si prender la cámara).
+  useEffect(() => {
+    if (!forceAudioOnly) return;
+    startAudioOnlyPractice();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceAudioOnly]);
 
   // Overlay de puntos EN VIVO -- carga el FaceLandmarker de MediaPipe una
   // vez y corre un loop de detección + dibujo sobre el <canvas>, sincronizado
@@ -395,10 +467,11 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
   // Arranca la captura de audio crudo (PCM) EN PARALELO al MediaRecorder de
   // video -- mismo stream, pista de audio aparte. Si el micrófono no está
   // disponible (permiso denegado, sin hardware), no rompe nada: sigue
-  // grabando solo video, como antes de agregar esto.
-  function startAudioCapture() {
+  // grabando solo video, como antes de agregar esto. En modo solo-audio
+  // (sourceStream) usa el stream de solo-mic en vez del de cámara+mic.
+  function startAudioCapture(sourceStream) {
     audioChunksRef.current = [];
-    const stream = streamRef.current;
+    const stream = sourceStream || streamRef.current;
     const audioTrack = stream?.getAudioTracks?.()[0];
     if (!audioTrack) return;
 
@@ -453,6 +526,23 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
   }
 
   const stopAndPredict = useCallback(async () => {
+    // Modo solo-audio (sin cámara): no hay MediaRecorder de video, solo se
+    // corta la captura de audio y se manda sin video -- el servidor decide
+    // el veredicto solo con el clasificador de audio entrenado (ver
+    // _run_audio_only_pipeline en server/main.py).
+    if (audioOnlyMode) {
+      if (!audioOnlyRecordingRef.current) return;
+      if (autoStopTimerRef.current) {
+        clearTimeout(autoStopTimerRef.current);
+        autoStopTimerRef.current = null;
+      }
+      audioOnlyRecordingRef.current = false;
+      const audioBlob = stopAudioCapture();
+      setRecording(false);
+      runPrediction(null, null, audioBlob);
+      return;
+    }
+
     const recorder = recorderRef.current;
     if (!recorder || recorder.state === "inactive") return;
 
@@ -476,13 +566,26 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
     const blob = new Blob(chunksRef.current, { type: mimeType });
     const ext = mimeType.includes("mp4") ? "mp4" : "webm";
     runPrediction(blob, `clip.${ext}`, audioBlob);
-  }, [runPrediction]);
+  }, [runPrediction, audioOnlyMode]);
 
   const startRecording = useCallback(() => {
-    const stream = streamRef.current;
-    if (!stream) return;
     setLastResult(null);
     setLastError(null);
+
+    if (audioOnlyMode) {
+      const stream = audioOnlyStreamRef.current;
+      if (!stream) return;
+      audioOnlyRecordingRef.current = true;
+      startAudioCapture(stream);
+      setRecording(true);
+      autoStopTimerRef.current = setTimeout(() => {
+        stopAndPredict();
+      }, MAX_RECORDING_MS);
+      return;
+    }
+
+    const stream = streamRef.current;
+    if (!stream) return;
 
     try {
       const mimeType = pickMimeType();
@@ -504,7 +607,7 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
     } catch (e) {
       setLastError(`No se pudo empezar a grabar: ${e.message || e}`);
     }
-  }, [stopAndPredict]);
+  }, [stopAndPredict, audioOnlyMode]);
 
   function toggleRecording() {
     // Pedido explícito: un intento por vez -- el botón queda deshabilitado
@@ -556,6 +659,15 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
           </div>
         </div>
 
+        {!forceAudioOnly && cameraConsent !== true && !audioOnlyMode ? (
+          <CameraConsentGate
+            declined={cameraConsent === false}
+            error={cameraError}
+            onAccept={acceptCameraConsent}
+            onDecline={() => setCameraConsent(false)}
+            onAudioOnly={startAudioOnlyPractice}
+          />
+        ) : (
         <div className="practice-stage">
           {!initialWord && targetWords.length > 0 && (
             <div className="word-picker">
@@ -581,16 +693,46 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
             </div>
           )}
 
-          <div className={`camera-frame ${recording ? "is-recording" : ""}`}>
-            {cameraError ? (
-              <div className="center-message">{cameraError}</div>
-            ) : (
-              <>
-                <video ref={videoRef} className="camera-preview" autoPlay playsInline muted />
-                <canvas ref={canvasRef} className="camera-overlay" />
-              </>
-            )}
-          </div>
+          {audioOnlyMode || forceAudioOnly ? (
+            <div className="audio-only-stage">
+              {cameraError ? (
+                <div className="audio-only-error">{cameraError}</div>
+              ) : !audioOnlyMode ? (
+                <>
+                  <div className="audio-only-orb">
+                    <span className="audio-only-icon">🎤</span>
+                  </div>
+                  <span className="audio-only-label">Activando el micrófono...</span>
+                </>
+              ) : (
+                <>
+                  <div className={`audio-only-orb ${recording ? "is-recording" : ""}`}>
+                    {recording && (
+                      <>
+                        <span className="audio-only-pulse audio-only-pulse-1" />
+                        <span className="audio-only-pulse audio-only-pulse-2" />
+                      </>
+                    )}
+                    <span className="audio-only-icon">🎤</span>
+                  </div>
+                  <span className="audio-only-label">
+                    {recording ? "Escuchando..." : "Practicando solo con la voz"}
+                  </span>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className={`camera-frame ${recording ? "is-recording" : ""}`}>
+              {cameraError ? (
+                <div className="center-message">{cameraError}</div>
+              ) : (
+                <>
+                  <video ref={videoRef} className="camera-preview" autoPlay playsInline muted />
+                  <canvas ref={canvasRef} className="camera-overlay" />
+                </>
+              )}
+            </div>
+          )}
 
           <div className="stage-hint">
             {retryingPredict
@@ -617,6 +759,7 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
             </div>
           </div>
         </div>
+        )}
       </div>
 
       <PracticeHistoryPanel
@@ -651,13 +794,16 @@ export default function HomeScreen({ initialWord = null, promptText = null, prom
 /// puede tocar afuera para cerrarla antes.
 function ResultOverlay({ result, promptText, onClose }) {
   if (!result.valid) {
+    // Pedido explícito: nunca mostrarle al chico el motivo técnico crudo
+    // que manda el servidor (ej. "cara detectada solo en 0/75 frames --
+    // encuadre malo") -- un mensaje simple y accionable alcanza.
     return (
       <div className="result-overlay" onClick={onClose}>
         <div className="result-overlay-card" onClick={(e) => e.stopPropagation()}>
-          <div className="result-overlay-emoji">🤔</div>
-          <div className="result-overlay-message">{result.reason || "Toma no válida, repetí."}</div>
+          <div className="result-overlay-emoji">🙈</div>
+          <div className="result-overlay-message">No te vi bien la carita -- ¡probemos de nuevo!</div>
           <button className="result-overlay-button neutral" onClick={onClose}>
-            Entendido
+            Dale, de nuevo
           </button>
         </div>
       </div>
@@ -695,22 +841,36 @@ function ResultOverlay({ result, promptText, onClose }) {
   // "correcta", ya pasó ese umbral, no hace falta mostrar el número.
   //
   // Cuando está MAL, en vez de un número mostramos lo que realmente se
-  // escuchó (sonido_reconocido, ver audio_pronunciation.py), así el
-  // chico/padre ve "sonó como 'pelo'" en vez de un dato sin contexto.
+  // escuchó (sonido_reconocido, ver audio_pronunciation.py) Y, si el
+  // servidor identificó el tipo de error (tipo_error: lambdacismo,
+  // dentalización, omisión), un consejo concreto de qué probar distinto --
+  // pedido explícito: no alcanza con "está mal", el chico tiene que ver
+  // DÓNDE le salió mal para poder corregirlo, no solo que se repita.
   const sonidoReconocido = result.audio?.sonido_reconocido;
+  const errorInfo = !result.correcta && result.tipo_error ? tipoErrorInfo(result.tipo_error) : null;
   return (
     <div className="result-overlay" onClick={onClose}>
       <div className={`result-overlay-card ${result.correcta ? "success" : "retry"}`} onClick={(e) => e.stopPropagation()}>
-        <div className="result-overlay-emoji">{result.correcta ? "🎉" : "🔁"}</div>
+        <div className="result-overlay-emoji">{result.correcta ? "🎉" : (result.palabra_distinta ? "🙃" : (errorInfo?.icon || "🔁"))}</div>
         <div className="result-overlay-word">{palabra}</div>
         {result.correcta ? (
           <div className="result-overlay-message">¡Muy bien dicho!</div>
+        ) : result.palabra_distinta ? (
+          <div className="result-overlay-message">
+            Esa no es la palabra de este paso -- ¡probemos decir "{palabra}"!
+          </div>
         ) : sonidoReconocido ? (
           <div className="result-overlay-message">
             Sonó como "{sonidoReconocido}" -- practiquemos "{palabra}" de nuevo
           </div>
         ) : (
           <div className="result-overlay-message">Casi... practiquemos de nuevo</div>
+        )}
+        {errorInfo && !result.palabra_distinta && (
+          <div className="result-overlay-tip">
+            <span className="result-overlay-tip-label">{errorInfo.label}</span>
+            <span className="result-overlay-tip-text">{errorInfo.tip}</span>
+          </div>
         )}
         <button className={`result-overlay-button ${result.correcta ? "success" : "retry"}`} onClick={onClose}>
           {result.correcta ? "¡Genial! 🌟" : "Intentar de nuevo"}
@@ -725,6 +885,53 @@ function ResultOverlay({ result, promptText, onClose }) {
 /// clip de práctica.
 function AttemptAvatar() {
   return <div className="capture-avatar">🗣</div>;
+}
+
+/// Pantalla que decide SI se prende la cámara -- pedido explícito: que sea
+/// el chico quien elija, en vez de pedirle permiso al navegador apenas abre
+/// la pantalla de práctica sin preguntar nada primero.
+function CameraConsentGate({ declined, error, onAccept, onDecline, onAudioOnly }) {
+  return (
+    <div className="camera-consent-gate">
+      <div className="camera-consent-icon">{declined ? "🎤" : "📷"}</div>
+      {error && (
+        <div className="camera-consent-text camera-consent-error">
+          No pudimos prender el micrófono -- fijate que le hayas dado permiso a la app en tu navegador.
+        </div>
+      )}
+      {declined ? (
+        <>
+          <div className="camera-consent-title">¡No hay problema!</div>
+          <div className="camera-consent-text">
+            Podés seguir practicando solo con tu voz, o prender la cámara cuando quieras.
+          </div>
+          <div className="camera-consent-buttons">
+            <button className="camera-consent-button primary" onClick={onAudioOnly}>
+              Practicar solo con la voz 🎤
+            </button>
+            <button className="camera-consent-button ghost" onClick={onAccept}>
+              Mejor prendo la cámara
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="camera-consent-title">¿Prendemos la cámara?</div>
+          <div className="camera-consent-text">
+            La vamos a usar para ver cómo movés la boca mientras practicás -- vos decidís.
+          </div>
+          <div className="camera-consent-buttons">
+            <button className="camera-consent-button primary" onClick={onAccept}>
+              Sí, dale 🎥
+            </button>
+            <button className="camera-consent-button ghost" onClick={onDecline}>
+              Ahora no
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 function PracticeHistoryPanel({ attempts, fadingOutIds, unclearCount, onDismiss, onClear }) {

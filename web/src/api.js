@@ -152,7 +152,10 @@ async function waitForServerBack(baseUrl, maxWaitMs = 60000) {
 async function predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra) {
   const uri = `${normalize(baseUrl)}/predict`;
   const form = new FormData();
-  form.append("file", videoBlob, filename);
+  // El video es OPCIONAL -- modo "solo voz" (sin cámara, ver
+  // CameraConsentGate en HomeScreen.jsx): no se manda "file" en absoluto, y
+  // el servidor decide el veredicto solo con el audio.
+  if (videoBlob) form.append("file", videoBlob, filename);
   // Audio y palabra son OPCIONALES -- si no hay micrófono (o el navegador
   // lo bloqueó), el servidor sigue funcionando solo con el video, igual que
   // antes de agregar el análisis de sonido.

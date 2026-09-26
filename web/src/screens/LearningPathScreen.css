@@ -25,6 +25,102 @@
   text-transform: capitalize;
 }
 
+/* Encabezado de categoría (mismo estilo que Sonidos) -- agrupa las
+   etapas de Aprender por sonido clave (R suave / RR fuerte). */
+.sounds-category {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  max-width: 820px;
+  margin: 8px auto 0;
+  padding: 0 28px;
+  text-align: center;
+}
+
+.sounds-category-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.sounds-category-hint {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.mode-choice-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  flex: 1;
+  padding: 24px;
+}
+
+.mode-choice-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  opacity: 0;
+  animation: etapa-card-in 0.4s ease forwards;
+}
+
+.mode-choice-buttons {
+  display: flex;
+  gap: 22px;
+}
+
+.mode-choice-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  border-radius: 26px;
+  padding: 30px 38px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 10px 20px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  opacity: 0;
+  animation: etapa-card-in 0.4s ease forwards;
+}
+
+.mode-choice-button:nth-child(1) {
+  background: linear-gradient(135deg, #efe9ff, #d9ccff);
+  animation-delay: 0.08s;
+}
+
+.mode-choice-button:nth-child(2) {
+  background: linear-gradient(135deg, #e3fbf1, #c3f3dd);
+  animation-delay: 0.16s;
+}
+
+.mode-choice-button:hover {
+  transform: translateY(-4px) scale(1.04);
+  box-shadow: 0 9px 0 rgba(0, 0, 0, 0.14), 0 16px 26px rgba(0, 0, 0, 0.16);
+}
+
+.mode-choice-button:hover .mode-choice-icon {
+  animation: icon-wiggle 0.5s ease;
+}
+
+.mode-choice-button:active {
+  transform: translateY(4px) scale(0.99);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.mode-choice-icon {
+  font-size: 52px;
+  display: inline-block;
+  animation: mascot-bounce 2.2s ease-in-out infinite;
+}
+
 /* Indicador de progreso -- lo más cercano a un "puntaje" que se puede
    mostrar sin inventar un sistema de puntos que todavía no existe: cuántas
    etapas ya tienen datos entrenados (desbloqueadas) sobre el total. */

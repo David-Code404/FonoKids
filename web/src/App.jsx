@@ -1,18 +1,21 @@
 import { useState } from "react";
 import PhrasesScreen from "./screens/PhrasesScreen.jsx";
+import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
 import SoundsScreen from "./screens/SoundsScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
 // con cámara) / Sonidos (sonidos sueltos, sin depender de una palabra) /
-// Logros (se deja igual, no se tocó). Se sacaron "Mi Diario" y "Práctica"
-// como pestañas propias -- la cámara se llega siempre desde "Aprender"
-// (último paso de cada etapa), no hace falta una entrada aparte.
+// Logros (lo que salió BIEN) / Para practicar (lo que salió mal, separado
+// de Logros para no mezclar estrellas con fallas). Se sacaron "Mi Diario" y
+// "Práctica" como pestañas propias -- la cámara se llega siempre desde
+// "Aprender" (último paso de cada etapa), no hace falta una entrada aparte.
 const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
   { key: "sonidos", label: "Sonidos", icon: "🔊" },
   { key: "logros", label: "Logros", icon: "🏆" },
+  { key: "errores", label: "Para practicar", icon: "🔁" },
 ];
 
 /// Navegación por pestañas: Aprender / Sonidos / Logros -- igual que
@@ -59,6 +62,9 @@ export default function App() {
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
           {visited.has(2) && <PhrasesScreen />}
+        </div>
+        <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
+          {visited.has(3) && <ErrorsScreen />}
         </div>
       </div>
     </div>

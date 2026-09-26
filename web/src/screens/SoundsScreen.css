@@ -65,6 +65,40 @@
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
 }
 
+.sound-card-speaker {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 14px;
+  opacity: 0.6;
+}
+
+.sound-card {
+  position: relative;
+}
+
+.sound-listen-button {
+  border: none;
+  border-radius: 999px;
+  padding: 14px 28px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #fff;
+  background: var(--hero-gradient, linear-gradient(135deg, #8C6BFF, #6C5CE7));
+  cursor: pointer;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.14), 0 10px 20px rgba(0, 0, 0, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.sound-listen-button:hover {
+  transform: translateY(-2px);
+}
+
+.sound-listen-button:active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.14), 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
 .sound-card-sound {
   font-size: 30px;
   font-weight: 900;
