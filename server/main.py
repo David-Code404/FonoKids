@@ -55,6 +55,8 @@ from audio_pronunciation import (  # noqa: E402
 
 from train_audio_classifier import AudioClassifierHead  # noqa: E402
 
+import db  # noqa: E402
+
 AUDIO_CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "audio_classifier.pth")
 
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
@@ -538,6 +540,8 @@ async def load_everything():
     principal -- con `async def` y llamando todo directo (sin await a
     ningún threadpool), esto se ejecuta en el mismo hilo que el event loop
     de uvicorn, que ES el principal del proceso (sin --workers)."""
+    db.init_db()
+
     if not os.path.exists(MODEL_PATH):
         print(f"[AVISO] No encontré {MODEL_PATH} -- /predict queda deshabilitado. "
               "Entrenalo con train_landmarks_transformer.py o bajalo de Colab. "
@@ -716,7 +720,16 @@ def dataset_recordings():
     momento con GET /dataset/thumbnail (ver más abajo). Cada grupo también
     trae "palabra" y "correcta" (derivados del nombre de clase) para que la
     app pueda mostrar el progreso por palabra sin tener que parsear nada
-    del lado del cliente."""
+    del lado del cliente.
+
+    Fuente de datos: primero intenta MySQL (ver db.py -- persiste aunque
+    se pierdan o se muevan los archivos de data/sesiones_continuas/, como
+    ya pasó una vez en esta PC). Si la base no está disponible, cae al
+    barrido del filesystem de siempre."""
+    from_db = db.get_recordings_grouped()
+    if from_db is not None:
+        return {"recordings": from_db}
+
     if not os.path.isdir(SESSIONS_DIR):
         return {"recordings": []}
 
@@ -990,6 +1003,94 @@ def _classify_audio(audio_path, palabra):
         return None
 
 
+def _run_audio_only_pipeline(audio_path, palabra_esperada):
+    """Versión SIN VIDEO de _run_prediction_pipeline -- para cuando el chico
+    elige practicar sin cámara (ver CameraConsentGate en el frontend, modo
+    "solo con la voz"). Usa EXCLUSIVAMENTE las dos señales de audio (GOP +
+    clasificador entrenado) para decidir el veredicto, mismo umbral de
+    confianza (AUDIO_MIN_CONFIDENCE) que ya usa el pipeline con video para
+    dejar que el audio decida solo. Sin video de respaldo: si el audio no
+    está seguro, el resultado queda "no concluyente" directamente."""
+    t_start = time.time()
+
+    es_palabra_completa = palabra_esperada and "_" not in palabra_esperada
+    audio_resultado = (
+        _score_audio_pronunciation(audio_path, palabra_esperada) if es_palabra_completa else None
+    )
+    audio_ok = (
+        audio_resultado is not None
+        and len(audio_resultado["sospechosos"]) == 0
+        and audio_resultado["palabra_reconocida"]
+    )
+    audio_clf_resultado = _classify_audio(audio_path, palabra_esperada)
+    print(f"[predict-audio] audio GOP {'OK' if audio_resultado is None else ('bien' if audio_ok else 'sospechoso')} | "
+          f"clasificador {'sin entrenar' if audio_clf_resultado is None else audio_clf_resultado['clase_predicha']} "
+          f"({time.time() - t_start:.1f}s total)")
+
+    if audio_clf_resultado is None:
+        return {
+            "valid": False,
+            "reason": "no se pudo analizar el audio -- probá de nuevo",
+        }
+
+    audio_confiable = audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
+    audio_dice_bien = audio_clf_resultado["es_correcto"] and (audio_resultado is None or audio_ok)
+
+    clase_predicha = audio_clf_resultado["clase_predicha"]
+    palabra, _pronunciacion_correcta, tipo_error = _parse_clase_predicha(clase_predicha)
+
+    if not audio_confiable:
+        veredicto_final = "no_concluyente"
+    else:
+        veredicto_final = "bien" if audio_dice_bien else "a_practicar"
+
+    # El dataset real hoy no separa clases por subtipo (todo queda mezclado
+    # en "_incorrecto"), así que tipo_error de la clase casi siempre es None
+    # -- en vez de resignarse, se lo deriva del audio (GOP + reconocimiento
+    # libre, ver audio_pronunciation.diagnose_tipo_error): compara lo que se
+    # esperaba contra lo que realmente se escuchó en la posición del sonido
+    # difícil, sin necesitar clases entrenadas por subtipo.
+    if tipo_error is None and veredicto_final == "a_practicar" and audio_resultado is not None:
+        tipo_error = audio_resultado.get("tipo_error_audio")
+
+    confianza_suficiente = audio_confiable
+
+    if confianza_suficiente:
+        db.save_attempt(
+            class_name=clase_predicha, palabra=palabra, correcta=(veredicto_final == "bien"),
+            tipo_error=tipo_error if veredicto_final == "a_practicar" else None,
+            prob=audio_clf_resultado["prob"],
+        )
+
+    return {
+        "valid": True,
+        "palabra": palabra,
+        "correcta": (veredicto_final == "bien") if confianza_suficiente else None,
+        "veredicto_final": veredicto_final,
+        "audio": {
+            "fonemas": audio_resultado["fonemas"],
+            "scores": audio_resultado["scores"],
+            "sospechosos": audio_resultado["sospechosos"],
+            "reconocido_libre": audio_resultado["reconocido_libre"],
+            "sonido_reconocido": audio_resultado["sonido_reconocido"],
+            "palabra_reconocida": audio_resultado["palabra_reconocida"],
+        } if audio_resultado is not None else None,
+        "audio_clasificador": audio_clf_resultado,
+        "tipo_error": tipo_error if (confianza_suficiente and veredicto_final == "a_practicar") else None,
+        # Modo solo-audio: el clasificador solo compara contra las clases de
+        # la palabra pedida (ver _classify_audio), nunca puede detectar que
+        # se dijo OTRA palabra -- siempre False acá.
+        "palabra_distinta": False,
+        "class_name": clase_predicha,
+        "prob": audio_clf_resultado["prob"],
+        "detected": None,
+        "total": None,
+        "confianza_suficiente": confianza_suficiente,
+        "capture_file": None,
+        "all_probs": None,
+    }
+
+
 def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, max_frames,
                               audio_path=None, palabra_esperada=None):
     """Todo el trabajo pesado (lectura de frames, HRNet, Conformer) -- código
@@ -1104,12 +1205,22 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     def _palabra_base(nombre):
         return nombre.split("_")[0]
 
+    # Marca aparte para "dijo OTRA palabra" (ej. pidieron "carro" y el video
+    # reconoció "perro") -- distinto de "dijo la palabra pedida pero mal
+    # pronunciada". El clasificador de audio NUNCA puede detectar esto (ver
+    # _classify_audio: solo compara contra las clases de la palabra pedida,
+    # no puede reconocer que el audio ni siquiera corresponde a esa
+    # familia), así que esta señal sale únicamente del video -- pedido
+    # explícito: el chico tiene que ver "esa palabra no va acá" en vez de
+    # un genérico "mal dicho" cuando ni siquiera dijo la palabra que tocaba.
+    palabra_distinta = False
     if palabra_esperada is not None and palabra != palabra_esperada:
         pidio_palabra_completa = palabra_esperada == _palabra_base(palabra_esperada)
         misma_palabra_base = _palabra_base(palabra) == _palabra_base(palabra_esperada)
         if not (pidio_palabra_completa and misma_palabra_base):
             pronunciacion_correcta = False
             tipo_error = None
+            palabra_distinta = True
 
     # Confianza del VIDEO -- si no llega a su propio umbral, no se descarta
     # todavía: más abajo el AUDIO puede rescatar el veredicto si está seguro
@@ -1194,12 +1305,24 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     else:
         veredicto_final = "bien"
 
-    # Guardamos el clip siempre que haya un resultado confiable (correcto o
-    # incorrecto) -- así el historial de práctica sirve tanto para mostrar
-    # avances como para que el logopeda/padre revise los errores.
+    # El dataset real no separa clases por subtipo (todo mezclado en
+    # "_incorrecto"), así que tipo_error de la clase casi siempre es None --
+    # se lo deriva del audio (GOP + reconocimiento libre, ver
+    # audio_pronunciation.diagnose_tipo_error) comparando lo esperado contra
+    # lo que realmente se escuchó en la posición del sonido difícil.
+    if tipo_error is None and veredicto_final == "a_practicar" and audio_resultado is not None:
+        tipo_error = audio_resultado.get("tipo_error_audio")
+
+    # Se guarda el clip siempre que haya confianza suficiente (correcto O
+    # incorrecto) -- Logros solo cuenta los "bien dichos", pero la pantalla
+    # de Errores necesita los intentos fallidos para poder mostrarlos.
     capture_file = None
     if confianza_suficiente:
         capture_file = _save_practice_clip(clase_predicha, tmp_path, suffix)
+        db.save_attempt(
+            class_name=clase_predicha, palabra=palabra, correcta=(veredicto_final == "bien"),
+            tipo_error=tipo_error if veredicto_final == "a_practicar" else None, prob=top_prob,
+        )
 
     return {
         "valid": True,
@@ -1220,6 +1343,10 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
         # suficiente, o si el checkpoint no distingue subtipos para esa
         # palabra (solo tiene "<palabra>_incorrecto" genérico).
         "tipo_error": tipo_error if (confianza_suficiente and veredicto_final == "a_practicar") else None,
+        # True si el video reconoció una palabra distinta a la pedida (ver
+        # arriba) -- el frontend usa esto para mostrar "esa palabra no es de
+        # este paso" en vez del mensaje de pronunciación.
+        "palabra_distinta": palabra_distinta and veredicto_final == "a_practicar",
         # Nombre de clase completo (ej. "perro_incorrecto_lambdacismo") -- lo
         # necesita el cliente para armar la URL de GET /dataset/thumbnail?word=...
         "class_name": clase_predicha,
@@ -1237,12 +1364,34 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
 
 @app.post("/predict")
 async def predict(
-    file: UploadFile = File(...),
+    file: UploadFile = File(None),
     audio: UploadFile = File(None),
     palabra: str = Form(None),
 ):
     if _state["model"] is None:
         raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo.")
+
+    # El audio es OPCIONAL cuando HAY video (compatibilidad con clientes
+    # viejos, y para no romper /predict si el navegador del chico no tiene
+    # micrófono). Cuando NO hay video (modo "solo voz", ver
+    # CameraConsentGate en el frontend), el audio pasa a ser obligatorio --
+    # sin ninguna de las dos señales no hay nada que evaluar.
+    audio_path = None
+    if audio is not None:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+            shutil.copyfileobj(audio.file, tmp_audio)
+            audio_path = tmp_audio.name
+
+    if file is None:
+        if audio_path is None:
+            raise HTTPException(status_code=400, detail="Hace falta mandar audio o video.")
+        try:
+            return _run_audio_only_pipeline(audio_path, palabra_esperada=palabra)
+        finally:
+            try:
+                os.remove(audio_path)
+            except OSError:
+                pass
 
     landmarker = _state["landmarker"]
     model = _state["model"]
@@ -1253,15 +1402,6 @@ async def predict(
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = tmp.name
-
-    # El audio es OPCIONAL a propósito (compatibilidad con clientes viejos
-    # que todavía no lo mandan, y para no romper /predict si el navegador
-    # del chico no tiene micrófono).
-    audio_path = None
-    if audio is not None:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
-            shutil.copyfileobj(audio.file, tmp_audio)
-            audio_path = tmp_audio.name
 
     try:
         # Llamada DIRECTA y bloqueante, en el mismo hilo que el event loop

@@ -186,7 +186,6 @@ function PhraseCard({ agg, color, onOpen }) {
           ✅ {agg.correctCount} · 🔁 {agg.incorrectCount}
         </div>
         <div className="phrase-card-spacer" />
-        <div className="phrase-card-last">🕓 Última vez: {agg.lastDate}</div>
         <PeopleRow people={agg.people} />
       </AppCard>
     </div>
@@ -229,7 +228,7 @@ function PhraseDetailDialog({ agg, onClose }) {
         </div>
         <div className="phrase-detail-sub">
           Practicada {agg.count} {agg.count === 1 ? "vez" : "veces"} -- {agg.correctCount} bien dichas,{" "}
-          {agg.incorrectCount} para seguir practicando -- última el {agg.lastDate}.
+          {agg.incorrectCount} para seguir practicando.
         </div>
         <SectionLabel>Personas</SectionLabel>
         <div className="phrase-detail-people">

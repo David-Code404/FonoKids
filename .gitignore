@@ -11,6 +11,10 @@
 # Config local de Claude Code, no es parte del proyecto.
 /.claude/
 
+# Copia archivada de clips/dataset viejos -- son datos, no código, mismo
+# criterio que /data/ de arriba: pesan mucho y no van al repo.
+/dataARCHIVADO/
+
 # Gráficas generadas por scripts/train.py
 /outputs/*.png
 
