@@ -1023,8 +1023,10 @@ def _run_audio_only_pipeline(audio_path, palabra_esperada):
         and audio_resultado["palabra_reconocida"]
     )
     audio_clf_resultado = _classify_audio(audio_path, palabra_esperada)
+    prob_str = f"{audio_clf_resultado['prob']:.2f}" if audio_clf_resultado else "?"
     print(f"[predict-audio] audio GOP {'OK' if audio_resultado is None else ('bien' if audio_ok else 'sospechoso')} | "
           f"clasificador {'sin entrenar' if audio_clf_resultado is None else audio_clf_resultado['clase_predicha']} "
+          f"prob={prob_str} (umbral {AUDIO_MIN_CONFIDENCE}) "
           f"({time.time() - t_start:.1f}s total)")
 
     if audio_clf_resultado is None:
@@ -1034,7 +1036,11 @@ def _run_audio_only_pipeline(audio_path, palabra_esperada):
         }
 
     audio_confiable = audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
-    audio_dice_bien = audio_clf_resultado["es_correcto"] and (audio_resultado is None or audio_ok)
+    # Mismo fix que en _run_prediction_pipeline: cuando el audio está
+    # seguro, decide el clasificador ENTRENADO solo, sin que el GOP genérico
+    # (más propenso a falsos "sospechosos" en palabras largas como
+    # "serpiente") lo tape.
+    audio_dice_bien = audio_clf_resultado["es_correcto"]
 
     clase_predicha = audio_clf_resultado["clase_predicha"]
     palabra, _pronunciacion_correcta, tipo_error = _parse_clase_predicha(clase_predicha)
@@ -1262,8 +1268,10 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     # directo de ejemplos reales de cada clase. Si existe (ver
     # train_audio_classifier.py), pesa más que el GOP en la decisión final.
     audio_clf_resultado = _classify_audio(audio_path, palabra_esperada or palabra)
+    prob_str = f"{audio_clf_resultado['prob']:.2f}" if audio_clf_resultado else "?"
     print(f"[predict] audio GOP {'OK' if audio_resultado is None else ('bien' if audio_ok else 'sospechoso')} | "
           f"clasificador {'sin entrenar' if audio_clf_resultado is None else audio_clf_resultado['clase_predicha']} "
+          f"prob={prob_str} (umbral {AUDIO_MIN_CONFIDENCE}) video_prob={top_prob:.2f} "
           f"({time.time() - t_start:.1f}s total)")
 
     # PRIORIDAD: el audio predomina sobre el video en este dataset -- el
@@ -1285,9 +1293,19 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     #     si contradice claramente (GOP sospechoso, o clasificador entrenado
     #     en desacuerdo con confianza), nunca al revés.
     audio_confiable = audio_clf_resultado is not None and audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
-    audio_dice_bien = audio_clf_resultado is not None and audio_clf_resultado["es_correcto"] and (
-        audio_resultado is None or audio_ok
-    )
+    # BUG real detectado: con "perro" (palabra corta) el GOP casi nunca
+    # marca fonemas sospechosos, pero con palabras más largas/complejas
+    # (ej. "serpiente") el GOP genérico (wav2vec2 sin fine-tuning, ver
+    # audio_pronunciation.py) sí los marca seguido aunque esté bien dicha --
+    # y como audio_dice_bien exigía TAMBIÉN el visto bueno del GOP incluso
+    # cuando el clasificador entrenado ya estaba 99% seguro, terminaba
+    # bajando a "a_practicar" pronunciaciones correctas solo por culpa del
+    # GOP. Cuando el audio está SEGURO (audio_confiable), manda el
+    # clasificador ENTRENADO solo -- el GOP ya no pesa acá, tal como dice el
+    # comentario de arriba ("su veredicto manda... en cualquier dirección").
+    # El GOP sigue pesando únicamente en la rama de abajo (audio no seguro),
+    # donde el video decide y el audio solo puede degradar un "bien".
+    audio_dice_bien = audio_clf_resultado is not None and audio_clf_resultado["es_correcto"]
     audio_dice_mal = (audio_resultado is not None and not audio_ok) or (
         audio_clf_resultado is not None and not audio_clf_resultado["es_correcto"]
     )

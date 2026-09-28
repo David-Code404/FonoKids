@@ -344,7 +344,15 @@ export default function HomeScreen({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, connState]);
+    // BUG real detectado: sin "initialWord" en las dependencias, este
+    // efecto solo corría cuando cambiaba la conexión -- si LearningPathScreen
+    // reutiliza el mismo HomeScreen para pasar de una palabra a otra (ej.
+    // "gorra_medias" -> "globo") sin recargar la página, el título en
+    // pantalla se actualizaba (viene de promptText) pero targetWord (lo que
+    // de verdad se manda al servidor en cada intento) quedaba pegado en la
+    // palabra anterior -- el chico veía "GLOBO" pero el server evaluaba
+    // contra "gorra_medias", así que nunca podía dar bien.
+  }, [serverUrl, connState, initialWord]);
 
   useEffect(() => {
     targetWordRef.current = targetWord;

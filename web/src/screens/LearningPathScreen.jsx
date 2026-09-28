@@ -42,6 +42,24 @@ function buildSteps(word, audioOnly = false) {
   ];
 }
 
+// Para categorías fuera de RR (S, Sinfones, G suave, C/K), el sonido difícil
+// está al PRINCIPIO de la palabra, no en el medio -- no existe el desglose
+// de "a medias"/"doble" (eso es exclusivo de RR). Esas categorías ya tienen
+// clases entrenadas de la palabra completa (correcto/incorrecto), así que
+// alcanza con un solo paso evaluable en vez de los 4 de buildSteps().
+function getSteps(word, category, audioOnly = false) {
+  if (category && category.key === "rr") return buildSteps(word, audioOnly);
+  const displayWord = category?.words.find((w) => w.word === word)?.label || word;
+  return [
+    {
+      key: "completa", label: displayWord.toUpperCase(), hint: "¡Decilo completo!",
+      desc: audioOnly
+        ? `Decí "${displayWord}" completa -- acá sí se evalúa de verdad.`
+        : `Decí "${displayWord}" completa, con cámara -- acá sí se evalúa de verdad.`,
+    },
+  ];
+}
+
 // Nombre de la FAMILIA de clases que le corresponde a un paso -- "completa"
 // usa la palabra tal cual ("perro"), los demás pasos son sub-familias
 // ("perro_doble", "perro_medias", "perro_sonido") -- mismo criterio que
@@ -87,16 +105,20 @@ export default function LearningPathScreen() {
 
   function openEtapa(word) {
     setSelectedWord(word);
-    if (selectedCategory && selectedCategory.key !== "r" && selectedCategory.key !== "rr") {
-      // Categorías fuera de R/RR (sinfones, S, K, L, etc.) todavía no tienen
-      // el desglose de 4 pasos (pensado específicamente para R/RR) ni
-      // clases entrenadas -- van directo a repetición libre con voz, igual
-      // criterio honesto que Sonidos, en vez de mostrarles pistas de "R"
-      // que no corresponden a su sonido real.
-      setView("detalle");
+    setSelectedStepIdx(0);
+    if (selectedCategory && selectedCategory.key !== "rr") {
+      // Categorías fuera de RR (S, Sinfones, G suave, C/K) no tienen el
+      // desglose de 4 pasos (eso es exclusivo de RR) -- si la palabra ya
+      // tiene clases entrenadas (ver unlockedWords), va directo a elegir
+      // cámara/voz y evaluar de verdad; si no, queda como repetición libre.
+      if (unlockedWords.includes(word)) {
+        setModeChoicePending(true);
+      } else {
+        setView("detalle");
+      }
       return;
     }
-    // Todas las etapas de R/RR quedan abiertas (pedido explícito) -- las que
+    // Todas las etapas de RR quedan abiertas (pedido explícito) -- las que
     // todavía no tienen datos entrenados igual dejan repasar los sonidos
     // sueltos (pasos 1-3, que no necesitan modelo), solo el paso final
     // (palabra completa con cámara) va a avisar si esa palabra no tiene
@@ -124,7 +146,7 @@ export default function LearningPathScreen() {
   }
 
   if (modeChoicePending && selectedWord) {
-    const steps = buildSteps(selectedWord);
+    const steps = getSteps(selectedWord, selectedCategory);
     const step = steps[selectedStepIdx];
     return (
       <div className="path-screen">
@@ -150,14 +172,15 @@ export default function LearningPathScreen() {
   }
 
   if (view === "practicar" && selectedWord) {
-    const steps = buildSteps(selectedWord, audioOnlyChosen);
+    const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
     const step = steps[selectedStepIdx];
+    const esRR = selectedCategory && selectedCategory.key === "rr";
     return (
       <HomeScreen
         initialWord={familyForStep(selectedWord, step.key)}
         promptText={step.label}
         promptIcon={selectedWord}
-        onBack={() => setView("pasos")}
+        onBack={() => setView(esRR ? "pasos" : "etapas")}
         forceAudioOnly={audioOnlyChosen}
       />
     );
@@ -165,16 +188,17 @@ export default function LearningPathScreen() {
 
   if (view === "detalle" && selectedWord) {
     const wordInfo = selectedCategory?.words.find((w) => w.word === selectedWord);
+    const displayWord = wordInfo?.label || selectedWord;
     return (
       <div className="path-screen">
         <div className="path-header">
           <button className="icon-button" onClick={() => setView("etapas")}>←</button>
-          <span className="path-title">{wordInfo?.icon || iconFor(selectedWord)} {selectedWord}</span>
+          <span className="path-title">{wordInfo?.icon || iconFor(selectedWord)} {displayWord}</span>
         </div>
         <div className="repeat-stage">
           <div className="repeat-word">{wordInfo?.sound}</div>
-          <div className="repeat-hint">Así empezás a practicar &quot;{selectedWord}&quot;</div>
-          <button className="sound-listen-button" onClick={() => speakWord(selectedWord)}>
+          <div className="repeat-hint">Así empezás a practicar &quot;{displayWord}&quot;</div>
+          <button className="sound-listen-button" onClick={() => speakWord(displayWord)}>
             🔊 Escuchar
           </button>
           <div className="repeat-note">
@@ -256,7 +280,7 @@ export default function LearningPathScreen() {
               >
                 <span className="etapa-card-tag">Etapa {i + 1}</span>
                 <span className="etapa-card-word">
-                  <span className="etapa-card-icon">{w.icon || iconFor(w.word)}</span> {w.word.replaceAll("_", " ")}
+                  <span className="etapa-card-icon">{w.icon || iconFor(w.word)}</span> {(w.label || w.word).replaceAll("_", " ")}
                 </span>
                 <span className="etapa-card-action">
                   {unlocked ? "Repasar →" : "Practicar →"}
