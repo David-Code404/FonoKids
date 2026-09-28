@@ -693,10 +693,10 @@ export default function HomeScreen({
             </div>
           )}
 
-          {targetWord && (
+          {(promptText || targetWord) && (
             <div className="target-word-banner">
               Decí: <span className="target-word-banner-word">
-                {iconFor(promptIcon || targetWord)} {(promptText || targetWord.replaceAll("_", " "))}
+                {iconFor(promptIcon || targetWord)} {promptText || targetWord.replaceAll("_", " ")}
               </span>
             </div>
           )}
