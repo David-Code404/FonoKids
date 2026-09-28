@@ -61,10 +61,10 @@ export default function App() {
           {visited.has(1) && <SoundsScreen />}
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
-          {visited.has(2) && <PhrasesScreen />}
+          {visited.has(2) && <PhrasesScreen active={index === 2} />}
         </div>
         <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
-          {visited.has(3) && <ErrorsScreen />}
+          {visited.has(3) && <ErrorsScreen active={index === 3} />}
         </div>
       </div>
     </div>
