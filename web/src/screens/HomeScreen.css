@@ -154,16 +154,16 @@
 /* Pantalla del modo "solo voz" -- sin caja negra tipo cámara, una burbuja
    de color con el micrófono, que pulsa mientras graba. */
 .audio-only-stage {
-  width: clamp(280px, 52vw, 680px);
-  aspect-ratio: 4 / 3;
+  width: clamp(220px, 32vw, 360px);
+  aspect-ratio: 1 / 1;
   max-height: 100%;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 22px;
-  border-radius: 32px;
+  gap: 16px;
+  border-radius: 28px;
   background: linear-gradient(160deg, #efe9ff, #d9ccff);
 }
 
@@ -176,8 +176,8 @@
 
 .audio-only-orb {
   position: relative;
-  width: 140px;
-  height: 140px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   background: var(--hero-gradient, linear-gradient(135deg, #8C6BFF, #6C5CE7));
   display: flex;
@@ -192,7 +192,7 @@
 }
 
 .audio-only-icon {
-  font-size: 56px;
+  font-size: 38px;
   z-index: 1;
 }
 

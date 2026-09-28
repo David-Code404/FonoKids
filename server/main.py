@@ -978,8 +978,8 @@ def _classify_audio(audio_path, palabra):
     # Solo tiene sentido clasificar si HAY clases de esta palabra entre las
     # que el clasificador aprendió -- si pedís "perro" pero solo entrenaste
     # con "carro", no hay nada que comparar.
-    clases_de_la_palabra = [c for c in class_names if c.startswith(f"{palabra}_")]
-    if not clases_de_la_palabra:
+    indices_de_la_palabra = [i for i, c in enumerate(class_names) if c.startswith(f"{palabra}_")]
+    if not indices_de_la_palabra:
         return None
     try:
         emb = extract_embedding(audio_path, _state["audio_model"], _state["audio_feature_extractor"], DEVICE)
@@ -991,7 +991,18 @@ def _classify_audio(audio_path, palabra):
         x = torch.from_numpy(emb_norm.reshape(1, -1)).float().to(DEVICE)
         with torch.no_grad():
             probs = torch.softmax(clf(x), dim=1)[0]
-        idx = int(torch.argmax(probs).item())
+        # BUG real detectado: acá se calculaba el argmax sobre las 58 clases
+        # completas, sin usar "indices_de_la_palabra" para nada -- si pedías
+        # "perro" pero el audio se parecía más a "gota", devolvía
+        # "gota_correcto" en vez de reconocer que ni siquiera es la palabra
+        # pedida. Ahora el argmax se restringe a los índices de ESA palabra
+        # (correcto/incorrecto/medias/doble, lo que tenga entrenado) -- si el
+        # audio no se parece a nada de esa familia, la probabilidad ahí
+        # dentro sale baja de por sí (la masa está en otras clases), así que
+        # cae solo bajo AUDIO_MIN_CONFIDENCE sin necesitar lógica aparte.
+        probs_familia = probs[indices_de_la_palabra]
+        idx_local = int(torch.argmax(probs_familia).item())
+        idx = indices_de_la_palabra[idx_local]
         clase_predicha = class_names[idx]
         return {
             "clase_predicha": clase_predicha,
