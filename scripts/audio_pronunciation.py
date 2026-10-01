@@ -354,9 +354,6 @@ def _distancia_edicion(a, b):
 # convirtió en "d" = dentalización. Cualquier otra sustitución queda sin
 # clasificar (None) en vez de inventar una etiqueta que no corresponde.
 # =====================================================================
-_FONEMAS_R = {"r", "ɾ"}
-
-
 def _align_ops(a, b):
     """Alineación por distancia de Levenshtein con backtrace -- devuelve la
     lista de operaciones (match/sub/del/ins) en el orden de `a`, cada una
@@ -396,22 +393,59 @@ def _align_ops(a, b):
     return ops
 
 
+# Fonemas "difíciles" que el proyecto entrena hoy (ver web/src/soundCategories.js)
+# y, para cada uno, qué sustituciones puntuales corresponden a qué nombre de
+# error clínico -- mismo criterio que ya se usaba para R/RR, generalizado a
+# las otras 4 categorías (C/K, G suave, S, Sinfones). Los sinfones (bl/cl/
+# fl/gl/pl) se resuelven aparte, más abajo, porque el "error" ahí es sobre
+# el SEGUNDO fonema del grupo (la "l"), no sobre uno solo.
+_SUSTITUCIONES_CONOCIDAS = {
+    "r": {"l": "lambdacismo", "d": "dentalizacion"},
+    "ɾ": {"l": "lambdacismo", "d": "dentalizacion"},
+    "k": {"t": "anteriorizacion", "x": "debilitamiento", "h": "debilitamiento"},
+    "ɡ": {"d": "anteriorizacion", "x": "debilitamiento", "h": "debilitamiento"},
+    "s": {"θ": "interdental", "t": "oclusion", "d": "oclusion"},
+}
+_SINFONES = {"bl", "kl", "fl", "ɡl", "pl"}  # cl -> "k"+"l" en fonemas (texto_a_fonemas usa "k")
+
+
 def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista):
-    """Devuelve 'omision' / 'lambdacismo' / 'dentalizacion' / None, mirando
-    qué pasó en la posición del fonema r/ɾ dentro de la alineación entre lo
-    esperado y lo reconocido libremente. Si la palabra no tiene r/ɾ, o el
-    error no encaja en ninguno de los 3 patrones conocidos, devuelve None
+    """Devuelve un tipo de error (omision / lambdacismo / dentalizacion /
+    anteriorizacion / debilitamiento / interdental / oclusion / epentesis)
+    o None, mirando qué pasó en la posición del fonema difícil de la
+    palabra dentro de la alineación entre lo esperado y lo reconocido
+    libremente. Cubre los 5 sonidos que el proyecto entrena hoy (R/RR, S,
+    G, C/K, Sinfones con L) -- si la palabra no tiene ninguno de esos
+    fonemas, o el error no encaja en ningún patrón conocido, devuelve None
     en vez de forzar una etiqueta."""
     ops = _align_ops(fonemas_esperados, reconocido_libre_lista)
+
+    # Sinfones (bl/cl/fl/gl/pl): el error típico es comerse la "l" del grupo
+    # (reducción) o meter una vocal en el medio (epéntesis) -- se busca una
+    # "l" esperada que venga justo después de una consonante de sinfón.
+    for idx, (tipo, esperado, reconocido) in enumerate(ops):
+        if esperado == "l" and idx > 0:
+            anterior = ops[idx - 1][1]  # fonema esperado anterior
+            if anterior and (anterior + "l") in _SINFONES:
+                if tipo == "del":
+                    return "omision"
+                if tipo == "sub" and reconocido and reconocido not in ("l",):
+                    return "distorsion"
+    for idx, (tipo, esperado, reconocido) in enumerate(ops):
+        if tipo == "ins" and idx > 0:
+            previo = ops[idx - 1]
+            if previo[0] in ("match", "sub") and previo[1] and (previo[1] + "l") in _SINFONES:
+                return "epentesis"
+
+    # R/RR, S, G, C/K: un solo fonema difícil, sustitución directa.
     for tipo, esperado, reconocido in ops:
-        if esperado not in _FONEMAS_R:
+        tabla = _SUSTITUCIONES_CONOCIDAS.get(esperado)
+        if tabla is None:
             continue
         if tipo == "del":
             return "omision"
-        if tipo == "sub" and reconocido == "l":
-            return "lambdacismo"
-        if tipo == "sub" and reconocido == "d":
-            return "dentalizacion"
+        if tipo == "sub" and reconocido in tabla:
+            return tabla[reconocido]
     return None
 
 
@@ -498,6 +532,216 @@ def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, devi
         "distancia_normalizada": normalizada,
         "palabra_reconocida": palabra_reconocida,
         "tipo_error_audio": diagnose_tipo_error(fonemas_usados, reconocido_libre),
+    }
+
+
+# Umbral de distancia de edición normalizada para decidir si la palabra
+# objetivo realmente aparece en la frase reconocida libremente -- más
+# permisivo que PALABRA_MISMATCH_THRESHOLD porque acá se compara contra la
+# MEJOR ventana encontrada (ya recortada al largo de la palabra), no contra
+# la frase entera.
+FRASE_PALABRA_MISMATCH_THRESHOLD = 0.5
+
+# Pedido explícito: si el chico dice solo la palabra suelta (o una frase
+# mucho más corta que la pedida) en vez de la frase completa, NO tiene que
+# contar como intento válido -- antes solo se validaba la palabra objetivo
+# dentro de lo que sea que se haya grabado, así que decir nada más que
+# "casa" ya pasaba como si hubiera dicho "mi casa es grande". Se compara el
+# LARGO de lo reconocido libremente contra el largo esperado de fonemas de
+# la frase entera (no la distancia de edición: el reconocimiento libre ya
+# tiene ruido normal incluso en una frase bien dicha, pero el LARGO es un
+# indicador mucho más robusto de si faltó decir una parte entera).
+FRASE_COMPLETA_LARGO_MINIMO = 0.6
+
+
+def _localizar_subsecuencia(secuencia, objetivo):
+    """Busca dónde aparece `objetivo` (lista de fonemas de la palabra sola)
+    dentro de `secuencia` (lista de fonemas de la frase completa), probando
+    todas las ventanas de largo parecido y quedándose con la de menor
+    distancia de edición. No exige coincidencia exacta a propósito: la
+    regla de "r fuerte al principio de palabra" en texto_a_fonemas() mira
+    el inicio del STRING completo, así que una palabra que empieza con r
+    en medio de una frase puede fonemizarse levemente distinto que la
+    misma palabra calculada sola -- por eso se busca la MEJOR ventana, no
+    un substring exacto.
+
+    Devuelve (inicio, fin) del mejor tramo dentro de `secuencia`."""
+    n, m = len(secuencia), len(objetivo)
+    if m == 0 or n == 0:
+        return 0, 0
+    mejor_inicio, mejor_fin, mejor_dist = 0, min(m, n), None
+    for largo in (max(1, m - 1), m, m + 1):
+        for inicio in range(0, max(1, n - largo + 1)):
+            fin = inicio + largo
+            if fin > n:
+                continue
+            dist = _distancia_edicion(secuencia[inicio:fin], objetivo)
+            if mejor_dist is None or dist < mejor_dist:
+                mejor_inicio, mejor_fin, mejor_dist = inicio, fin, dist
+    return mejor_inicio, mejor_fin
+
+
+def score_word_in_sentence(wav_path, frase, palabra_objetivo, model, feature_extractor, vocab, device):
+    """Como score_pronunciation(), pero el chico dice una FRASE completa
+    (ej. "el perro corre por las montañas") en vez de la palabra sola --
+    pedido explícito: que se pueda practicar en un contexto más natural,
+    no solo palabras sueltas. No usa el clasificador de audio entrenado
+    (ver train_audio_classifier.py) porque ESE se entrenó únicamente con
+    clips de la palabra sola: si se le da una frase entera, el embedding
+    resume toda la frase junta y la clasificación no tiene sentido. Esto
+    en cambio solo necesita el GOP genérico (wav2vec2 sin entrenamiento
+    propio), que no depende de ningún dataset -- se alinea la frase
+    ENTERA contra el audio, y después se recorta el resultado solo al
+    tramo donde aparece `palabra_objetivo` dentro de esa frase.
+
+    Devuelve el mismo formato que score_pronunciation(), más "frase" y
+    "palabra_objetivo" para que el cliente sepa contra qué se comparó."""
+    waveform = load_audio_16k(wav_path)
+
+    inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors="pt")
+    with torch.inference_mode():
+        logits = model(inputs.input_values.to(device)).logits
+    log_probs = torch.log_softmax(logits, dim=-1)
+
+    id_to_phoneme = {v: k for k, v in vocab.items()}
+    blank_id = vocab["<pad>"]
+
+    pred_ids = torch.argmax(log_probs, dim=-1)[0].tolist()
+    reconocido_libre = _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id)
+
+    fonemas_frase = texto_a_fonemas(frase)
+    fonemas_palabra = texto_a_fonemas(palabra_objetivo)
+    target_ids, fonemas_frase_usados = _phoneme_to_token_ids(fonemas_frase, vocab)
+    if not target_ids:
+        raise ValueError(f"No se pudo mapear ningún fonema de la frase '{frase}' al vocabulario del modelo.")
+
+    targets = torch.tensor([target_ids], dtype=torch.int32, device=device)
+    aligned_labels, aligned_scores = F.forced_align(log_probs, targets, blank=blank_id)
+    aligned_labels = aligned_labels[0].tolist()
+    aligned_scores = aligned_scores[0].tolist()
+
+    # Además del score por fonema, se guarda en qué FRAME de audio empieza y
+    # termina cada grupo -- hace falta para recortar la forma de onda más
+    # abajo, no solo los fonemas/scores.
+    scores_por_fonema = []
+    frame_ranges = []
+    idx_target = 0
+    frame_scores_actual = []
+    frame_indices_actual = []
+    for frame_idx, (label, score) in enumerate(zip(aligned_labels, aligned_scores)):
+        if label == blank_id:
+            continue
+        if idx_target < len(target_ids) and label == target_ids[idx_target]:
+            frame_scores_actual.append(score)
+            frame_indices_actual.append(frame_idx)
+        elif frame_scores_actual:
+            scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+            frame_ranges.append((frame_indices_actual[0], frame_indices_actual[-1]))
+            frame_scores_actual = [score]
+            frame_indices_actual = [frame_idx]
+            idx_target += 1
+        else:
+            frame_scores_actual = [score]
+            frame_indices_actual = [frame_idx]
+    if frame_scores_actual:
+        scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+        frame_ranges.append((frame_indices_actual[0], frame_indices_actual[-1]))
+    while len(scores_por_fonema) < len(fonemas_frase_usados):
+        scores_por_fonema.append(None)
+        frame_ranges.append(None)
+
+    # Recorta todo (fonemas y scores) al tramo de la frase donde está la
+    # palabra objetivo -- de acá para abajo es igual que score_pronunciation
+    # pero mirando solo ese pedacito, no la frase entera.
+    inicio, fin = _localizar_subsecuencia(fonemas_frase_usados, fonemas_palabra)
+    fonemas_usados = fonemas_frase_usados[inicio:fin]
+    scores_recortados = scores_por_fonema[inicio:fin]
+
+    # Recorta la forma de onda ORIGINAL al mismo tramo de tiempo, con un
+    # colchón de 150ms de cada lado (el clasificador entrenado, ver
+    # train_audio_classifier.py, aprendió de clips grabados como palabra
+    # aislada, con algo de silencio natural alrededor -- recortar justo al
+    # fonema sin margen suena distinto a esos clips de entrenamiento).
+    # Frame -> muestra de audio: la relación es lineal (frames totales del
+    # modelo vs. muestras totales del audio), no depende de una constante
+    # fija por si el modelo cambia de arquitectura.
+    rangos_validos = [r for r in frame_ranges[inicio:fin] if r is not None]
+    audio_recortado = None
+    if rangos_validos:
+        total_frames = log_probs.shape[1]
+        total_muestras = waveform.shape[0]
+        muestras_por_frame = total_muestras / max(total_frames, 1)
+        frame_inicio = min(r[0] for r in rangos_validos)
+        frame_fin = max(r[1] for r in rangos_validos)
+        colchon_muestras = int(0.15 * TARGET_SAMPLE_RATE)
+        muestra_inicio = max(0, int(frame_inicio * muestras_por_frame) - colchon_muestras)
+        muestra_fin = min(total_muestras, int((frame_fin + 1) * muestras_por_frame) + colchon_muestras)
+        if muestra_fin > muestra_inicio:
+            audio_recortado = waveform[muestra_inicio:muestra_fin]
+
+    sospechosos = [
+        i for i, s in enumerate(scores_recortados)
+        if s is not None and s < GOP_SUSPICIOUS_THRESHOLD
+    ]
+
+    # Pedido explícito: hasta acá solo se revisaba la palabra objetivo
+    # ("torre") -- si el resto de la frase pedida cambiaba (ej. decir "la
+    # torre es muy BAJA" en vez de "ALTA"), igual contaba bien porque
+    # "torre" se había dicho correctamente. Ahora se revisan también los
+    # fonemas de la frase que quedan FUERA del tramo de la palabra objetivo
+    # (ya alineados arriba contra la frase entera) -- si hay dos o más
+    # fonemas sospechosos ahí afuera, lo más probable es que cambió una
+    # palabra entera (una sola nota baja aislada puede ser ruido normal del
+    # reconocimiento, dos o más seguidas en el mismo lugar no).
+    scores_fuera_de_la_palabra = scores_por_fonema[:inicio] + scores_por_fonema[fin:]
+    sospechosos_fuera = [
+        s for s in scores_fuera_de_la_palabra
+        if s is not None and s < GOP_SUSPICIOUS_THRESHOLD
+    ]
+    resto_de_la_frase_ok = len(sospechosos_fuera) < 2
+
+    # Para "¿se reconoció la palabra?" se busca la mejor ventana DENTRO del
+    # reconocimiento libre de la frase entera (mismo criterio de
+    # _localizar_subsecuencia), no se compara la palabra contra la frase
+    # completa reconocida (eso infla la distancia sin sentido).
+    lib_inicio, lib_fin = _localizar_subsecuencia(reconocido_libre, fonemas_palabra)
+    ventana_reconocida = reconocido_libre[lib_inicio:lib_fin]
+    distancia = _distancia_edicion(ventana_reconocida, fonemas_palabra)
+    normalizada = distancia / max(len(fonemas_palabra), len(ventana_reconocida), 1)
+    palabra_reconocida = normalizada <= FRASE_PALABRA_MISMATCH_THRESHOLD
+
+    # ¿Dijo la frase ENTERA, o solo un pedacito (ej. nada más que la
+    # palabra suelta)? Ver comentario de FRASE_COMPLETA_LARGO_MINIMO arriba.
+    frase_completa_dicha = (
+        len(reconocido_libre) >= FRASE_COMPLETA_LARGO_MINIMO * len(fonemas_frase_usados)
+    )
+
+    # Guarda el audio recortado en un .wav temporal -- así el llamador
+    # (server/main.py) puede pasárselo directo al clasificador ENTRENADO
+    # (extract_embedding espera una ruta de archivo, no un tensor), y
+    # combinar esa señal (99% de accuracy real) con el GOP de acá arriba,
+    # en vez de depender solo del GOP para frases completas.
+    audio_recortado_path = None
+    if audio_recortado is not None:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+            audio_recortado_path = tmp.name
+        torchaudio.save(audio_recortado_path, audio_recortado.unsqueeze(0), TARGET_SAMPLE_RATE)
+
+    return {
+        "frase": frase,
+        "palabra_objetivo": palabra_objetivo,
+        "fonemas": fonemas_usados,
+        "scores": scores_recortados,
+        "sospechosos": sospechosos,
+        "reconocido_libre": " ".join(reconocido_libre),
+        "sonido_reconocido": fonemas_a_texto_aproximado(ventana_reconocida),
+        "distancia_normalizada": normalizada,
+        "palabra_reconocida": palabra_reconocida,
+        "frase_completa_dicha": frase_completa_dicha,
+        "resto_de_la_frase_ok": resto_de_la_frase_ok,
+        "tipo_error_audio": diagnose_tipo_error(fonemas_palabra, reconocido_libre),
+        "audio_recortado_path": audio_recortado_path,
     }
 
 
