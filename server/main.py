@@ -51,6 +51,7 @@ from audio_pronunciation import (  # noqa: E402
     extract_embedding,
     load_model as load_audio_model,
     score_pronunciation,
+    score_word_in_sentence,
 )
 
 from train_audio_classifier import AudioClassifierHead  # noqa: E402
@@ -71,21 +72,21 @@ MIN_DETECTION_RATE_VALID = 0.6  # menos del 60% de frames con cara detectada = t
 # detectar una cara. 640px es lo mismo que usa probar_modelo.py (FRAME_SIZE).
 MAX_FRAME_WIDTH = 640
 
-# Igual que probar_modelo.py: el modelo SIEMPRE elige una de las clases
-# entrenadas (no sabe decir "no sé"), así que esto es lo que distingue "el
-# modelo está seguro de esta lectura" de "está adivinando entre dos clases
-# parecidas, no confiar en este resultado todavía".
-MIN_CONFIDENCE_PROB = 0.40
-MIN_CONFIDENCE_MARGIN = 0.15
-
-# Umbral de confianza del CLASIFICADOR DE AUDIO entrenado -- separado del de
-# video de arriba porque el audio mide ~99% de accuracy real en validación
-# (contra ~79% del video, ver outputs/reporte_resultados.md), así que puede
-# decidir por su cuenta cuando el video no llega a su propio umbral (ver
-# audio_confiable en _run_prediction_pipeline). Sin este umbral, un
-# clasificador de audio con una predicción dudosa (probabilidad baja, cerca
-# del azar) también podría "salvar" un video incierto sin merecerlo.
+# Umbral usado SOLO por _run_audio_only_pipeline (modo "solo voz", sin
+# video) -- ahí no hay señal visual para cruzar, así que decide el audio
+# solo con su propio umbral de confianza.
 AUDIO_MIN_CONFIDENCE = 0.60
+
+# =====================================================================
+# MATRIZ DE DECISIÓN CRUZADA Acoustic_Match x Visual_Match (pedido
+# explícito del docente, ver _run_prediction_pipeline) -- cada señal tiene
+# su propio umbral de confianza, evaluado por separado, y las dos tienen
+# que confirmar para dar "SABE" (bien dicho). Reemplaza al esquema anterior
+# de "prioridad" (MIN_CONFIDENCE_PROB/MARGIN + AUDIO_MIN_CONFIDENCE con el
+# audio mandando solo) que se usaba antes en el pipeline con cámara.
+# =====================================================================
+ACOUSTIC_MATCH_THRESHOLD = 0.80
+VISUAL_MATCH_THRESHOLD = 0.75
 
 # Convención de nombres de clase en el checkpoint: cada palabra objetivo
 # aporta la clase "<palabra>_correcto" y una o más clases de error
@@ -960,6 +961,23 @@ def _score_audio_pronunciation(audio_path, palabra):
         return None
 
 
+def _score_word_in_sentence(audio_path, frase, palabra):
+    """Envoltorio fino sobre audio_pronunciation.score_word_in_sentence() --
+    nunca tira: si falla, devuelve None."""
+    if audio_path is None or not frase or not palabra:
+        return None
+    if _state["audio_model"] is None:
+        return None
+    try:
+        return score_word_in_sentence(
+            audio_path, frase, palabra,
+            _state["audio_model"], _state["audio_feature_extractor"], _state["audio_vocab"], DEVICE,
+        )
+    except Exception as e:
+        print(f"[AVISO] Falló el análisis de frase ({e}).")
+        return None
+
+
 def _classify_audio(audio_path, palabra):
     """Clasificador de audio ENTRENADO con clips reales (ver
     train_audio_classifier.py) -- a diferencia del GOP de arriba (que fuerza
@@ -1239,11 +1257,6 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
             tipo_error = None
             palabra_distinta = True
 
-    # Confianza del VIDEO -- si no llega a su propio umbral, no se descarta
-    # todavía: más abajo el AUDIO puede rescatar el veredicto si está seguro
-    # (ver confianza_suficiente combinada).
-    confianza_video = top_prob >= MIN_CONFIDENCE_PROB and margin >= MIN_CONFIDENCE_MARGIN
-
     all_probs = {class_names[i]: float(probs[i].item()) for i in range(len(class_names))}
 
     # Análisis de AUDIO (sonido, no video) -- ver audio_pronunciation.py. Se
@@ -1285,62 +1298,52 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
           f"prob={prob_str} (umbral {AUDIO_MIN_CONFIDENCE}) video_prob={top_prob:.2f} "
           f"({time.time() - t_start:.1f}s total)")
 
-    # PRIORIDAD: el audio predomina sobre el video en este dataset -- el
-    # clasificador de audio entrenado mide ~99% de accuracy real en
-    # validación, contra ~79% del modelo visual (ver
-    # outputs/reporte_resultados.md). Con 20 clases visualmente parecidas
-    # (perro/carro/burro/gorra/torre comparten casi el mismo movimiento de
-    # labios en la RR), el video se equivoca bastante más seguido, a veces
-    # con MUCHA confianza (confirmado: "gorra" dicha bien, video dijo
-    # "gorra_incorrecto" con 91% de probabilidad). Por eso:
-    #   - Si el audio está SEGURO (ver AUDIO_MIN_CONFIDENCE), su veredicto
-    #     manda -- puede tanto CONFIRMAR como REVERTIR lo que dijo el video,
-    #     en cualquier dirección, incluso si el video no llegó a su propio
-    #     umbral de confianza (así no se pierde un buen audio solo porque
-    #     el video dudó).
-    #   - Si el audio no está disponible o no está seguro, se cae al
-    #     criterio de antes: decide el video (con el chequeo de familia de
-    #     palabra de más arriba), y el audio solo puede DEGRADAR un "bien"
-    #     si contradice claramente (GOP sospechoso, o clasificador entrenado
-    #     en desacuerdo con confianza), nunca al revés.
-    audio_confiable = audio_clf_resultado is not None and audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
-    # BUG real detectado: con "perro" (palabra corta) el GOP casi nunca
-    # marca fonemas sospechosos, pero con palabras más largas/complejas
-    # (ej. "serpiente") el GOP genérico (wav2vec2 sin fine-tuning, ver
-    # audio_pronunciation.py) sí los marca seguido aunque esté bien dicha --
-    # y como audio_dice_bien exigía TAMBIÉN el visto bueno del GOP incluso
-    # cuando el clasificador entrenado ya estaba 99% seguro, terminaba
-    # bajando a "a_practicar" pronunciaciones correctas solo por culpa del
-    # GOP. Cuando el audio está SEGURO (audio_confiable), manda el
-    # clasificador ENTRENADO solo -- el GOP ya no pesa acá, tal como dice el
-    # comentario de arriba ("su veredicto manda... en cualquier dirección").
-    # El GOP sigue pesando únicamente en la rama de abajo (audio no seguro),
-    # donde el video decide y el audio solo puede degradar un "bien".
-    audio_dice_bien = audio_clf_resultado is not None and audio_clf_resultado["es_correcto"]
-    audio_dice_mal = (audio_resultado is not None and not audio_ok) or (
-        audio_clf_resultado is not None and not audio_clf_resultado["es_correcto"]
+    # NOTA histórica: acá antes había un esquema de "prioridad" (el audio
+    # mandaba solo si estaba seguro, el video era respaldo) -- funcionaba
+    # bien pero el docente pidió específicamente la matriz cruzada de abajo,
+    # que evalúa las dos señales por separado y exige que confirmen las dos.
+    # =====================================================================
+    # MATRIZ DE DECISIÓN CRUZADA (pedido explícito del docente) -- reemplaza
+    # la lógica de "prioridad" de arriba por una matriz Acoustic_Match x
+    # Visual_Match, cada señal con su propio umbral, evaluadas por separado:
+    #   Acoustic_Match = clasificador de audio entrenado predice "correcto"
+    #                     Y su confianza >= ACOUSTIC_MATCH_THRESHOLD (0.80)
+    #   Visual_Match   = el video predice la familia correcta (mismo chequeo
+    #                     de familia que ya se hacía arriba) Y su confianza
+    #                     (top_prob del Conformer) >= VISUAL_MATCH_THRESHOLD
+    #                     (0.75)
+    # Con las dos señales evaluadas, se cruzan en 4 combinaciones -- a
+    # diferencia del esquema de prioridad anterior, ACÁ SÍ un video que no
+    # llega a su umbral puede bajar un resultado aunque el audio esté bien
+    # (eso es justamente lo que pide esta matriz: las dos señales tienen
+    # que confirmar, no alcanza con que una sola esté segura).
+    acoustic_match = (
+        audio_clf_resultado is not None
+        and audio_clf_resultado["prob"] >= ACOUSTIC_MATCH_THRESHOLD
+        and audio_clf_resultado["es_correcto"]
     )
+    visual_match = top_prob >= VISUAL_MATCH_THRESHOLD and pronunciacion_correcta
 
-    confianza_suficiente = confianza_video or audio_confiable
+    # Sin clasificador de audio entrenado para esta palabra no hay señal
+    # acústica para cruzar -- no se puede aplicar la matriz, resultado
+    # "no_concluyente" en vez de inventar un veredicto con una sola señal.
+    confianza_suficiente = audio_clf_resultado is not None
 
     if not confianza_suficiente:
         veredicto_final = "no_concluyente"
-    elif audio_confiable:
-        veredicto_final = "bien" if audio_dice_bien else "a_practicar"
-    elif not pronunciacion_correcta:
-        veredicto_final = "a_practicar"
-    elif audio_dice_mal:
-        veredicto_final = "a_practicar"
-    else:
+        tipo_error = None
+    elif acoustic_match and visual_match:
         veredicto_final = "bien"
-
-    # El dataset real no separa clases por subtipo (todo mezclado en
-    # "_incorrecto"), así que tipo_error de la clase casi siempre es None --
-    # se lo deriva del audio (GOP + reconocimiento libre, ver
-    # audio_pronunciation.diagnose_tipo_error) comparando lo esperado contra
-    # lo que realmente se escuchó en la posición del sonido difícil.
-    if tipo_error is None and veredicto_final == "a_practicar" and audio_resultado is not None:
-        tipo_error = audio_resultado.get("tipo_error_audio")
+        tipo_error = None
+    elif (not acoustic_match) and visual_match:
+        veredicto_final = "a_practicar"
+        tipo_error = "sustitucion_acustica"  # Error de Sustitución / Distorsión Acústica
+    elif (not acoustic_match) and (not visual_match):
+        veredicto_final = "a_practicar"
+        tipo_error = "motor_severo"  # Error Motor-Articulatorio Severo
+    else:  # acoustic_match and not visual_match
+        veredicto_final = "a_practicar"
+        tipo_error = "compensacion_visual"  # Compensación Visual / Gesto Atípico
 
     # Se guarda el clip siempre que haya confianza suficiente (correcto O
     # incorrecto) -- Logros solo cuenta los "bien dichos", pero la pantalla
@@ -1452,6 +1455,130 @@ async def predict(
                 os.remove(audio_path)
             except OSError:
                 pass
+
+
+@app.post("/predict_frase")
+async def predict_frase(
+    audio: UploadFile = File(...),
+    frase: str = Form(...),
+    palabra: str = Form(...),
+):
+    """Evalúa UNA palabra ya entrenada dentro de una FRASE completa (ej.
+    frase="el perro corre por las montañas", palabra="perro") -- pedido
+    explícito: practicar en un contexto más natural, no solo la palabra
+    sola, Y que de verdad se use el clasificador entrenado (99% accuracy
+    real) en vez de depender solo del GOP genérico (~80%).
+
+    Cómo se combina: audio_pronunciation.score_word_in_sentence() alinea
+    la FRASE ENTERA contra el audio, ubica en qué tramo de tiempo cae la
+    palabra objetivo, y devuelve ESE pedacito de audio ya recortado
+    (audio_recortado_path) -- recién ahí se le pasa al clasificador
+    entrenado (_classify_audio), exactamente como si fuera un clip de la
+    palabra sola. El clasificador manda SIEMPRE que haya podido correr
+    (distinto al resto del proyecto, que exige AUDIO_MIN_CONFIDENCE) --
+    acá el GOP genérico demostró dejar pasar errores reales (ver "sherpiente"
+    contado como "serpiente" bien dicha), así que el GOP queda solo de
+    respaldo para cuando el recorte de audio falla."""
+    if _state["audio_model"] is None:
+        raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo de audio.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+        shutil.copyfileobj(audio.file, tmp_audio)
+        audio_path = tmp_audio.name
+
+    audio_recortado_path = None
+    try:
+        resultado = _score_word_in_sentence(audio_path, frase, palabra)
+        if resultado is None:
+            return {"valid": False, "reason": "no se pudo analizar el audio -- probá de nuevo"}
+
+        audio_recortado_path = resultado.get("audio_recortado_path")
+
+        # Pedido explícito: si no dijo la FRASE completa (ej. solo la
+        # palabra suelta), el intento no cuenta -- ni se guarda en la base
+        # ni se evalúa la palabra, directo se le pide repetir la frase
+        # entera. Ver FRASE_COMPLETA_LARGO_MINIMO en audio_pronunciation.py.
+        # (audio_recortado_path ya quedó asignado arriba para que el
+        # finally de abajo igual borre el temporal aunque cortemos acá.)
+        if not resultado.get("frase_completa_dicha", True):
+            return {
+                "valid": False,
+                "frase_incompleta": True,
+                "reason": "decí toda la frase, despacito -- ¡vos podés!",
+            }
+
+        # Pedido explícito: si cambió otra palabra de la frase (ej. "la
+        # torre es muy BAJA" en vez de "ALTA"), tampoco cuenta -- aunque la
+        # palabra objetivo ("torre") haya salido bien. Ver
+        # resto_de_la_frase_ok en audio_pronunciation.py.
+        if not resultado.get("resto_de_la_frase_ok", True):
+            return {
+                "valid": False,
+                "frase_distinta": True,
+                "reason": "repetí la frase de arriba tal cual -- ¡dale, de nuevo!",
+            }
+
+        clf_resultado = _classify_audio(audio_recortado_path, palabra) if audio_recortado_path else None
+
+        gop_ok = len(resultado["sospechosos"]) == 0 and resultado["palabra_reconocida"]
+
+        # Pedido explícito: que el clasificador ENTRENADO (99% accuracy real,
+        # ver val_acc al arrancar el server) decida siempre que haya podido
+        # correr, para TODAS las palabras -- antes solo mandaba si superaba
+        # AUDIO_MIN_CONFIDENCE, y si no, caía al GOP genérico (~80%, sin
+        # entrenar). Eso dejaba pasar errores reales: "sherpiente" (en vez
+        # de "serpiente") contó como bien dicho porque el clasificador no
+        # llegó al umbral de confianza y el GOP no lo detectó. El GOP ahora
+        # queda solo como respaldo para cuando el recorte de audio falló y
+        # no hay clasificador disponible.
+        if clf_resultado is not None:
+            veredicto_final = "bien" if clf_resultado["es_correcto"] else "a_practicar"
+            fuente = "clasificador"
+        else:
+            veredicto_final = "bien" if gop_ok else "a_practicar"
+            fuente = "gop"
+        tipo_error = resultado.get("tipo_error_audio") if veredicto_final == "a_practicar" else None
+
+        prob_str = f"{clf_resultado['prob']:.2f}" if clf_resultado else "?"
+        clase_str = clf_resultado["clase_predicha"] if clf_resultado else "sin dato"
+        print(f"[predict-frase] palabra={palabra!r} en frase={frase!r} | "
+              f"GOP {'bien' if gop_ok else 'sospechoso'} | "
+              f"clasificador {clase_str} prob={prob_str} | decide={fuente} -> {veredicto_final}")
+
+        db.save_attempt(
+            class_name=f"{palabra}_en_frase", palabra=palabra, correcta=(veredicto_final == "bien"),
+            tipo_error=tipo_error, prob=clf_resultado["prob"] if clf_resultado else (0.0 if gop_ok else 1.0),
+        )
+
+        return {
+            "valid": True,
+            "palabra": palabra,
+            "frase": frase,
+            "correcta": veredicto_final == "bien",
+            "veredicto_final": veredicto_final,
+            "decidido_por": fuente,
+            "audio": {
+                "fonemas": resultado["fonemas"],
+                "scores": resultado["scores"],
+                "sospechosos": resultado["sospechosos"],
+                "reconocido_libre": resultado["reconocido_libre"],
+                "sonido_reconocido": resultado["sonido_reconocido"],
+                "palabra_reconocida": resultado["palabra_reconocida"],
+            },
+            "audio_clasificador": clf_resultado,
+            "tipo_error": tipo_error,
+            "confianza_suficiente": True,
+        }
+    finally:
+        if audio_recortado_path:
+            try:
+                os.remove(audio_recortado_path)
+            except OSError:
+                pass
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
