@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { getHealth, getRecordings, getServerUrl, predictFrase, wordsFromClasses } from "../api.js";
 import { iconFor } from "../wordIcons.js";
 import { SOUND_CATEGORIES } from "../soundCategories.js";
-import { speakWord } from "../speak.js";
+import { speakWord, playWordReference } from "../speak.js";
 import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
 import { createAudioRecorder } from "../audioRecorder.js";
 import { tipoErrorInfo } from "../errorTips.js";
@@ -387,7 +387,7 @@ export default function LearningPathScreen() {
         <div className="repeat-stage">
           <div className="repeat-word">{wordInfo?.sound}</div>
           <div className="repeat-hint">Así empezás a practicar &quot;{displayWord}&quot;</div>
-          <button className="sound-listen-button" onClick={() => speakWord(displayWord)}>
+          <button className="sound-listen-button" onClick={() => playWordReference(getServerUrl(), selectedWord, displayWord)}>
             🔊 Escuchar
           </button>
           <div className="repeat-note">
@@ -704,9 +704,14 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
                 {resultado.correcta ? "¡Muy bien dicho!" : (errorInfo?.label || "¡Casi! Practiquemos de nuevo")}
               </span>
               {!resultado.correcta && (
-                <span className="result-overlay-tip-text">
-                  {errorInfo?.tip || "Probemos de nuevo, despacito. ¡Vos podés!"}
-                </span>
+                <>
+                  <span className="result-overlay-tip-text">
+                    {errorInfo?.tip || "Probemos de nuevo, despacito. ¡Vos podés!"}
+                  </span>
+                  <button className="path-cta" style={{ marginTop: 10 }} onClick={empezarGrabar}>
+                    🎤 Intentar de nuevo
+                  </button>
+                </>
               )}
             </div>
           ) : resultado.frase_incompleta ? (
@@ -715,6 +720,9 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
               <span className="result-overlay-tip-text">
                 Decí toda la frase, despacito -- ¡vos podés!
               </span>
+              <button className="path-cta" style={{ marginTop: 10 }} onClick={empezarGrabar}>
+                🎤 Intentar de nuevo
+              </button>
             </div>
           ) : resultado.frase_distinta ? (
             <div className="result-overlay-tip" style={{ marginTop: 8 }}>
@@ -722,6 +730,9 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
               <span className="result-overlay-tip-text">
                 Repetí la frase de arriba tal cual está -- ¡dale, de nuevo!
               </span>
+              <button className="path-cta" style={{ marginTop: 10 }} onClick={empezarGrabar}>
+                🎤 Intentar de nuevo
+              </button>
             </div>
           ) : (
             <div className="audio-only-error">{resultado.reason || "No se pudo analizar."}</div>

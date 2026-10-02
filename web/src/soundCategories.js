@@ -78,4 +78,15 @@ export const SOUND_CATEGORIES = [
       { word: "gorra", icon: "🧢", sound: "rr" },
     ],
   },
+  {
+    key: "ll-ch",
+    title: "LL / CH",
+    hint: "la lengua toca el paladar -- a veces se cambia por Y suave o se pierde el golpe de la CH",
+    words: [
+      { word: "llave", icon: "🔑", sound: "ll" },
+      { word: "lluvia", icon: "🌧️", sound: "ll" },
+      { word: "pollo", icon: "🐔", sound: "ll" },
+      { word: "coche", icon: "🚙", sound: "ch" },
+    ],
+  },
 ];

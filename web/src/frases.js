@@ -27,6 +27,10 @@ export const FRASES_POR_PALABRA = {
   cohete: "El cohete vuela al espacio",
   copa: "Bebí jugo en la copa",
   cubo: "El cubo tiene seis caras",
+  llave: "Busco la llave de la casa",
+  lluvia: "Me gusta jugar bajo la lluvia",
+  pollo: "El pollo corre en el patio",
+  coche: "El coche es muy rápido",
 };
 
 export function fraseParaPalabra(palabra) {
