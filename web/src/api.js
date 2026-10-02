@@ -91,6 +91,15 @@ export async function getReferenceLandmarks(baseUrl, palabra) {
   }
 }
 
+/// URL del clip de audio REAL (no sintetizado) de alguien diciendo
+/// "palabra" correctamente -- GET /reference_audio/<palabra> en
+/// server/main.py. Puede devolver 404 (la mayoría de las palabras no
+/// tienen un clip crudo guardado todavía) -- quien la use tiene que caer a
+/// TTS (ver speak.js) si el <audio> tira error.
+export function referenceAudioUrl(baseUrl, palabra) {
+  return `${normalize(baseUrl)}/reference_audio/${encodeURIComponent(palabra)}`;
+}
+
 /// De la lista de clases del modelo ("perro_correcto", "perro_incorrecto_
 /// lambdacismo", ...) saca las palabras objetivo ÚNICAS ("perro", ...),
 /// mismo criterio que _parse_clase_predicha() en server/main.py -- corta
