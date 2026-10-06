@@ -2,25 +2,20 @@ import { useState } from "react";
 import PhrasesScreen from "./screens/PhrasesScreen.jsx";
 import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
-import SoundsScreen from "./screens/SoundsScreen.jsx";
 import DiagnosticoScreen, { yaHizoDiagnostico } from "./screens/DiagnosticoScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
-// con cámara o con una frase completa) / Sonidos (sonidos sueltos, sin
-// depender de una palabra) / Logros (lo que salió BIEN) / Para practicar
-// (lo que salió mal, separado de Logros para no mezclar estrellas con
-// fallas). "Frases" ya NO es una pestaña aparte -- se unió dentro de
-// Aprender (el paso final de cada palabra en modo "solo voz" pide una
-// frase completa, ver LearningPathScreen.jsx/FrasePracticeStage).
+// con cámara o con una frase completa) / Logros (lo que salió BIEN) / Para
+// practicar (lo que salió mal, separado de Logros para no mezclar estrellas
+// con fallas). "Frases" y "Sonidos" ya NO son pestañas aparte.
 const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
-  { key: "sonidos", label: "Sonidos", icon: "🔊" },
   { key: "logros", label: "Logros", icon: "🏆" },
   { key: "errores", label: "Para practicar", icon: "🔁" },
 ];
 
-/// Navegación por pestañas: Aprender / Sonidos / Logros -- igual que
+/// Navegación por pestañas: Aprender / Logros / Para practicar -- igual que
 /// main_tab_screen.dart (MainTabScreen).
 export default function App() {
   const [index, setIndex] = useState(0);
@@ -79,13 +74,10 @@ export default function App() {
           {visited.has(0) && <LearningPathScreen />}
         </div>
         <div className="tab-pane" style={{ display: index === 1 ? "flex" : "none" }}>
-          {visited.has(1) && <SoundsScreen />}
+          {visited.has(1) && <PhrasesScreen active={index === 1} />}
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
-          {visited.has(2) && <PhrasesScreen active={index === 2} />}
-        </div>
-        <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
-          {visited.has(3) && <ErrorsScreen active={index === 3} />}
+          {visited.has(2) && <ErrorsScreen active={index === 2} />}
         </div>
       </div>
     </div>

@@ -1,0 +1,2 @@
+/* @license GPL-2.0-or-later https://www.drupal.org/licensing/faq */
+(function nidcdUswdsInit(){"use strict";document.documentElement.classList.add('usa-js-loading');window.addEventListener("load",function(){document.documentElement.classList.remove('usa-js-loading');});}());;
