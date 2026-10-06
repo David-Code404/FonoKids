@@ -500,6 +500,28 @@
   margin-top: 6px;
 }
 
+.falla-tipo-chip-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.falla-tipo-chip {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--surface-alt);
+  border-radius: 10px;
+  padding: 6px 10px;
+  display: block;
+  width: fit-content;
+}
+
+.falla-tipo-chip-list .falla-tipo-chip {
+  margin-top: 0;
+}
+
 .people-row {
   display: flex;
   align-items: center;

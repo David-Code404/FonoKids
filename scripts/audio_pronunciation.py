@@ -342,6 +342,79 @@ def _distancia_edicion(a, b):
     return dp[n][m]
 
 
+# =====================================================================
+# Diagnóstico de tipo de error (omisión / lambdacismo / dentalización) a
+# partir del audio -- sin depender de clases entrenadas por subtipo (el
+# dataset real solo separa correcto/incorrecto, mezclado). Se alinea la
+# secuencia de fonemas ESPERADA contra lo que el modelo reconoció LIBRE
+# (sin forzar ninguna palabra) con distancia de edición clásica, y se mira
+# qué pasó puntualmente en la posición del fonema "difícil" (la r
+# vibrante/simple, que es lo único que el proyecto entrena hoy): si
+# desapareció = omisión, si se convirtió en "l" = lambdacismo, si se
+# convirtió en "d" = dentalización. Cualquier otra sustitución queda sin
+# clasificar (None) en vez de inventar una etiqueta que no corresponde.
+# =====================================================================
+_FONEMAS_R = {"r", "ɾ"}
+
+
+def _align_ops(a, b):
+    """Alineación por distancia de Levenshtein con backtrace -- devuelve la
+    lista de operaciones (match/sub/del/ins) en el orden de `a`, cada una
+    con el símbolo de `a` (o None si fue insertado) y el símbolo de `b`
+    alineado (o None si fue borrado)."""
+    n, m = len(a), len(b)
+    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    for i in range(n + 1):
+        dp[i][0] = i
+    for j in range(m + 1):
+        dp[0][j] = j
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            if a[i - 1] == b[j - 1]:
+                dp[i][j] = dp[i - 1][j - 1]
+            else:
+                dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+
+    ops = []
+    i, j = n, m
+    while i > 0 or j > 0:
+        if i > 0 and j > 0 and a[i - 1] == b[j - 1]:
+            ops.append(("match", a[i - 1], b[j - 1]))
+            i -= 1
+            j -= 1
+        elif i > 0 and j > 0 and dp[i][j] == dp[i - 1][j - 1] + 1:
+            ops.append(("sub", a[i - 1], b[j - 1]))
+            i -= 1
+            j -= 1
+        elif i > 0 and dp[i][j] == dp[i - 1][j] + 1:
+            ops.append(("del", a[i - 1], None))
+            i -= 1
+        else:
+            ops.append(("ins", None, b[j - 1]))
+            j -= 1
+    ops.reverse()
+    return ops
+
+
+def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista):
+    """Devuelve 'omision' / 'lambdacismo' / 'dentalizacion' / None, mirando
+    qué pasó en la posición del fonema r/ɾ dentro de la alineación entre lo
+    esperado y lo reconocido libremente. Si la palabra no tiene r/ɾ, o el
+    error no encaja en ninguno de los 3 patrones conocidos, devuelve None
+    en vez de forzar una etiqueta."""
+    ops = _align_ops(fonemas_esperados, reconocido_libre_lista)
+    for tipo, esperado, reconocido in ops:
+        if esperado not in _FONEMAS_R:
+            continue
+        if tipo == "del":
+            return "omision"
+        if tipo == "sub" and reconocido == "l":
+            return "lambdacismo"
+        if tipo == "sub" and reconocido == "d":
+            return "dentalizacion"
+    return None
+
+
 def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, device):
     """Puntúa la pronunciación de `palabra` en el clip `wav_path`.
 
@@ -424,6 +497,7 @@ def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, devi
         "sonido_reconocido": fonemas_a_texto_aproximado(reconocido_libre),
         "distancia_normalizada": normalizada,
         "palabra_reconocida": palabra_reconocida,
+        "tipo_error_audio": diagnose_tipo_error(fonemas_usados, reconocido_libre),
     }
 
 
