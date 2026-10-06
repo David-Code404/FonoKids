@@ -91,6 +91,15 @@ export async function getReferenceLandmarks(baseUrl, palabra) {
   }
 }
 
+/// URL del clip de audio REAL (no sintetizado) de alguien diciendo
+/// "palabra" correctamente -- GET /reference_audio/<palabra> en
+/// server/main.py. Puede devolver 404 (la mayoría de las palabras no
+/// tienen un clip crudo guardado todavía) -- quien la use tiene que caer a
+/// TTS (ver speak.js) si el <audio> tira error.
+export function referenceAudioUrl(baseUrl, palabra) {
+  return `${normalize(baseUrl)}/reference_audio/${encodeURIComponent(palabra)}`;
+}
+
 /// De la lista de clases del modelo ("perro_correcto", "perro_incorrecto_
 /// lambdacismo", ...) saca las palabras objetivo ÚNICAS ("perro", ...),
 /// mismo criterio que _parse_clase_predicha() en server/main.py -- corta
@@ -212,6 +221,45 @@ async function predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra) {
 // que el servidor vuelva a responder /health y reintentamos el MISMO clip
 // una sola vez automáticamente -- en la mayoría de los casos ya funciona
 // en el segundo intento, sin que el usuario tenga que hacer nada.
+/// Evalúa UNA palabra entrenada dentro de una FRASE completa (ver
+/// FrasesScreen.jsx y server/main.py POST /predict_frase) -- distinto de
+/// predict() de abajo, que evalúa la palabra sola con video+audio. Acá
+/// solo se manda audio, nunca video (el modo frase es siempre "solo voz").
+export async function predictFrase(baseUrl, audioBlob, frase, palabra) {
+  const uri = `${normalize(baseUrl)}/predict_frase`;
+  const form = new FormData();
+  form.append("audio", audioBlob, "frase.wav");
+  form.append("frase", frase);
+  form.append("palabra", palabra);
+
+  let response;
+  try {
+    response = await withTimeout(
+      (signal) => fetch(uri, { method: "POST", body: form, signal }),
+      60000,
+      "El servidor tardó demasiado en responder -- probá de nuevo."
+    );
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(
+      `No se pudo conectar al servidor (${baseUrl}). Revisá que esté prendido.`
+    );
+  }
+
+  if (!response.ok) {
+    let detail = null;
+    try {
+      const body = await response.json();
+      detail = body?.detail || null;
+    } catch {
+      // sin JSON -- mensaje genérico de abajo
+    }
+    throw new ApiError(detail || `El servidor respondió con error ${response.status}.`);
+  }
+
+  return response.json();
+}
+
 export async function predict(
   baseUrl, videoBlob, filename = "clip.webm", onRetrying = null, audioBlob = null, palabra = null
 ) {

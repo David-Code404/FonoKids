@@ -95,6 +95,11 @@ export default function HomeScreen({
   // pide ni se menciona la cámara, ni siquiera como opción. Arranca
   // directo pidiendo el micrófono apenas se monta la pantalla.
   forceAudioOnly = false,
+  // Callback opcional -- se llama con el `result` completo del servidor
+  // cada vez que una predicción vuelve válida (result.valid). Lo usa
+  // DiagnosticoScreen para saber en qué le fue a cada palabra sin tener
+  // que duplicar toda la lógica de grabar/mandar/mostrar overlay.
+  onResult = null,
 }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -344,7 +349,15 @@ export default function HomeScreen({
     return () => {
       cancelled = true;
     };
-  }, [serverUrl, connState]);
+    // BUG real detectado: sin "initialWord" en las dependencias, este
+    // efecto solo corría cuando cambiaba la conexión -- si LearningPathScreen
+    // reutiliza el mismo HomeScreen para pasar de una palabra a otra (ej.
+    // "gorra_medias" -> "globo") sin recargar la página, el título en
+    // pantalla se actualizaba (viene de promptText) pero targetWord (lo que
+    // de verdad se manda al servidor en cada intento) quedaba pegado en la
+    // palabra anterior -- el chico veía "GLOBO" pero el server evaluaba
+    // contra "gorra_medias", así que nunca podía dar bien.
+  }, [serverUrl, connState, initialWord]);
 
   useEffect(() => {
     targetWordRef.current = targetWord;
@@ -430,6 +443,7 @@ export default function HomeScreen({
           setLastResult(result);
           setLastError(null);
           setConnState("ok");
+          if (result.valid && onResult) onResult(result);
           if (result.valid && result.palabra) {
             // Mismo criterio que en ResultOverlay: la racha tiene que
             // mostrar lo que se le pidió decir en ESTE paso (ej. "PER"),
@@ -685,10 +699,10 @@ export default function HomeScreen({
             </div>
           )}
 
-          {targetWord && (
+          {(promptText || targetWord) && (
             <div className="target-word-banner">
               Decí: <span className="target-word-banner-word">
-                {iconFor(promptIcon || targetWord)} {(promptText || targetWord.replaceAll("_", " "))}
+                {iconFor(promptIcon || targetWord)} {promptText || targetWord.replaceAll("_", " ")}
               </span>
             </div>
           )}
@@ -840,13 +854,16 @@ function ResultOverlay({ result, promptText, onClose }) {
   // decide todo eso antes de llegar acá -- si el servidor devuelve
   // "correcta", ya pasó ese umbral, no hace falta mostrar el número.
   //
-  // Cuando está MAL, en vez de un número mostramos lo que realmente se
-  // escuchó (sonido_reconocido, ver audio_pronunciation.py) Y, si el
-  // servidor identificó el tipo de error (tipo_error: lambdacismo,
-  // dentalización, omisión), un consejo concreto de qué probar distinto --
-  // pedido explícito: no alcanza con "está mal", el chico tiene que ver
-  // DÓNDE le salió mal para poder corregirlo, no solo que se repita.
-  const sonidoReconocido = result.audio?.sonido_reconocido;
+  // Cuando está MAL, en vez de un número mostramos, si el servidor
+  // identificó el tipo de error (tipo_error: lambdacismo, dentalización,
+  // omisión), un consejo concreto de qué probar distinto -- pedido
+  // explícito: no alcanza con "está mal", el chico tiene que ver DÓNDE le
+  // salió mal para poder corregirlo, no solo que se repita.
+  //
+  // Ojo: NUNCA mostramos el "sonido_reconocido" crudo (ver
+  // audio_pronunciation.py) en pantalla -- es una transcripción fonética
+  // ("krrabo", etc.), no una palabra real, y muchos chicos todavía no
+  // pueden leer bien -- mejor un mensaje simple y un consejo claro.
   const errorInfo = !result.correcta && result.tipo_error ? tipoErrorInfo(result.tipo_error) : null;
   return (
     <div className="result-overlay" onClick={onClose}>
@@ -859,12 +876,8 @@ function ResultOverlay({ result, promptText, onClose }) {
           <div className="result-overlay-message">
             Esa no es la palabra de este paso -- ¡probemos decir "{palabra}"!
           </div>
-        ) : sonidoReconocido ? (
-          <div className="result-overlay-message">
-            Sonó como "{sonidoReconocido}" -- practiquemos "{palabra}" de nuevo
-          </div>
         ) : (
-          <div className="result-overlay-message">Casi... practiquemos de nuevo</div>
+          <div className="result-overlay-message">😢 ¡Casi! Practiquemos "{palabra}" de nuevo</div>
         )}
         {errorInfo && !result.palabra_distinta && (
           <div className="result-overlay-tip">

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SOUND_CATEGORIES } from "../soundCategories.js";
-import { speakWord } from "../speak.js";
+import { playWordReference } from "../speak.js";
+import { getServerUrl } from "../api.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 
@@ -8,16 +9,17 @@ export default function SoundsScreen() {
   const [selected, setSelected] = useState(null);
 
   if (selected) {
+    const displayWord = selected.label || selected.word;
     return (
       <div className="path-screen">
         <div className="path-header">
           <button className="icon-button" onClick={() => setSelected(null)}>←</button>
-          <span className="path-title">{selected.icon} {selected.word}</span>
+          <span className="path-title">{selected.icon} {displayWord}</span>
         </div>
         <div className="repeat-stage">
           <div className="repeat-word">{selected.sound}</div>
-          <div className="repeat-hint">Así empezás a practicar &quot;{selected.word}&quot;</div>
-          <button className="sound-listen-button" onClick={() => speakWord(selected.word)}>
+          <div className="repeat-hint">Así empezás a practicar &quot;{displayWord}&quot;</div>
+          <button className="sound-listen-button" onClick={() => playWordReference(getServerUrl(), selected.word, displayWord)}>
             🔊 Escuchar
           </button>
           <div className="repeat-note">
@@ -36,7 +38,7 @@ export default function SoundsScreen() {
             key={item.word}
             className={`sound-card etapa-color-${i % 4}`}
             onClick={() => {
-              speakWord(item.word);
+              playWordReference(getServerUrl(), item.word, item.label || item.word);
               setSelected(item);
             }}
             style={{ animationDelay: `${i * 0.05}s` }}
@@ -44,7 +46,7 @@ export default function SoundsScreen() {
             <span className="sound-card-speaker">🔊</span>
             <span className="sound-card-sound">{item.sound}</span>
             <span className="sound-card-icon">{item.icon}</span>
-            <span className="sound-card-word">{item.word}</span>
+            <span className="sound-card-word">{item.label || item.word}</span>
           </button>
         ))}
       </div>

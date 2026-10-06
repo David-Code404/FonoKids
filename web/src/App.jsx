@@ -3,14 +3,16 @@ import PhrasesScreen from "./screens/PhrasesScreen.jsx";
 import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
 import SoundsScreen from "./screens/SoundsScreen.jsx";
+import DiagnosticoScreen, { yaHizoDiagnostico } from "./screens/DiagnosticoScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
-// con cámara) / Sonidos (sonidos sueltos, sin depender de una palabra) /
-// Logros (lo que salió BIEN) / Para practicar (lo que salió mal, separado
-// de Logros para no mezclar estrellas con fallas). Se sacaron "Mi Diario" y
-// "Práctica" como pestañas propias -- la cámara se llega siempre desde
-// "Aprender" (último paso de cada etapa), no hace falta una entrada aparte.
+// con cámara o con una frase completa) / Sonidos (sonidos sueltos, sin
+// depender de una palabra) / Logros (lo que salió BIEN) / Para practicar
+// (lo que salió mal, separado de Logros para no mezclar estrellas con
+// fallas). "Frases" ya NO es una pestaña aparte -- se unió dentro de
+// Aprender (el paso final de cada palabra en modo "solo voz" pide una
+// frase completa, ver LearningPathScreen.jsx/FrasePracticeStage).
 const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
   { key: "sonidos", label: "Sonidos", icon: "🔊" },
@@ -26,10 +28,29 @@ export default function App() {
   // montan, así que NUNCA se montan hasta que el usuario realmente toca esa
   // pestaña -- igual que el Set<int> _visited en main_tab_screen.dart.
   const [visited, setVisited] = useState(new Set([0]));
+  // Pedido explícito: la primera vez que se abre la app, antes de mostrar
+  // las pestañas, se hace una prueba de diagnóstico (una palabra por cada
+  // sonido difícil) para saber en qué falla el chico -- se guarda en
+  // localStorage (yaHizoDiagnostico) para no repetirla cada vez que abre
+  // la app, solo la primera vez (o si la saltea).
+  const [mostrandoDiagnostico, setMostrandoDiagnostico] = useState(!yaHizoDiagnostico());
 
   function selectTab(i) {
     setIndex(i);
     setVisited((prev) => new Set(prev).add(i));
+  }
+
+  if (mostrandoDiagnostico) {
+    return (
+      <DiagnosticoScreen
+        onFinish={() => {
+          setMostrandoDiagnostico(false);
+          // Frases ya no es pestaña aparte -- después del diagnóstico va a
+          // Aprender, que ya prioriza las categorías donde falló.
+          selectTab(0);
+        }}
+      />
+    );
   }
 
   return (
@@ -61,10 +82,10 @@ export default function App() {
           {visited.has(1) && <SoundsScreen />}
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
-          {visited.has(2) && <PhrasesScreen />}
+          {visited.has(2) && <PhrasesScreen active={index === 2} />}
         </div>
         <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
-          {visited.has(3) && <ErrorsScreen />}
+          {visited.has(3) && <ErrorsScreen active={index === 3} />}
         </div>
       </div>
     </div>

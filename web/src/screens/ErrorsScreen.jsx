@@ -23,7 +23,7 @@ function aggregate(recordings) {
 /// Pantalla dedicada a mostrar los intentos que salieron "a practicar" --
 /// separada de Logros (que solo cuenta lo que salió bien), para que se
 /// pueda ver en qué está costando más sin mezclarlo con las estrellas.
-export default function ErrorsScreen() {
+export default function ErrorsScreen({ active = true }) {
   const [recordings, setRecordings] = useState(null);
   const [detail, setDetail] = useState(null);
 
@@ -39,6 +39,16 @@ export default function ErrorsScreen() {
   useEffect(() => {
     load();
   }, []);
+
+  // Las pestañas nunca se desmontan (ver App.jsx, solo se ocultan con
+  // display:none) -- sin esto, "Para practicar" quedaba con los datos del
+  // primer momento en que se abrió la app y nunca se enteraba de intentos
+  // nuevos hechos después en "Aprender", hasta que alguien tocaba el botón
+  // de refrescar a mano. Ahora se refresca sola cada vez que se entra a la
+  // pestaña de nuevo.
+  useEffect(() => {
+    if (active) load();
+  }, [active]);
 
   if (recordings === null) {
     return (

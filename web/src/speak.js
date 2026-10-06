@@ -1,5 +1,7 @@
 // Texto a voz del navegador (Web Speech API) -- compartido entre
 // SoundsScreen y LearningPathScreen para no duplicar la lógica de voces.
+import { referenceAudioUrl } from "./api.js";
+
 // El sistema no trae ninguna voz "de nene": las únicas voces en español
 // disponibles son adultas (Helena/Laura/Pablo, Windows). Lo más cercano a
 // algo más liviano/amigable sin sonar robótico es subir el "pitch" y el
@@ -11,6 +13,24 @@ if (typeof window !== "undefined" && window.speechSynthesis) {
   };
   loadVoices();
   window.speechSynthesis.onvoiceschanged = loadVoices;
+}
+
+/// Pedido explícito: si hay un clip de audio REAL de alguien diciendo la
+/// palabra bien (ver referenceAudioUrl en api.js), reproducir ESE en vez de
+/// una voz sintética -- más natural para el chico. La mayoría de las
+/// palabras todavía no tienen un clip guardado, así que si el audio tira
+/// error (404 u otro problema) cae directo al TTS de siempre, sin que se
+/// note para quien usa la app.
+export function playWordReference(baseUrl, palabra, textoParaTTS) {
+  const audio = new Audio(referenceAudioUrl(baseUrl, palabra));
+  let yaCayoATts = false;
+  const caerATts = () => {
+    if (yaCayoATts) return;
+    yaCayoATts = true;
+    speakWord(textoParaTTS);
+  };
+  audio.addEventListener("error", caerATts);
+  audio.play().catch(caerATts);
 }
 
 export function speakWord(text) {
