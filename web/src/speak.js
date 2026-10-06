@@ -1,5 +1,5 @@
-// Texto a voz del navegador (Web Speech API) -- compartido entre
-// SoundsScreen y LearningPathScreen para no duplicar la lógica de voces.
+// Texto a voz del navegador (Web Speech API) -- lo usan Aprender y el
+// diagnóstico, centralizado acá para no duplicar la lógica de voces.
 import { referenceAudioUrl } from "./api.js";
 
 // El sistema no trae ninguna voz "de nene": las únicas voces en español

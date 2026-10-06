@@ -1,8 +1,8 @@
 // Categorías de sonidos difíciles del español (dislalias más comunes en
-// chicos) -- fuente única compartida entre SoundsScreen (repetición libre,
-// texto a voz) y LearningPathScreen (Aprender: categorías -> etapas ->
-// pasos), para que las dos pantallas siempre muestren las mismas
-// categorías y no se desincronicen entre sí.
+// chicos) -- fuente única compartida entre DiagnosticoScreen (prueba
+// inicial) y LearningPathScreen (Aprender: categorías -> etapas -> pasos),
+// para que las dos pantallas siempre muestren las mismas categorías y no
+// se desincronicen entre sí.
 //
 // Pedido explícito: solo palabras con clases REALMENTE entrenadas (ver
 // data/audio_embeddings_cache/ y data/landmarks_npy/) -- nada de "zorro",
