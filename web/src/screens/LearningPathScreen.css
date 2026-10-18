@@ -497,3 +497,80 @@
     padding: 12px 16px 0;
   }
 }
+
+/* Prueba para adelantar etapas bloqueadas */
+.etapa-bloqueada {
+  filter: grayscale(0.55);
+  opacity: 0.85;
+}
+
+.prueba-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--hero-gradient, linear-gradient(135deg, #8c6bff, #2ecc8f));
+  color: #fff;
+  font-weight: 800;
+  text-align: center;
+}
+
+.prueba-banner .path-cta {
+  margin: 0;
+}
+
+/* Pantallas de frase (Aprender, prueba para adelantar y diagnostico):
+   tarjeta del microfono mas compacta y mensaje de resultado mas chico, para
+   que todo entre en una sola vista sin tener que bajar con el scroll. */
+.repeat-stage .audio-only-stage {
+  width: clamp(150px, 18vw, 190px);
+  gap: 8px;
+  border-radius: 22px;
+}
+
+.repeat-stage .audio-only-orb {
+  width: 68px;
+  height: 68px;
+}
+
+.repeat-stage .audio-only-icon {
+  font-size: 28px;
+}
+
+.repeat-stage .audio-only-label {
+  font-size: 14px;
+}
+
+.repeat-stage .result-overlay-tip {
+  margin-bottom: 0;
+  align-items: center;
+  text-align: center;
+  gap: 2px;
+  width: min(100%, 560px);
+}
+
+.repeat-stage .result-overlay-tip .result-overlay-emoji {
+  font-size: 40px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.repeat-stage .result-overlay-tip .path-cta {
+  margin-top: 6px !important;
+}
+
+@media (max-height: 820px) {
+  .repeat-stage {
+    gap: 8px;
+    padding: 12px;
+  }
+  .repeat-stage .audio-only-stage {
+    width: 140px;
+  }
+  .repeat-stage .audio-only-orb {
+    width: 56px;
+    height: 56px;
+  }
+}
