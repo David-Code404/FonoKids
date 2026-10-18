@@ -18,7 +18,7 @@
 // Sinfones (grupos consonánticos, reducción común en preescolares) ->
 // S (sigmatismo, persiste más) -> RR fuerte (la más común y la que más
 // tarda en adquirirse, normal recién a los 4-5 años).
-export const SOUND_CATEGORIES = [
+const TODAS_LAS_CATEGORIAS = [
   {
     key: "c-k",
     title: "C / K",
@@ -79,6 +79,11 @@ export const SOUND_CATEGORIES = [
     ],
   },
   {
+    // sinModelo: los modelos entrenados actuales (58 clases) no incluyen
+    // llave/lluvia/pollo/coche -- la categoria se oculta de la app hasta
+    // volver a entrenar con esas palabras. Pasar a false (o sacar la
+    // marca) para volver a mostrarla.
+    sinModelo: true,
     key: "ll-ch",
     title: "LL / CH",
     hint: "la lengua toca el paladar -- a veces se cambia por Y suave o se pierde el golpe de la CH",
@@ -90,3 +95,7 @@ export const SOUND_CATEGORIES = [
     ],
   },
 ];
+
+// Solo las categorias con palabras que los modelos entrenados realmente
+// conocen (pedido explicito: usar solo las clases del entrenamiento actual).
+export const SOUND_CATEGORIES = TODAS_LAS_CATEGORIAS.filter((cat) => !cat.sinModelo);

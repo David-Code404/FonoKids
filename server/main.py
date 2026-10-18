@@ -976,14 +976,23 @@ def reference_audio(palabra: str):
             detail=f"No hay clips de audio real guardados para '{safe_palabra}'.",
         )
 
-    elegido = random.choice(candidatos)
-    try:
-        if elegido.lower().endswith(_AUDIO_DIRECTO):
-            waveform = load_audio_16k(elegido)
-        else:
-            waveform = _extraer_audio_de_video(elegido)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"No se pudo leer el clip de referencia ({e}).")
+    # Algunos clips no se pueden leer (ej. un .webm sin pista de audio) --
+    # en vez de fallar con el primero que toque al azar, se prueba con otro
+    # hasta encontrar uno que sí se lea.
+    random.shuffle(candidatos)
+    waveform = None
+    ultimo_error = None
+    for elegido in candidatos:
+        try:
+            if elegido.lower().endswith(_AUDIO_DIRECTO):
+                waveform = load_audio_16k(elegido)
+            else:
+                waveform = _extraer_audio_de_video(elegido)
+            break
+        except Exception as e:
+            ultimo_error = e
+    if waveform is None:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer ningún clip de referencia ({ultimo_error}).")
 
     buffer_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
     buffer_wav.close()
@@ -995,6 +1004,35 @@ def reference_audio(palabra: str):
         os.remove(buffer_wav.name)
 
     return Response(content=contenido, media_type="audio/wav")
+
+
+DEBUG_FRASES_DIR = os.path.join(BASE_DIR, "data", "debug_frases")
+DEBUG_FRASES_MAX_ARCHIVOS = 80
+
+
+def _guardar_debug_frase(audio_path, recortado_path, palabra, motivo):
+    """Guarda el audio de un intento de FRASE que no salio bien (la frase
+    completa y el pedazo recortado de la palabra) en data/debug_frases/ --
+    asi, cuando una palabra falla "sin razon", se puede escuchar y analizar
+    exactamente lo que recibio el servidor. Solo para diagnostico: nunca
+    rompe la prediccion, y se queda con los ultimos DEBUG_FRASES_MAX_ARCHIVOS
+    archivos para no llenar el disco."""
+    try:
+        os.makedirs(DEBUG_FRASES_DIR, exist_ok=True)
+        marca = time.strftime("%Y%m%d_%H%M%S")
+        base = os.path.join(DEBUG_FRASES_DIR, f"{marca}_{palabra}_{motivo}")
+        if audio_path and os.path.exists(audio_path):
+            shutil.copyfile(audio_path, base + "_completo.wav")
+        if recortado_path and os.path.exists(recortado_path):
+            shutil.copyfile(recortado_path, base + "_recorte.wav")
+        archivos = sorted(
+            (os.path.join(DEBUG_FRASES_DIR, f) for f in os.listdir(DEBUG_FRASES_DIR)),
+            key=os.path.getmtime,
+        )
+        for viejo in archivos[:-DEBUG_FRASES_MAX_ARCHIVOS]:
+            os.remove(viejo)
+    except Exception as e:
+        print(f"[AVISO] No se pudo guardar el audio de depuracion ({e}).")
 
 
 def _save_practice_clip(class_name, tmp_path, suffix):
@@ -1603,6 +1641,7 @@ async def predict_frase(
         # (audio_recortado_path ya quedó asignado arriba para que el
         # finally de abajo igual borre el temporal aunque cortemos acá.)
         if not resultado.get("frase_completa_dicha", True):
+            _guardar_debug_frase(audio_path, audio_recortado_path, palabra, "incompleta")
             return {
                 "valid": False,
                 "frase_incompleta": True,
@@ -1614,6 +1653,7 @@ async def predict_frase(
         # palabra objetivo ("torre") haya salido bien. Ver
         # resto_de_la_frase_ok en audio_pronunciation.py.
         if not resultado.get("resto_de_la_frase_ok", True):
+            _guardar_debug_frase(audio_path, audio_recortado_path, palabra, "distinta")
             return {
                 "valid": False,
                 "frase_distinta": True,
@@ -1644,6 +1684,11 @@ async def predict_frase(
             veredicto_final = "bien" if gop_ok else "a_practicar"
             fuente = "gop"
         tipo_error = resultado.get("tipo_error_audio") if veredicto_final == "a_practicar" else None
+
+        if veredicto_final == "a_practicar" or not clf_confiable:
+            _prob_dbg = f"{clf_resultado['prob']:.2f}" if clf_resultado else "sinclf"
+            _guardar_debug_frase(audio_path, audio_recortado_path, palabra,
+                                 f"{veredicto_final}_{fuente}_clf{_prob_dbg}")
 
         prob_str = f"{clf_resultado['prob']:.2f}" if clf_resultado else "?"
         clase_str = clf_resultado["clase_predicha"] if clf_resultado else "sin dato"

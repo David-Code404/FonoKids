@@ -2,7 +2,7 @@ import { useState } from "react";
 import PhrasesScreen from "./screens/PhrasesScreen.jsx";
 import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
-import DiagnosticoScreen, { yaHizoDiagnostico } from "./screens/DiagnosticoScreen.jsx";
+import DiagnosticoScreen from "./screens/DiagnosticoScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
@@ -23,12 +23,14 @@ export default function App() {
   // montan, así que NUNCA se montan hasta que el usuario realmente toca esa
   // pestaña -- igual que el Set<int> _visited en main_tab_screen.dart.
   const [visited, setVisited] = useState(new Set([0]));
-  // Pedido explícito: la primera vez que se abre la app, antes de mostrar
-  // las pestañas, se hace una prueba de diagnóstico (una palabra por cada
-  // sonido difícil) para saber en qué falla el chico -- se guarda en
-  // localStorage (yaHizoDiagnostico) para no repetirla cada vez que abre
-  // la app, solo la primera vez (o si la saltea).
-  const [mostrandoDiagnostico, setMostrandoDiagnostico] = useState(!yaHizoDiagnostico());
+  // Pedido explícito (para la muestra): el test de diagnóstico se hace cada
+  // vez que se carga/actualiza la página, no solo la primera vez -- una
+  // palabra por cada sonido difícil, para ver en qué falla el chico. El
+  // resultado se sigue guardando en localStorage (lo usa Aprender para
+  // ordenar las categorías); lo que cambia es que ya no se saltea la prueba
+  // por haberla hecho antes. Cambiar a !yaHizoDiagnostico() (de
+  // DiagnosticoScreen.jsx) para volver a pedirla solo la primera vez.
+  const [mostrandoDiagnostico, setMostrandoDiagnostico] = useState(true);
 
   function selectTab(i) {
     setIndex(i);

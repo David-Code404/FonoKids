@@ -4,10 +4,10 @@ import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
 import { iconFor } from "../wordIcons.js";
 import { getServerUrl, predictFrase } from "../api.js";
 import { createAudioRecorder } from "../audioRecorder.js";
-import { speakWord } from "../speak.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 import "./HomeScreen.css";
+import HomeScreen from "./HomeScreen.jsx";
 
 // Una palabra representativa por categoría -- la primera de cada una en
 // soundCategories.js (mismo orden de menos a más difícil ya definido ahí).
@@ -18,6 +18,7 @@ const PALABRAS_DIAGNOSTICO = SOUND_CATEGORIES.map((cat) => ({
   titulo: cat.title,
   hint: cat.hint,
   word: cat.words[0].word,
+  label: cat.words[0].label || cat.words[0].word,
   icon: cat.words[0].icon,
 }));
 
@@ -58,6 +59,15 @@ export default function DiagnosticoScreen({ onFinish }) {
   const [grabando, setGrabando] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [ultimoResultado, setUltimoResultado] = useState(null);
+  // Como hace la prueba: "camara" (la palabra sola con camara + voz, igual
+  // que en Aprender -- la camara no evalua frases) o "voz" (la frase
+  // completa solo con la voz). Se elige una vez al empezar.
+  const [modo, setModo] = useState(null);
+  // Ultimo resultado concluyente de la prueba con camara (true/false); se
+  // usa recien al tocar "Siguiente", para que no se tape el resultado.
+  const [camResultado, setCamResultado] = useState(null);
+  const timerAvance = useRef(null);
+  useEffect(() => () => clearTimeout(timerAvance.current), []);
 
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
@@ -65,7 +75,7 @@ export default function DiagnosticoScreen({ onFinish }) {
   const actual = PALABRAS_DIAGNOSTICO[idx];
 
   useEffect(() => {
-    if (fase !== "practicando") return;
+    if (fase !== "practicando" || modo !== "voz") return;
     let cancelled = false;
     setMicError(null);
     setMicListo(false);
@@ -87,9 +97,10 @@ export default function DiagnosticoScreen({ onFinish }) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [fase, idx]);
+  }, [fase, idx, modo]);
 
-  function empezar() {
+  function empezar(modoElegido) {
+    setModo(modoElegido);
     setFase("practicando");
   }
 
@@ -120,15 +131,19 @@ export default function DiagnosticoScreen({ onFinish }) {
     }
   }
 
-  function avanzar(sabe) {
-    const nuevos = [...resultados, { categoria: actual.categoria, word: actual.word, sabe }];
+  // saltada: no pudo/quiso hacer esta prueba -- sigue contando en el total
+  // (siempre son 6) pero no se marca ni como sabida ni como a practicar.
+  function avanzar(sabe, saltada = false) {
+    clearTimeout(timerAvance.current);
+    const nuevos = [...resultados, { categoria: actual.categoria, word: actual.word, sabe: saltada ? false : sabe, saltada }];
+    setCamResultado(null);
     if (idx + 1 < PALABRAS_DIAGNOSTICO.length) {
       setResultados(nuevos);
       setIdx(idx + 1);
       setUltimoResultado(null);
     } else {
       const resumen = {};
-      for (const r of nuevos) resumen[r.categoria] = r.sabe;
+      for (const r of nuevos) if (!r.saltada) resumen[r.categoria] = r.sabe;
       try {
         localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(resumen));
         localStorage.setItem(STORAGE_DONE_KEY, "1");
@@ -150,18 +165,66 @@ export default function DiagnosticoScreen({ onFinish }) {
         <div className="mode-choice-stage">
           <div className="mode-choice-title">¡Hola! Vamos a hacer una pequeña prueba</div>
           <div className="repeat-hint" style={{ maxWidth: 420, textAlign: "center" }}>
-            Te voy a pedir que digas {PALABRAS_DIAGNOSTICO.length} frases completas -- así sé en
-            cuáles necesitás practicar más, y te armo un camino hecho a tu medida.
+            Son {PALABRAS_DIAGNOSTICO.length} pruebas -- así sé en cuáles necesitás practicar más, y te
+            armo un camino hecho a tu medida. Si alguna no te sale, la podés saltar.
           </div>
-          <button className="path-cta" onClick={empezar}>
-            ¡Dale, empecemos! →
-          </button>
+          <div className="mode-choice-title">¿Cómo querés hacerla?</div>
+          <div className="mode-choice-buttons">
+            <button className="mode-choice-button" onClick={() => empezar("camara")}>
+              <span className="mode-choice-icon">📷</span>
+              Con cámara
+            </button>
+            <button className="mode-choice-button" onClick={() => empezar("voz")}>
+              <span className="mode-choice-icon">🎤</span>
+              Solo con la voz
+            </button>
+          </div>
           {onFinish && (
             <button className="sound-listen-button" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={() => onFinish(null)}>
               Prefiero saltear esto
             </button>
           )}
         </div>
+      </div>
+    );
+  }
+
+  if (fase === "practicando" && modo === "camara") {
+    return (
+      <div className="prueba-wrap">
+        <div className="prueba-banner">
+          <span>
+            Prueba {idx + 1}/{PALABRAS_DIAGNOSTICO.length} -- {actual.titulo}: decí &quot;{actual.label}&quot;
+          </span>
+          {camResultado !== null && (
+            <button className="path-cta" onClick={() => avanzar(camResultado)}>
+              Siguiente →
+            </button>
+          )}
+          <button className="path-cta" style={{ background: "rgba(255,255,255,0.25)", boxShadow: "none" }} onClick={() => avanzar(false, true)}>
+            Saltar esta prueba ⏭️
+          </button>
+          <button className="path-cta" style={{ background: "rgba(255,255,255,0.25)", boxShadow: "none" }} onClick={() => setModo("voz")}>
+            Mejor solo con la voz 🎤
+          </button>
+        </div>
+        <HomeScreen
+          key={idx}
+          initialWord={actual.word}
+          promptText={actual.label}
+          promptIcon={actual.word}
+          forceAudioOnly={false}
+          onResult={(result) => {
+            if (result.valid && (result.correcta === true || result.correcta === false)) {
+              setCamResultado(result.correcta);
+              // Si lo dijo bien, pasa solo a la siguiente prueba.
+              clearTimeout(timerAvance.current);
+              if (result.correcta === true) {
+                timerAvance.current = setTimeout(() => avanzar(true), 2000);
+              }
+            }
+          }}
+        />
       </div>
     );
   }
@@ -184,10 +247,6 @@ export default function DiagnosticoScreen({ onFinish }) {
                 : <span key={i}>{parte}</span>
             )}
           </div>
-          <button className="sound-listen-button" onClick={() => speakWord(frase)}>
-            🔊 Escuchar
-          </button>
-
           {micError ? (
             <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
           ) : !micListo ? (
@@ -215,6 +274,16 @@ export default function DiagnosticoScreen({ onFinish }) {
             </button>
           )}
 
+          {!procesando && !grabando && (
+            <button
+              className="sound-listen-button"
+              style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none", marginTop: 8 }}
+              onClick={() => avanzar(false, true)}
+            >
+              Saltar esta prueba ⏭️
+            </button>
+          )}
+
           {ultimoResultado && !ultimoResultado.valid && (
             ultimoResultado.frase_incompleta || ultimoResultado.frase_distinta ? (
               <div className="result-overlay-tip" style={{ marginTop: 8 }}>
@@ -233,7 +302,9 @@ export default function DiagnosticoScreen({ onFinish }) {
   }
 
   // fase === "resultado"
-  const sabeCount = resultados.filter((r) => r.sabe).length;
+  const evaluados = resultados.filter((r) => !r.saltada);
+  const saltadas = resultados.length - evaluados.length;
+  const sabeCount = evaluados.filter((r) => r.sabe).length;
   return (
     <div className="path-screen">
       <div className="path-header">
@@ -241,9 +312,15 @@ export default function DiagnosticoScreen({ onFinish }) {
       </div>
       <div className="mode-choice-stage">
         <div className="mode-choice-title">
-          {sabeCount === resultados.length
-            ? "¡Genial, ya sabés todos estos sonidos! 🌟"
-            : "Así te fue -- esto es normal, para eso practicamos"}
+          {evaluados.length === 0
+            ? "¡Sin problema! Después las hacemos 😊"
+            : sabeCount === evaluados.length
+              ? "¡Genial, ya sabés estos sonidos! 🌟"
+              : "Así te fue -- esto es normal, para eso practicamos"}
+        </div>
+        <div className="repeat-hint" style={{ textAlign: "center" }}>
+          Hiciste {evaluados.length} de {resultados.length}
+          {saltadas > 0 ? ` -- saltaste ${saltadas}, las podés hacer más adelante` : ""}
         </div>
         <div className="etapa-list" style={{ width: "100%", maxWidth: 480 }}>
           {resultados.map((r) => {
@@ -251,14 +328,14 @@ export default function DiagnosticoScreen({ onFinish }) {
             return (
               <div
                 key={r.categoria}
-                className={`etapa-card etapa-color-${r.sabe ? 1 : 3}`}
+                className={`etapa-card etapa-color-${r.saltada ? 0 : r.sabe ? 1 : 3}`}
                 style={{ cursor: "default" }}
               >
                 <span className="etapa-card-word">
                   <span className="etapa-card-icon">{iconFor(cat.word)}</span> {cat.titulo}
                 </span>
                 <span className="etapa-card-action">
-                  {r.sabe ? "¡Ya lo sabés! ✅" : "Para practicar 🔁"}
+                  {r.saltada ? "Saltada ⏭️" : r.sabe ? "¡Ya lo sabés! ✅" : "Para practicar 🔁"}
                 </span>
               </div>
             );

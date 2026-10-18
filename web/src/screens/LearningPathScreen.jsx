@@ -25,6 +25,19 @@ const CATEGORIA_DE_PALABRA = Object.fromEntries(
   SOUND_CATEGORIES.flatMap((cat) => cat.words.map((w) => [w.word, cat]))
 );
 
+// Etapas "adelantadas" en esta carga de la página -- pedido explícito: una
+// etapa de una palabra con datos entrenados se abre si completó bien la
+// etapa anterior, o si pasa una prueba (cámara + voz) para adelantarse.
+// A propósito vive solo en memoria (no en localStorage): para la muestra,
+// al recargar la página vuelve a pedir la prueba.
+const etapasAbiertasSesion = new Set();
+
+function abrirSiguienteEtapa(cat, word) {
+  const palabras = cat?.words.map((w) => w.word) || [];
+  const i = palabras.indexOf(word);
+  if (i >= 0 && i + 1 < palabras.length) etapasAbiertasSesion.add(palabras[i + 1]);
+}
+
 // Repaso espaciado: una palabra que el chico YA tiene bien entra a la lista
 // de "para repasar" si pasaron UMBRAL_DIAS_REPASO días o más desde la
 // última vez que la practicó -- pedido explícito: que lo que ya aprendió
@@ -132,6 +145,15 @@ export default function LearningPathScreen() {
   // va en el momento de entrar a cada paso, no como un botón aparte.
   const [modeChoicePending, setModeChoicePending] = useState(false);
   const [audioOnlyChosen, setAudioOnlyChosen] = useState(false);
+  // Prueba para adelantar una etapa bloqueada (ver etapasAbiertasSesion).
+  // La prueba tiene 2 pasos, los dos con la FRASE completa de la palabra y la
+  // voz: "frase1" -> "frase2" -> "lista" (al pasar los dos se abre la etapa).
+  const [pruebaWord, setPruebaWord] = useState(null);
+  const [pruebaFase, setPruebaFase] = useState("frase1");
+  const [pasoOk, setPasoOk] = useState(false);
+  // Avance automatico: al decir algo bien, a los ~2 segundos (para que el
+  // chico alcance a ver el festejo) pasa solo a lo que sigue.
+  const timerAvance = useRef(null);
 
   // Pedido explícito: que Aprender también muestre lo que el chico NO sabe,
   // actualizado por cada sesión de práctica que hace -- no solo el
@@ -153,6 +175,21 @@ export default function LearningPathScreen() {
   useEffect(() => {
     fetchRecordings();
   }, []);
+
+  useEffect(() => () => clearTimeout(timerAvance.current), []);
+
+  function cancelarAvance() {
+    clearTimeout(timerAvance.current);
+    timerAvance.current = null;
+  }
+
+  function programarAvance(fn, ms = 2000) {
+    cancelarAvance();
+    timerAvance.current = setTimeout(() => {
+      timerAvance.current = null;
+      fn();
+    }, ms);
+  }
 
   // BUG real detectado: esto pedía /health UNA sola vez al montar y nunca
   // reintentaba -- si esta pantalla carga antes de que el backend termine
@@ -200,6 +237,57 @@ export default function LearningPathScreen() {
     if (fila) return fila.correcta;
     const diagnostico = getDiagnosticoGuardado();
     return diagnostico ? diagnostico[cat.key] : undefined;
+  }
+
+  // Una etapa (que no sea la primera) de una palabra con datos entrenados
+  // queda bloqueada hasta pasar la prueba o completar bien la anterior; las
+  // palabras sin datos entrenados no se pueden evaluar, así que quedan libres.
+  function etapaBloqueada(cat, i) {
+    if (i === 0) return false;
+    const word = cat.words[i].word;
+    if (!unlockedWords.includes(word)) return false;
+    return !etapasAbiertasSesion.has(word);
+  }
+
+  function abrirPrueba(word) {
+    setPruebaWord(word);
+    setPruebaFase("frase1");
+    setPasoOk(false);
+    setView("prueba");
+  }
+
+  function salirDePrueba() {
+    cancelarAvance();
+    setView("etapas");
+    setPruebaWord(null);
+    setPruebaFase("frase1");
+    setPasoOk(false);
+    fetchRecordings();
+  }
+
+  // Cada paso de la prueba es una frase completa (FrasePracticeStage). Al
+  // decirla bien en el paso 1 se habilita seguir al paso 2; al decirla bien
+  // en el paso 2 se abre la etapa.
+  function onResultadoPrueba(correcta) {
+    if (correcta !== true) return;
+    if (pruebaFase === "frase1") {
+      setPasoOk(true);
+      programarAvance(() => {
+        setPruebaFase("frase2");
+        setPasoOk(false);
+      });
+    } else if (pruebaFase === "frase2") {
+      etapasAbiertasSesion.add(pruebaWord);
+      setPruebaFase("lista");
+      mostrarPremio("🔓 ¡Etapa abierta!");
+      const w = pruebaWord;
+      programarAvance(() => {
+        setPruebaWord(null);
+        setPruebaFase("frase1");
+        setPasoOk(false);
+        openEtapa(w);
+      });
+    }
   }
 
   function openCategory(cat) {
@@ -282,7 +370,54 @@ export default function LearningPathScreen() {
     setPendingView(null);
   }
 
+  // Pasa a lo que sigue despues de decir algo bien: el proximo paso de la
+  // misma palabra (RR) o la proxima palabra de la categoria, manteniendo la
+  // forma de practicar que eligio (camara o voz) para no volver a preguntar.
+  function irASiguiente() {
+    const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
+    const nextIdx = selectedStepIdx + 1;
+
+    function entrarAlPaso(word, idx, stepsDeLaPalabra) {
+      const step = stepsDeLaPalabra[idx];
+      const familia = familyForStep(word, step.key);
+      setSelectedWord(word);
+      setSelectedStepIdx(idx);
+      if (!unlockedWords.includes(familia)) {
+        setView(selectedCategory?.key === "rr" ? "repetir" : "detalle");
+        return;
+      }
+      const destino = audioOnlyChosen && step.key === "completa" ? "practicar_frase" : "practicar";
+      if (getFallosSeguidos(familia) >= UMBRAL_DESCANSO) {
+        setPendingView(destino);
+        setView("descanso");
+      } else {
+        setView(destino);
+      }
+    }
+
+    if (nextIdx < steps.length) {
+      entrarAlPaso(selectedWord, nextIdx, steps);
+      return;
+    }
+
+    const palabras = selectedCategory?.words.map((w) => w.word) || [];
+    const siguiente = palabras[palabras.indexOf(selectedWord) + 1];
+    if (!siguiente) {
+      mostrarPremio("🏁 ¡Terminaste esta categoría!");
+      volverDePractica();
+      return;
+    }
+    if (selectedCategory.key === "rr") {
+      setSelectedWord(siguiente);
+      setSelectedStepIdx(0);
+      setView("pasos");
+    } else {
+      entrarAlPaso(siguiente, 0, getSteps(siguiente, selectedCategory, audioOnlyChosen));
+    }
+  }
+
   function volverDePractica() {
+    cancelarAvance();
     const esRR = selectedCategory && selectedCategory.key === "rr";
     setView(esRR ? "pasos" : "etapas");
     fetchRecordings();
@@ -301,10 +436,15 @@ export default function LearningPathScreen() {
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
     const step = steps[selectedStepIdx];
     registrarIntento(familyForStep(selectedWord, step.key), correcta);
+    if (correcta === true && step.key === "completa") {
+      abrirSiguienteEtapa(selectedCategory, selectedWord);
+    }
 
     const premio = textoPremio(registrarIntentoValido(correcta));
     if (premio) mostrarPremio(premio);
     setRachaTick((t) => t + 1);
+
+    if (correcta === true) programarAvance(irASiguiente);
   }
 
   if (modeChoicePending && selectedWord) {
@@ -362,9 +502,45 @@ export default function LearningPathScreen() {
     );
   }
 
+  if (view === "prueba" && pruebaWord) {
+    return (
+      <div className="prueba-wrap">
+        <div className="prueba-banner">
+          {pruebaFase === "lista" ? (
+            <>
+              <span>🎉 ¡Pasaste la prueba! Ya podés entrar a esta etapa.</span>
+              <button className="path-cta" onClick={() => { const w = pruebaWord; setPruebaWord(null); setPruebaFase("frase1"); setPasoOk(false); openEtapa(w); }}>
+                Ir a la etapa →
+              </button>
+            </>
+          ) : pruebaFase === "frase1" && pasoOk ? (
+            <>
+              <span>✅ Paso 1 de 2 listo. ¡Una vez más!</span>
+              <button className="path-cta" onClick={() => { setPruebaFase("frase2"); setPasoOk(false); }}>
+                Seguir con el paso 2 →
+              </button>
+            </>
+          ) : (
+            <span>
+              🚀 Prueba para adelantar, paso {pruebaFase === "frase1" ? 1 : 2} de 2: decí la frase completa con la voz.
+            </span>
+          )}
+        </div>
+        <FrasePracticeStage
+          key={pruebaFase}
+          word={pruebaWord}
+          category={selectedCategory}
+          onBack={salirDePrueba}
+          onResultado={onResultadoPrueba}
+        />
+      </div>
+    );
+  }
+
   if (view === "practicar_frase" && selectedWord) {
     return (
       <FrasePracticeStage
+        key={`${selectedWord}-${selectedStepIdx}`}
         word={selectedWord}
         category={selectedCategory}
         onBack={volverDePractica}
@@ -378,6 +554,7 @@ export default function LearningPathScreen() {
     const step = steps[selectedStepIdx];
     return (
       <HomeScreen
+        key={familyForStep(selectedWord, step.key)}
         initialWord={familyForStep(selectedWord, step.key)}
         promptText={step.label}
         promptIcon={selectedWord}
@@ -460,25 +637,28 @@ export default function LearningPathScreen() {
 
   if (view === "etapas" && selectedCategory) {
     const words = selectedCategory.words;
-    const unlockedHere = words.filter((w) => unlockedWords.includes(w.word)).length;
+    // Progreso = palabras de esta categoria que ya dijo bien (su ultimo intento
+    // salio correcto), no las que el modelo "conoce".
+    const sabidasAqui = words.filter((w) => estadoPalabra(w.word) === true).length;
     return (
       <div className="path-screen">
         <div className="path-header">
           <button className="icon-button" onClick={() => setView("categorias")}>←</button>
           <span className="path-title">{selectedCategory.title}</span>
           <span className="path-progress-pill">
-            🏆 {unlockedHere}/{words.length}
+            🏆 {sabidasAqui}/{words.length}
           </span>
         </div>
         <div className="etapa-list">
           {words.map((w, i) => {
             const unlocked = unlockedWords.includes(w.word);
             const resultado = estadoPalabra(w.word);
+            const bloqueada = etapaBloqueada(selectedCategory, i);
             return (
               <button
                 key={w.word}
-                className={`etapa-card etapa-color-${i % 4}`}
-                onClick={() => openEtapa(w.word)}
+                className={`etapa-card etapa-color-${i % 4}${bloqueada ? " etapa-bloqueada" : ""}`}
+                onClick={() => (bloqueada ? abrirPrueba(w.word) : openEtapa(w.word))}
                 style={{ animationDelay: `${i * 0.06}s` }}
               >
                 <span className="etapa-card-tag">Etapa {i + 1}</span>
@@ -488,7 +668,7 @@ export default function LearningPathScreen() {
                   {resultado === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Ya lo sabés! ✅</span>}
                 </span>
                 <span className="etapa-card-action">
-                  {unlocked ? "Repasar →" : "Practicar →"}
+                  {bloqueada ? "🔒 Prueba para abrir →" : unlocked ? "Repasar →" : "Practicar →"}
                 </span>
               </button>
             );
@@ -532,7 +712,7 @@ export default function LearningPathScreen() {
       <div className="path-header">
         <span className="path-title"><span className="path-mascot">🗣️</span> FonoKids -- Camino</span>
         <span className="path-progress-pill">
-          🏆 {unlockedWords.length}/{ALL_WORDS.length} etapas
+          🏆 {ALL_WORDS.filter((w) => estadoPalabra(w) === true).length}/{ALL_WORDS.length} palabras
         </span>
       </div>
 
@@ -694,10 +874,6 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
               : <span key={i}>{parte}</span>
           )}
         </div>
-        <button className="sound-listen-button" onClick={() => speakWord(frase)}>
-          🔊 Escuchar
-        </button>
-
         {micError ? (
           <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
         ) : !micListo ? (
