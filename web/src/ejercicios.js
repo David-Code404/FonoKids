@@ -3,7 +3,7 @@
 //
 // Tipos:
 //   praxia -> cámara en el navegador (MediaPipe, blendshapes). Se mide un
-//             valor de la cara; tiene que superar `delta` por encima del
+//             valor de la cara; tiene que superar `deltas` (uno por señal medida; alcanza con una) por encima del
 //             reposo del propio chico (calibración de 2 s) y mantenerse
 //             HOLD_MS, `repeticiones` veces.
 //   soplo  -> micrófono en el navegador. Se mide el volumen sostenido.
@@ -19,19 +19,19 @@ export const REPETICIONES = 3;
 export const EJERCICIOS = [
   {
     id: "sonrisa", tipo: "praxia", icono: "😁", titulo: "Sonrisa grande",
-    instruccion: "¡Sonríe lo más grande que puedas y mantenlo!", medida: "sonrisa", delta: 0.3,
+    instruccion: "¡Sonríe lo más grande que puedas y mantenlo!", medida: "sonrisa", deltas: [0.3],
   },
   {
     id: "beso", tipo: "praxia", icono: "😗", titulo: "Beso",
-    instruccion: "¡Haz un besito con los labios hacia adelante y mantenlo!", medida: "beso", delta: 0.3,
+    instruccion: "¡Haz un besito con los labios hacia adelante y mantenlo!", medida: "beso", deltas: [0.3],
   },
   {
     id: "boca", tipo: "praxia", icono: "😮", titulo: "Boca abierta",
-    instruccion: "¡Abre la boca bien grande, como un bostezo, y mantenlo!", medida: "boca", delta: 0.35,
+    instruccion: "¡Abre la boca bien grande, como un bostezo, y mantenlo!", medida: "boca", deltas: [0.35],
   },
   {
     id: "mejillas", tipo: "praxia", icono: "🐡", titulo: "Mejillas infladas",
-    instruccion: "¡Infla las mejillas como un globo y mantenlo!", medida: "mejillas", delta: 0.2,
+    instruccion: "¡Infla las mejillas como un globo y mantenlo!", medida: "mejillas", deltas: [0.08, 0.04],
   },
   {
     id: "vela", tipo: "soplo", icono: "🕯️", titulo: "Soplar la vela",
