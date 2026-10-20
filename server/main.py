@@ -1482,8 +1482,26 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
         veredicto_final = "a_practicar"
         tipo_error = "motor_severo"  # Error Motor-Articulatorio Severo
     else:  # acoustic_match and not visual_match
-        veredicto_final = "a_practicar"
-        tipo_error = "compensacion_visual"  # Compensación Visual / Gesto Atípico
+        # Caso "audio bien, video no coincide". Si el video reconoció OTRA
+        # PALABRA (palabra_distinta) mientras el audio -- el clasificador
+        # (~97%) Y el GOP -- coincide en que se dijo bien la pedida, lo más
+        # probable es un error del modelo de video (acierta ~67% entre 58
+        # clases y a veces confunde palabras con mucha confianza): manda el
+        # audio. Si el video reconoció la MISMA palabra pero en su versión
+        # incorrecta, sigue siendo "compensacion_visual".
+        audio_gop_ok = (
+            audio_resultado is not None
+            and not audio_resultado["sospechosos"]
+            and audio_resultado["palabra_reconocida"]
+        )
+        if palabra_distinta and audio_gop_ok:
+            veredicto_final = "bien"
+            tipo_error = None
+            print(f"[predict] el video vio '{palabra}' pero el audio (clasificador + GOP) dice que "
+                  f"dijo bien '{palabra_esperada}' -> manda el audio -> bien")
+        else:
+            veredicto_final = "a_practicar"
+            tipo_error = "compensacion_visual"  # Compensación Visual / Gesto Atípico
 
     # Se guarda el clip siempre que haya confianza suficiente (correcto O
     # incorrecto) -- Logros solo cuenta los "bien dichos", pero la pantalla
