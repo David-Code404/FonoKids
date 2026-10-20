@@ -60,17 +60,33 @@ function Encabezado({ icono, titulo, onBack }) {
 }
 
 // ---------------------------------------------------------------- PRAXIA
+// Pasos: 1) cara tranquila (2 s) = reposo; 2) el gesto lo más fuerte posible
+// (2.5 s) = cuánto se mueve ESTA cara con ESTA cámara; 3) repeticiones: hay que
+// llegar a la mitad de lo que se midió en el paso 2 y mantenerlo 3 s. Así no
+// dependemos de umbrales fijos, que cambian de una cara/cámara a otra.
+const GESTO_MS = 2500;
+
+function percentil(valores, p) {
+  if (!valores.length) return 0;
+  const orden = [...valores].sort((x, y) => x - y);
+  return orden[Math.floor(p * (orden.length - 1))];
+}
+
 function PraxiaStage({ ejercicio, onBack }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const landmarkerRef = useRef(null);
   const rafRef = useRef(null);
   const faseRef = useRef("cargando");
-  const calRef = useRef({ t0: 0, suma: [], n: 0, base: [] });
+  const calRef = useRef({ t0: 0, suma: [], suma2: [], n: 0 });
+  const baseRef = useRef({ base: [], std: [] });
+  const gestoRef = useRef({ t0: 0, vals: [] });
+  const persRef = useRef({ i: 0, base: 0, delta: 1 });
   const holdRef = useRef({ inicio: null, necesitaSoltar: false, reps: 0 });
 
-  const [fase, setFase] = useState("cargando"); // cargando | calibrando | haciendo | listo | error
+  const [fase, setFase] = useState("cargando"); // cargando | calibrando | gesto | haciendo | listo | sinsenal | error
   const [error, setError] = useState(null);
+  const [detalle, setDetalle] = useState("");
   const [progreso, setProgreso] = useState(0);
   const [reps, setReps] = useState(0);
   const [hayCara, setHayCara] = useState(true);
@@ -79,6 +95,10 @@ function PraxiaStage({ ejercicio, onBack }) {
   function cambiarFase(f) {
     faseRef.current = f;
     setFase(f);
+  }
+
+  function reiniciarCalibracion() {
+    calRef.current = { t0: performance.now(), suma: [], suma2: [], n: 0 };
   }
 
   useEffect(() => {
@@ -111,7 +131,7 @@ function PraxiaStage({ ejercicio, onBack }) {
           return;
         }
         landmarkerRef.current = landmarker;
-        calRef.current = { t0: performance.now(), suma: [], n: 0, base: [] };
+        reiniciarCalibracion();
         cambiarFase("calibrando");
         rafRef.current = requestAnimationFrame(tick);
       } catch (e) {
@@ -124,12 +144,41 @@ function PraxiaStage({ ejercicio, onBack }) {
       }
     })();
 
+    // Decide si el gesto se midió bien y fija el umbral PERSONAL.
+    function evaluarGesto() {
+      const { base, std } = baseRef.current;
+      const { vals } = gestoRef.current;
+      const deltas = ejercicio.deltas;
+      let mejor = null;
+      const partes = [];
+      vals.forEach((serie, i) => {
+        const ganancia = percentil(serie, 0.8) - base[i];
+        const ruido = std[i];
+        const piso = 0.25 * deltas[i]; // por debajo de esto no se considera un gesto real
+        partes.push(`señal ${i + 1}: +${ganancia.toFixed(3)} (ruido ${ruido.toFixed(3)}, mínimo ${piso.toFixed(3)})`);
+        if (ganancia >= Math.max(3 * ruido, piso)) {
+          const snr = ganancia / Math.max(ruido, 1e-4);
+          if (!mejor || snr > mejor.snr) {
+            mejor = { i, base: base[i], delta: Math.max(0.5 * ganancia, piso), snr };
+          }
+        }
+      });
+      setDetalle(partes.join(" · "));
+      if (mejor) {
+        persRef.current = mejor;
+        cambiarFase("haciendo");
+      } else {
+        cambiarFase("sinsenal");
+      }
+    }
+
     function tick() {
       rafRef.current = requestAnimationFrame(tick);
       const video = videoRef.current;
       const landmarker = landmarkerRef.current;
       if (!video || !landmarker || video.readyState < 2) return;
-      if (faseRef.current !== "calibrando" && faseRef.current !== "haciendo") return;
+      const f = faseRef.current;
+      if (f !== "calibrando" && f !== "gesto" && f !== "haciendo") return;
 
       const ahora = performance.now();
       const res = landmarker.detectForVideo(video, ahora);
@@ -143,26 +192,36 @@ function PraxiaStage({ ejercicio, onBack }) {
       setHayCara(true);
       const valores = medir(cats, res.faceLandmarks?.[0], ejercicio.medida);
 
-      if (faseRef.current === "calibrando") {
+      if (f === "calibrando") {
         const c = calRef.current;
         c.suma = valores.map((x, i) => (c.suma[i] ?? 0) + x);
+        c.suma2 = valores.map((x, i) => (c.suma2[i] ?? 0) + x * x);
         c.n += 1;
         if (ahora - c.t0 >= CALIBRACION_MS && c.n > 5) {
-          c.base = c.suma.map((x) => x / c.n);
-          cambiarFase("haciendo");
+          const base = c.suma.map((x) => x / c.n);
+          const std = c.suma2.map((x2, i) => Math.sqrt(Math.max(x2 / c.n - base[i] * base[i], 0)));
+          baseRef.current = { base, std };
+          gestoRef.current = { t0: ahora, vals: valores.map(() => []) };
+          cambiarFase("gesto");
         }
         return;
       }
 
-      // Señal del gesto: 1 = justo lo necesario. Con varias medidas (mejillas)
-      // alcanza con que una de ellas llegue.
-      const deltas = ejercicio.deltas;
-      const senalActual = Math.max(...valores.map((x, i) => (x - (calRef.current.base[i] ?? 0)) / deltas[i]));
+      if (f === "gesto") {
+        const g = gestoRef.current;
+        // Los primeros 0,6 s son para reaccionar: no se miden.
+        if (ahora - g.t0 > 600) valores.forEach((x, i) => g.vals[i].push(x));
+        if (ahora - g.t0 >= GESTO_MS) evaluarGesto();
+        return;
+      }
+
+      // fase "haciendo": señal del gesto con el umbral personal (1 = justo lo necesario)
+      const pers = persRef.current;
+      const senalActual = (valores[pers.i] - pers.base) / pers.delta;
       setSenal(Math.max(0, Math.min(senalActual, 1)));
 
       const h = holdRef.current;
-      const sobre = senalActual >= 1;
-      if (!sobre) {
+      if (senalActual < 1) {
         h.inicio = null;
         h.necesitaSoltar = false;
         setProgreso(0);
@@ -200,13 +259,15 @@ function PraxiaStage({ ejercicio, onBack }) {
     holdRef.current = { inicio: null, necesitaSoltar: false, reps: 0 };
     setReps(0);
     setProgreso(0);
-    calRef.current = { t0: performance.now(), suma: [], n: 0, base: [] };
+    setSenal(0);
+    reiniciarCalibracion();
     cambiarFase("calibrando");
   }
 
   let mensaje = "";
   if (fase === "cargando") mensaje = "Prendiendo la cámara...";
   else if (fase === "calibrando") mensaje = "Pon cara tranquila 😐";
+  else if (fase === "gesto") mensaje = `¡Ahora haz el gesto LO MÁS FUERTE que puedas! ${ejercicio.icono}`;
   else if (fase === "haciendo") mensaje = hayCara ? ejercicio.instruccion : "No te veo la carita, ponte frente a la cámara 🙈";
 
   return (
@@ -223,6 +284,15 @@ function PraxiaStage({ ejercicio, onBack }) {
             <button className="path-cta" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
               Elegir otro ejercicio
             </button>
+          </>
+        ) : fase === "sinsenal" ? (
+          <>
+            <div className="result-overlay-emoji" style={{ fontSize: 56 }}>🙈</div>
+            <div className="repeat-hint">
+              No pude medir bien el gesto. Prueba con la cara de frente, buena luz, y hazlo bien grande.
+            </div>
+            <button className="path-cta" onClick={repetir}>Intentar de nuevo 🔁</button>
+            <div className="audio-only-label" style={{ fontSize: 12, opacity: 0.6, maxWidth: 360 }}>{detalle}</div>
           </>
         ) : (
           <>
