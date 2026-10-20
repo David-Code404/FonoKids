@@ -54,9 +54,9 @@ export const EJERCICIOS = [
     texto: "pablito clavó un clavito", mostrar: "Pablito clavó un clavito",
   },
   {
-    id: "erre", tipo: "voz", modo: "trabalenguas", icono: "🚂", titulo: "Erre con erre",
+    id: "erre", tipo: "voz", modo: "trabalenguas", icono: "🚂", titulo: "Los carros del ferrocarril",
     instruccion: "Dilo despacito y claro.",
-    texto: "erre con erre cigarro erre con erre barril", mostrar: "Erre con erre cigarro, erre con erre barril",
+    texto: "rápido ruedan los carros del ferrocarril", mostrar: "Rápido ruedan los carros del ferrocarril",
   },
 ];
 
