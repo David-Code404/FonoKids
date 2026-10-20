@@ -217,11 +217,12 @@ export default function DiagnosticoScreen({ onFinish }) {
           onResult={(result) => {
             if (result.valid && (result.correcta === true || result.correcta === false)) {
               setCamResultado(result.correcta);
-              // Si lo dijo bien, pasa solo a la siguiente prueba.
+              // Igual que en voz: salga bien O mal, pasa solo a la siguiente
+              // prueba (la categoría queda como "sabe" o "para practicar" en
+              // el resumen final). Un resultado no concluyente no cuenta.
               clearTimeout(timerAvance.current);
-              if (result.correcta === true) {
-                timerAvance.current = setTimeout(() => avanzar(true), 2000);
-              }
+              const sabe = result.correcta;
+              timerAvance.current = setTimeout(() => avanzar(sabe), 2000);
             }
           }}
         />
