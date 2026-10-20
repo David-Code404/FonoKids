@@ -3,6 +3,7 @@ import PhrasesScreen from "./screens/PhrasesScreen.jsx";
 import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
 import DiagnosticoScreen from "./screens/DiagnosticoScreen.jsx";
+import EjerciciosScreen from "./screens/EjerciciosScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
@@ -13,6 +14,7 @@ const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
   { key: "logros", label: "Logros", icon: "🏆" },
   { key: "errores", label: "Para practicar", icon: "🔁" },
+  { key: "ejercicios", label: "Ejercicios", icon: "🤸" },
 ];
 
 /// Navegación por pestañas: Aprender / Logros / Para practicar -- igual que
@@ -80,6 +82,9 @@ export default function App() {
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
           {visited.has(2) && <ErrorsScreen active={index === 2} />}
+        </div>
+        <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
+          {visited.has(3) && index === 3 && <EjerciciosScreen />}
         </div>
       </div>
     </div>

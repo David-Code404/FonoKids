@@ -1,0 +1,99 @@
+/* Ejercicios de calentamiento (prueba): praxias de cara, soplo y voz. */
+
+.ejercicio-stage {
+  gap: 12px;
+}
+
+/* ---- Praxias: cámara con anillo de progreso ---- */
+.praxia-cam {
+  position: relative;
+  width: min(86vw, 360px);
+  aspect-ratio: 4 / 3;
+  border-radius: 24px;
+  overflow: hidden;
+  background: #1f1d2b;
+  box-shadow: 0 8px 24px rgba(108, 92, 231, 0.25);
+}
+
+.praxia-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* espejo, para que se sienta natural */
+}
+
+.praxia-anillo {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(closest-side, #fff 76%, transparent 78%),
+    conic-gradient(#2ecc8f var(--p, 0deg), rgba(255, 255, 255, 0.35) 0);
+}
+
+.praxia-emoji {
+  font-size: 38px;
+}
+
+.praxia-reps {
+  display: flex;
+  gap: 10px;
+  font-size: 28px;
+}
+
+.rep-off {
+  opacity: 0.45;
+}
+
+/* ---- Soplo: vela ---- */
+.vela {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 150px;
+  justify-content: flex-end;
+}
+
+.llama {
+  font-size: 64px;
+  line-height: 1;
+  transform-origin: bottom center;
+  transition: transform 0.1s linear, opacity 0.1s linear;
+}
+
+.vela-cuerpo {
+  width: 28px;
+  height: 70px;
+  border-radius: 6px 6px 4px 4px;
+  background: linear-gradient(90deg, #fff4d6, #ffe0a3);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+.nivel-barra {
+  width: min(70vw, 260px);
+  height: 12px;
+  border-radius: 8px;
+  background: rgba(108, 92, 231, 0.15);
+  overflow: hidden;
+}
+
+.nivel-relleno {
+  height: 100%;
+  background: linear-gradient(90deg, #8c6bff, #2ecc8f);
+  transition: width 0.08s linear;
+}
+
+@media (max-height: 820px) {
+  .praxia-cam {
+    width: min(80vw, 300px);
+  }
+  .vela {
+    height: 120px;
+  }
+}
