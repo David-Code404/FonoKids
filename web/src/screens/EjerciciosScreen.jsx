@@ -78,7 +78,7 @@ function PraxiaStage({ ejercicio, onBack }) {
   const landmarkerRef = useRef(null);
   const rafRef = useRef(null);
   const faseRef = useRef("cargando");
-  const calRef = useRef({ t0: 0, suma: [], suma2: [], n: 0 });
+  const calRef = useRef({ t0: 0, vals: [], n: 0 });
   const baseRef = useRef({ base: [], std: [] });
   const gestoRef = useRef({ t0: 0, vals: [] });
   const persRef = useRef({ i: 0, base: 0, delta: 1 });
@@ -98,7 +98,7 @@ function PraxiaStage({ ejercicio, onBack }) {
   }
 
   function reiniciarCalibracion() {
-    calRef.current = { t0: performance.now(), suma: [], suma2: [], n: 0 };
+    calRef.current = { t0: performance.now(), vals: [], n: 0 };
   }
 
   useEffect(() => {
@@ -194,12 +194,22 @@ function PraxiaStage({ ejercicio, onBack }) {
 
       if (f === "calibrando") {
         const c = calRef.current;
-        c.suma = valores.map((x, i) => (c.suma[i] ?? 0) + x);
-        c.suma2 = valores.map((x, i) => (c.suma2[i] ?? 0) + x * x);
+        valores.forEach((x, i) => {
+          (c.vals[i] ||= []).push(x);
+        });
         c.n += 1;
         if (ahora - c.t0 >= CALIBRACION_MS && c.n > 5) {
-          const base = c.suma.map((x) => x / c.n);
-          const std = c.suma2.map((x2, i) => Math.sqrt(Math.max(x2 / c.n - base[i] * base[i], 0)));
+          // Reposo ROBUSTO: si durante la calibración la cara se movió o ya
+          // sonreía, el promedio se contamina y el ruido sale altísimo. Se usa
+          // solo la MITAD MÁS TRANQUILA de las muestras (las de menor valor).
+          const base = [];
+          const std = [];
+          c.vals.forEach((serie) => {
+            const calma = [...serie].sort((x, y) => x - y).slice(0, Math.max(3, Math.ceil(serie.length / 2)));
+            const m = calma.reduce((acc, x) => acc + x, 0) / calma.length;
+            base.push(m);
+            std.push(Math.sqrt(calma.reduce((acc, x) => acc + (x - m) * (x - m), 0) / calma.length));
+          });
           baseRef.current = { base, std };
           gestoRef.current = { t0: ahora, vals: valores.map(() => []) };
           cambiarFase("gesto");
