@@ -1752,6 +1752,32 @@ def _ciclos_pataka(tokens):
     return ciclos
 
 
+def _palabras_flojas(texto, resultado):
+    """Palabras del texto en las que MAS DE LA MITAD de los fonemas salieron
+    flojos (puntaje GOP bajo el umbral). Devuelve None si no se puede asignar
+    cada fonema a su palabra (en ese caso el llamador usa solo el porcentaje
+    total)."""
+    try:
+        import audio_pronunciation as _ap
+        vocab = _state["audio_vocab"]
+        flojos = set(resultado["sospechosos"])
+        palabras, pos, malas = texto.split(), 0, []
+        for pal in palabras:
+            _ids, usados = _ap._phoneme_to_token_ids(_ap.texto_a_fonemas(pal), vocab)
+            n = len(usados)
+            if n == 0:
+                continue
+            en_flojos = sum(1 for i in range(pos, pos + n) if i in flojos or resultado["scores"][i] is None)
+            if en_flojos / n >= 0.5:
+                malas.append(pal)
+            pos += n
+        if pos != len(resultado["fonemas"]):
+            return None
+        return malas
+    except Exception:
+        return None
+
+
 @app.post("/ejercicio_voz")
 async def ejercicio_voz(
     audio: UploadFile = File(...),
@@ -1806,11 +1832,25 @@ async def ejercicio_voz(
                 "correcta": ciclos >= 3,
             })
         else:
-            salida["correcta"] = pct_ok >= 0.65 and bool(resultado["palabra_reconocida"])
+            # Antes alcanzaba con 65% de fonemas claros: se podia errar una
+            # palabra entera y pasar igual. Ahora no puede haber ninguna
+            # palabra con mas de la mitad de sus fonemas flojos, y ademas el
+            # total tiene que llegar al 75%.
+            malas = _palabras_flojas(texto, resultado)
+            salida["palabras_flojas"] = malas if malas is not None else []
+            salida["correcta"] = (
+                pct_ok >= 0.75
+                and bool(resultado["palabra_reconocida"])
+                and not malas
+            )
+        # Se guarda el audio para poder revisar casos dudosos (ver
+        # _guardar_debug_frase).
+        _guardar_debug_frase(audio_path, None, f"ej_{tipo}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
 
         print(f"[ejercicio-voz] tipo={tipo} texto={texto!r} | ok={salida['porcentaje_ok']}% "
               f"reconocida={salida['palabra_reconocida']} | correcta={salida['correcta']}"
-              + (f" ciclos={salida['ciclos']}" if tipo == "ritmo" else ""))
+              + (f" ciclos={salida['ciclos']}" if tipo == "ritmo" else "")
+              + (f" flojas={salida.get('palabras_flojas')}" if tipo != "ritmo" else ""))
         return salida
     except Exception as e:
         return {"valid": False, "reason": f"no se pudo analizar el audio ({e}) -- probá de nuevo"}

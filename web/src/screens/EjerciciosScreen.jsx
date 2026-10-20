@@ -472,7 +472,9 @@ function VozStage({ ejercicio, onBack }) {
                     : "¡Lo lograste!")
                   : (ejercicio.modo === "ritmo"
                     ? `¡Casi! Hiciste ${resultado.ciclos} ${resultado.ciclos === 1 ? "vuelta" : "vueltas"} -- necesito 3`
-                    : "¡Casi! Dilo otra vez, despacito y claro")}
+                    : (resultado.palabras_flojas?.length
+                      ? `¡Casi! Fíjate en «${resultado.palabras_flojas.join("», «")}» y dilo otra vez`
+                      : "¡Casi! Dilo otra vez, despacito y claro"))}
               </span>
               {ejercicio.modo === "ritmo" && (
                 <span className="result-overlay-tip-text">
