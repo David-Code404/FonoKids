@@ -646,9 +646,6 @@ export default function HomeScreen({
     setShowSettings(false);
   }
 
-  const connLabel = { ok: "¡Listo! 🎉", fail: "Sin conexión", unknown: "Conectando..." }[connState];
-  const connClass = { ok: "conn-ok", fail: "conn-fail", unknown: "conn-unknown" }[connState];
-
   return (
     <div className="practice-screen">
       <div className="practice-main">
@@ -663,10 +660,6 @@ export default function HomeScreen({
             <span>FonoKids</span>
           </div>
           <div className="header-actions">
-            <button className={`conn-chip ${connClass}`} onClick={() => refreshConnection()}>
-              <span className="conn-dot" />
-              {connLabel}
-            </button>
             <button className="icon-button" onClick={() => setShowSettings(true)} title="Configuración servidor">
               ⚙
             </button>
