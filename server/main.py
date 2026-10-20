@@ -1732,6 +1732,95 @@ async def predict_frase(
             pass
 
 
+# ---------------------------------------------------------------------------
+# Ejercicios de voz (prueba): trabalenguas y repeticion rapida "pa-ta-ka".
+# Reusa score_pronunciation() (GOP) sobre un texto cualquiera -- no usa los
+# clasificadores entrenados ni toca la base de datos (no son intentos de
+# palabras del camino de aprendizaje).
+# ---------------------------------------------------------------------------
+def _ciclos_pataka(tokens):
+    """Vueltas completas p -> t -> k (en ese orden) entre los fonemas que
+    reconocio el modelo libremente. Tolera de mas ("pʰ" cuenta como "p")."""
+    siguiente = {"p": "t", "t": "k", "k": "p"}
+    esperado, ciclos = "p", 0
+    for tok in tokens:
+        base = tok[:1]
+        if base == esperado:
+            if esperado == "k":
+                ciclos += 1
+            esperado = siguiente[esperado]
+    return ciclos
+
+
+@app.post("/ejercicio_voz")
+async def ejercicio_voz(
+    audio: UploadFile = File(...),
+    texto: str = Form(...),
+    tipo: str = Form("trabalenguas"),
+):
+    """tipo="trabalenguas": dice el texto completo; cuenta como bien si la
+    mayoria de los fonemas salen claros (GOP) y el modelo reconoce el texto.
+    tipo="ritmo": repite "pa-ta-ka" seguido; cuenta como bien con 3 vueltas
+    completas p-t-k (no usa normas por edad: eso lo tiene que definir un
+    especialista)."""
+    if _state["audio_model"] is None:
+        raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo de audio.")
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_audio:
+        shutil.copyfileobj(audio.file, tmp_audio)
+        audio_path = tmp_audio.name
+
+    try:
+        waveform = load_audio_16k(audio_path)
+        pico = float(waveform.abs().max()) if waveform.numel() else 0.0
+        if pico < 0.01:
+            return {"valid": False, "reason": "no te escuché -- ¡probá de nuevo, más fuerte!"}
+        activo = (waveform.abs() > 0.05 * pico).nonzero()
+        seg_habla = max(float(activo[-1] - activo[0]) / TARGET_SAMPLE_RATE, 0.5) if len(activo) else 0.5
+
+        resultado = _score_audio_pronunciation(audio_path, texto)
+        if resultado is None:
+            return {"valid": False, "reason": "no se pudo analizar el audio -- probá de nuevo"}
+
+        scores = resultado["scores"]
+        flojos = set(resultado["sospechosos"])
+        ok = [i for i, sc in enumerate(scores) if sc is not None and i not in flojos]
+        pct_ok = len(ok) / max(len(scores), 1)
+
+        salida = {
+            "valid": True,
+            "tipo": tipo,
+            "porcentaje_ok": round(100 * pct_ok),
+            "palabra_reconocida": resultado["palabra_reconocida"],
+            "segundos_de_habla": round(seg_habla, 1),
+            "tipo_error": resultado.get("tipo_error_audio"),
+        }
+        tokens = resultado["reconocido_libre"].split()
+        if tipo == "ritmo":
+            ciclos = _ciclos_pataka(tokens)
+            silabas = sum(1 for t in tokens if t[:1] in ("p", "t", "k"))
+            salida.update({
+                "ciclos": ciclos,
+                "silabas": silabas,
+                "silabas_por_segundo": round(silabas / seg_habla, 1),
+                "correcta": ciclos >= 3,
+            })
+        else:
+            salida["correcta"] = pct_ok >= 0.65 and bool(resultado["palabra_reconocida"])
+
+        print(f"[ejercicio-voz] tipo={tipo} texto={texto!r} | ok={salida['porcentaje_ok']}% "
+              f"reconocida={salida['palabra_reconocida']} | correcta={salida['correcta']}"
+              + (f" ciclos={salida['ciclos']}" if tipo == "ritmo" else ""))
+        return salida
+    except Exception as e:
+        return {"valid": False, "reason": f"no se pudo analizar el audio ({e}) -- probá de nuevo"}
+    finally:
+        try:
+            os.remove(audio_path)
+        except OSError:
+            pass
+
+
 if __name__ == "__main__":
     import uvicorn
 

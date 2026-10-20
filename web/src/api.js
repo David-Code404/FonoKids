@@ -278,3 +278,40 @@ export async function predict(
     return await predictOnce(baseUrl, videoBlob, filename, audioBlob, palabra);
   }
 }
+
+/// Ejercicios de voz (prueba) -- POST /ejercicio_voz en server/main.py.
+/// tipo: "ritmo" (pa-ta-ka) o "trabalenguas".
+export async function ejercicioVoz(baseUrl, audioBlob, texto, tipo) {
+  const uri = `${normalize(baseUrl)}/ejercicio_voz`;
+  const form = new FormData();
+  form.append("audio", audioBlob, "ejercicio.wav");
+  form.append("texto", texto);
+  form.append("tipo", tipo);
+
+  let response;
+  try {
+    response = await withTimeout(
+      (signal) => fetch(uri, { method: "POST", body: form, signal }),
+      60000,
+      "El servidor tardó demasiado en responder -- probá de nuevo."
+    );
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(
+      `No se pudo conectar al servidor (${baseUrl}). Revisá que esté prendido.`
+    );
+  }
+
+  if (!response.ok) {
+    let detail = null;
+    try {
+      const body = await response.json();
+      detail = body?.detail || null;
+    } catch {
+      // sin JSON -- mensaje genérico de abajo
+    }
+    throw new ApiError(detail || `El servidor respondió con error ${response.status}.`);
+  }
+
+  return response.json();
+}
