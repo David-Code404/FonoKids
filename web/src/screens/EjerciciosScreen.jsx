@@ -24,15 +24,29 @@ function darPremio() {
   mostrarPremio(premio || "⭐ ¡Muy bien!");
 }
 
-/// Valor 0..1 del gesto a partir de los blendshapes de MediaPipe.
-function medir(categorias, medida) {
+function distancia(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/// Señales del gesto (lista de valores), a partir de los blendshapes de
+/// MediaPipe y, para las mejillas, también de los puntos de la cara: el
+/// blendshape `cheekPuff` suele dar valores muy bajos, así que además se mide
+/// cuánto se ensanchan las mejillas (puntos 205 y 425) respecto a la
+/// distancia entre los ojos (33 y 263), que no cambia al inflarlas.
+function medir(categorias, cara, medida) {
   const v = (nombre) => categorias.find((c) => c.categoryName === nombre)?.score ?? 0;
   switch (medida) {
-    case "sonrisa": return (v("mouthSmileLeft") + v("mouthSmileRight")) / 2;
-    case "beso": return v("mouthPucker");
-    case "boca": return v("jawOpen");
-    case "mejillas": return v("cheekPuff");
-    default: return 0;
+    case "sonrisa": return [(v("mouthSmileLeft") + v("mouthSmileRight")) / 2];
+    case "beso": return [v("mouthPucker")];
+    case "boca": return [v("jawOpen")];
+    case "mejillas": {
+      let ancho = 0;
+      if (cara?.[205] && cara?.[425] && cara?.[33] && cara?.[263]) {
+        ancho = distancia(cara[205], cara[425]) / Math.max(distancia(cara[33], cara[263]), 1e-6);
+      }
+      return [v("cheekPuff"), ancho];
+    }
+    default: return [0];
   }
 }
 
@@ -52,7 +66,7 @@ function PraxiaStage({ ejercicio, onBack }) {
   const landmarkerRef = useRef(null);
   const rafRef = useRef(null);
   const faseRef = useRef("cargando");
-  const calRef = useRef({ t0: 0, suma: 0, n: 0, base: 0 });
+  const calRef = useRef({ t0: 0, suma: [], n: 0, base: [] });
   const holdRef = useRef({ inicio: null, necesitaSoltar: false, reps: 0 });
 
   const [fase, setFase] = useState("cargando"); // cargando | calibrando | haciendo | listo | error
@@ -60,6 +74,7 @@ function PraxiaStage({ ejercicio, onBack }) {
   const [progreso, setProgreso] = useState(0);
   const [reps, setReps] = useState(0);
   const [hayCara, setHayCara] = useState(true);
+  const [senal, setSenal] = useState(0); // 0..1: cuánto falta para que cuente el gesto
 
   function cambiarFase(f) {
     faseRef.current = f;
@@ -96,7 +111,7 @@ function PraxiaStage({ ejercicio, onBack }) {
           return;
         }
         landmarkerRef.current = landmarker;
-        calRef.current = { t0: performance.now(), suma: 0, n: 0, base: 0 };
+        calRef.current = { t0: performance.now(), suma: [], n: 0, base: [] };
         cambiarFase("calibrando");
         rafRef.current = requestAnimationFrame(tick);
       } catch (e) {
@@ -126,21 +141,27 @@ function PraxiaStage({ ejercicio, onBack }) {
         return;
       }
       setHayCara(true);
-      const valor = medir(cats, ejercicio.medida);
+      const valores = medir(cats, res.faceLandmarks?.[0], ejercicio.medida);
 
       if (faseRef.current === "calibrando") {
         const c = calRef.current;
-        c.suma += valor;
+        c.suma = valores.map((x, i) => (c.suma[i] ?? 0) + x);
         c.n += 1;
         if (ahora - c.t0 >= CALIBRACION_MS && c.n > 5) {
-          c.base = c.suma / c.n;
+          c.base = c.suma.map((x) => x / c.n);
           cambiarFase("haciendo");
         }
         return;
       }
 
+      // Señal del gesto: 1 = justo lo necesario. Con varias medidas (mejillas)
+      // alcanza con que una de ellas llegue.
+      const deltas = ejercicio.deltas;
+      const senalActual = Math.max(...valores.map((x, i) => (x - (calRef.current.base[i] ?? 0)) / deltas[i]));
+      setSenal(Math.max(0, Math.min(senalActual, 1)));
+
       const h = holdRef.current;
-      const sobre = valor - calRef.current.base >= ejercicio.delta;
+      const sobre = senalActual >= 1;
       if (!sobre) {
         h.inicio = null;
         h.necesitaSoltar = false;
@@ -179,7 +200,7 @@ function PraxiaStage({ ejercicio, onBack }) {
     holdRef.current = { inicio: null, necesitaSoltar: false, reps: 0 };
     setReps(0);
     setProgreso(0);
-    calRef.current = { t0: performance.now(), suma: 0, n: 0, base: 0 };
+    calRef.current = { t0: performance.now(), suma: [], n: 0, base: [] };
     cambiarFase("calibrando");
   }
 
@@ -214,6 +235,11 @@ function PraxiaStage({ ejercicio, onBack }) {
                 </div>
               )}
             </div>
+            {fase === "haciendo" && (
+              <div className="nivel-barra" title="Qué tan cerca estás del gesto">
+                <div className="nivel-relleno" style={{ width: `${Math.round(senal * 100)}%` }} />
+              </div>
+            )}
             {fase === "haciendo" && (
               <div className="praxia-reps" aria-label={`${reps} de ${REPETICIONES}`}>
                 {Array.from({ length: REPETICIONES }, (_, i) => (

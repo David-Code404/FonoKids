@@ -1615,6 +1615,29 @@ async def predict(
                 pass
 
 
+# Corte para "dijo la frase pedida": distancia de edicion normalizada entre los
+# fonemas de la frase pedida y lo que el modelo reconocio LIBREMENTE. Medido
+# con audios reales guardados en data/debug_frases: la frase correcta da 0.07 a
+# 0.42; el mismo audio contra otra frase da 0.45 o mas (casi siempre 0.6-0.8).
+FRASE_DISTANCIA_MAXIMA = 0.48
+
+
+def _distancia_frase(frase, resultado):
+    """Distancia normalizada (0 = igual, 1 = totalmente distinta) entre la
+    frase pedida y lo que se reconocio libremente en el audio. None si no se
+    pudo calcular."""
+    try:
+        import audio_pronunciation as _ap
+        _ids, usados = _ap._phoneme_to_token_ids(_ap.texto_a_fonemas(frase), _state["audio_vocab"])
+        reconocidos = resultado["reconocido_libre"].split()
+        if not usados:
+            return None
+        d = _ap._distancia_edicion(usados, reconocidos)
+        return d / max(len(usados), len(reconocidos), 1)
+    except Exception:
+        return None
+
+
 @app.post("/predict_frase")
 async def predict_frase(
     audio: UploadFile = File(...),
@@ -1670,8 +1693,18 @@ async def predict_frase(
         # torre es muy BAJA" en vez de "ALTA"), tampoco cuenta -- aunque la
         # palabra objetivo ("torre") haya salido bien. Ver
         # resto_de_la_frase_ok en audio_pronunciation.py.
-        if not resultado.get("resto_de_la_frase_ok", True):
-            _guardar_debug_frase(audio_path, audio_recortado_path, palabra, "distinta")
+        # (Antes se contaban fonemas "flojos" fuera de la palabra: rechazaba por
+        # error frases bien dichas -- "duerme", "grande" -- y aceptaba otras
+        # frases distintas.) Ahora se compara lo que se reconocio contra la
+        # frase pedida entera.
+        dist_frase = _distancia_frase(frase, resultado)
+        if dist_frase is None:
+            frase_ok = resultado.get("resto_de_la_frase_ok", True)
+        else:
+            frase_ok = dist_frase <= FRASE_DISTANCIA_MAXIMA
+        if not frase_ok:
+            _guardar_debug_frase(audio_path, audio_recortado_path, palabra,
+                                 f"distinta_d{'' if dist_frase is None else round(dist_frase, 2)}")
             return {
                 "valid": False,
                 "frase_distinta": True,
