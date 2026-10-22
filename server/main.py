@@ -1804,10 +1804,11 @@ def _ciclos_pataka(tokens):
 
 
 def _palabras_flojas(texto, resultado):
-    """Palabras del texto en las que MAS DE LA MITAD de los fonemas salieron
-    flojos (puntaje GOP bajo el umbral). Devuelve None si no se puede asignar
-    cada fonema a su palabra (en ese caso el llamador usa solo el porcentaje
-    total)."""
+    """Palabras del texto en las que AL MENOS UN fonema salio claramente mal
+    (puntaje GOP bajo el umbral). Antes se exigia que fuera mas de la mitad de
+    la palabra, y asi pasaban errores como decir "kablito" por "pablito" (un
+    solo sonido cambiado). Devuelve None si no se puede asignar cada fonema a
+    su palabra (en ese caso el llamador usa solo el porcentaje total)."""
     try:
         import audio_pronunciation as _ap
         vocab = _state["audio_vocab"]
@@ -1819,7 +1820,7 @@ def _palabras_flojas(texto, resultado):
             if n == 0:
                 continue
             en_flojos = sum(1 for i in range(pos, pos + n) if i in flojos or resultado["scores"][i] is None)
-            if en_flojos / n >= 0.5:
+            if en_flojos >= 1:
                 malas.append(pal)
             pos += n
         if pos != len(resultado["fonemas"]):
@@ -1883,10 +1884,11 @@ async def ejercicio_voz(
                 "correcta": ciclos >= 3,
             })
         else:
-            # Antes alcanzaba con 65% de fonemas claros: se podia errar una
-            # palabra entera y pasar igual. Ahora no puede haber ninguna
-            # palabra con mas de la mitad de sus fonemas flojos, y ademas el
-            # total tiene que llegar al 75%.
+            # Antes alcanzaba con 65% de fonemas claros, despues con "ninguna
+            # palabra con mas de la mitad flojos": se podia cambiar un sonido
+            # (p por k) y pasar igual. Ahora NO puede haber ninguna palabra
+            # con un fonema claramente mal, y ademas el total tiene que
+            # llegar al 75%.
             malas = _palabras_flojas(texto, resultado)
             salida["palabras_flojas"] = malas if malas is not None else []
             salida["correcta"] = (
