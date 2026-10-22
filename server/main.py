@@ -96,6 +96,10 @@ AUDIO_MIN_CONFIDENCE = 0.60
 # de "prioridad" (MIN_CONFIDENCE_PROB/MARGIN + AUDIO_MIN_CONFIDENCE con el
 # audio mandando solo) que se usaba antes en el pipeline con cámara.
 # =====================================================================
+# Confianza minima del clasificador de audio para dar por buena una palabra
+# cuando el analisis de sonidos (GOP) TAMBIEN dice que esta bien: dos senales
+# de audio de acuerdo valen mas que una sola con mucha seguridad.
+AUDIO_CONFIRMA_CON_GOP = 0.30
 ACOUSTIC_MATCH_THRESHOLD = 0.80
 VISUAL_MATCH_THRESHOLD = 0.75
 
@@ -1469,39 +1473,48 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     # "no_concluyente" en vez de inventar un veredicto con una sola señal.
     confianza_suficiente = audio_clf_resultado is not None
 
+    # El AUDIO confirma la palabra si el clasificador dice "correcto" con
+    # confianza suficiente (>= AUDIO_MIN_CONFIDENCE), o con confianza media
+    # (>= AUDIO_CONFIRMA_CON_GOP) cuando el analisis de sonidos tambien dice que
+    # esta bien. El video (acierta ~67% entre 58 clases) solo puede bloquear
+    # si esta SEGURO de que fue la MISMA palabra dicha mal; si ve otra palabra
+    # o duda, manda el audio.
+    audio_gop_ok = (
+        audio_resultado is not None
+        and not audio_resultado["sospechosos"]
+        and audio_resultado["palabra_reconocida"]
+    )
+    audio_confirma = (
+        audio_clf_resultado is not None
+        and audio_clf_resultado["es_correcto"]
+        and (audio_clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
+             or (audio_gop_ok and audio_clf_resultado["prob"] >= AUDIO_CONFIRMA_CON_GOP))
+    )
+    video_dice_mal_misma_palabra = (
+        (not palabra_distinta) and top_prob >= VISUAL_MATCH_THRESHOLD and not pronunciacion_correcta
+    )
+
     if not confianza_suficiente:
         veredicto_final = "no_concluyente"
         tipo_error = None
     elif acoustic_match and visual_match:
         veredicto_final = "bien"
         tipo_error = None
+    elif audio_confirma and not video_dice_mal_misma_palabra:
+        veredicto_final = "bien"
+        tipo_error = None
+        print(f"[predict] audio confirma '{palabra_esperada}' (clasificador {audio_clf_resultado['prob']:.2f}, "
+              f"GOP {'bien' if audio_gop_ok else 'dudoso'}); el video ({palabra}, {top_prob:.2f}) no lo contradice "
+              f"con seguridad -> bien")
     elif (not acoustic_match) and visual_match:
         veredicto_final = "a_practicar"
         tipo_error = "sustitucion_acustica"  # Error de Sustitución / Distorsión Acústica
     elif (not acoustic_match) and (not visual_match):
         veredicto_final = "a_practicar"
         tipo_error = "motor_severo"  # Error Motor-Articulatorio Severo
-    else:  # acoustic_match and not visual_match
-        # Caso "audio bien, video no coincide". Si el video reconoció OTRA
-        # PALABRA (palabra_distinta) mientras el audio -- el clasificador
-        # (~97%) Y el GOP -- coincide en que se dijo bien la pedida, lo más
-        # probable es un error del modelo de video (acierta ~67% entre 58
-        # clases y a veces confunde palabras con mucha confianza): manda el
-        # audio. Si el video reconoció la MISMA palabra pero en su versión
-        # incorrecta, sigue siendo "compensacion_visual".
-        audio_gop_ok = (
-            audio_resultado is not None
-            and not audio_resultado["sospechosos"]
-            and audio_resultado["palabra_reconocida"]
-        )
-        if palabra_distinta and audio_gop_ok:
-            veredicto_final = "bien"
-            tipo_error = None
-            print(f"[predict] el video vio '{palabra}' pero el audio (clasificador + GOP) dice que "
-                  f"dijo bien '{palabra_esperada}' -> manda el audio -> bien")
-        else:
-            veredicto_final = "a_practicar"
-            tipo_error = "compensacion_visual"  # Compensación Visual / Gesto Atípico
+    else:  # el audio confirma pero el video esta SEGURO de que fue la misma palabra mal dicha
+        veredicto_final = "a_practicar"
+        tipo_error = "compensacion_visual"  # Compensación Visual / Gesto Atípico
 
     # Se guarda el clip siempre que haya confianza suficiente (correcto O
     # incorrecto) -- Logros solo cuenta los "bien dichos", pero la pantalla
