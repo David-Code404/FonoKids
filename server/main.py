@@ -1803,25 +1803,34 @@ def _ciclos_pataka(tokens):
     return ciclos
 
 
+# Palabras cortas que casi nunca se dicen "limpias" al hablar de corrido (la "e"
+# de "en" se funde con la vocal anterior: "trigo en un" suena "trigón un"); no
+# cuentan para decidir si un trabalenguas salio mal.
+_PALABRAS_DE_RELLENO = {"en", "un", "una", "el", "la", "los", "las", "de", "del", "y", "e", "o", "a", "al", "con", "por"}
+# Un sonido cuenta como "claramente mal" si su puntaje GOP es peor que esto.
+# Medido con audios reales: los sonidos bien dichos no pasan de -3.5; cambiar
+# una p por k dio -4.7 y -6.9 (el umbral general de 3.0 daba falsos rechazos).
+_UMBRAL_SONIDO_MAL = -4.0
+
+
 def _palabras_flojas(texto, resultado):
-    """Palabras del texto en las que AL MENOS UN fonema salio claramente mal
-    (puntaje GOP bajo el umbral). Antes se exigia que fuera mas de la mitad de
-    la palabra, y asi pasaban errores como decir "kablito" por "pablito" (un
-    solo sonido cambiado). Devuelve None si no se puede asignar cada fonema a
-    su palabra (en ese caso el llamador usa solo el porcentaje total)."""
+    """Palabras del texto (sin contar las de relleno) en las que AL MENOS UN
+    sonido salio claramente mal (puntaje GOP peor que _UMBRAL_SONIDO_MAL).
+    Devuelve None si no se puede asignar cada fonema a su palabra (en ese caso
+    el llamador usa solo el porcentaje total)."""
     try:
         import audio_pronunciation as _ap
         vocab = _state["audio_vocab"]
-        flojos = set(resultado["sospechosos"])
         palabras, pos, malas = texto.split(), 0, []
         for pal in palabras:
             _ids, usados = _ap._phoneme_to_token_ids(_ap.texto_a_fonemas(pal), vocab)
             n = len(usados)
             if n == 0:
                 continue
-            en_flojos = sum(1 for i in range(pos, pos + n) if i in flojos or resultado["scores"][i] is None)
-            if en_flojos >= 1:
-                malas.append(pal)
+            if pal.lower() not in _PALABRAS_DE_RELLENO:
+                scores = resultado["scores"][pos:pos + n]
+                if any(sc is None or sc < _UMBRAL_SONIDO_MAL for sc in scores):
+                    malas.append(pal)
             pos += n
         if pos != len(resultado["fonemas"]):
             return None
