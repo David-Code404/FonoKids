@@ -8,7 +8,7 @@ import { createAudioRecorder } from "../audioRecorder.js";
 import { tipoErrorInfo } from "../errorTips.js";
 import { getFallosSeguidos, registrarIntento, resetFallos, UMBRAL_DESCANSO } from "../practiceStats.js";
 import { getEstado, mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
-import { getDiagnosticoGuardado } from "./DiagnosticoScreen.jsx";
+import { getDiagnosticoGuardado, getDiagnosticoPalabras } from "./DiagnosticoScreen.jsx";
 import HomeScreen from "./HomeScreen.jsx";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
@@ -231,7 +231,17 @@ export default function LearningPathScreen() {
   // todavía no hay ningún intento de esa palabra.
   function estadoPalabra(word) {
     const fila = recordings.find((r) => r.word === word);
-    return fila ? fila.correcta : undefined;
+    // Lo que salió en el diagnóstico (se guarda por palabra en el navegador,
+    // sirve aunque la base de datos esté apagada). Gana lo MÁS RECIENTE entre
+    // el diagnóstico y el último intento guardado.
+    const diag = getDiagnosticoPalabras()[word];
+    if (fila && diag) {
+      const tFila = new Date(`${fila.date}T${fila.time || "00:00"}`).getTime();
+      return diag.t > tFila ? diag.sabe : fila.correcta;
+    }
+    if (fila) return fila.correcta;
+    if (diag) return diag.sabe;
+    return undefined;
   }
 
   // Estado de una categoría entera: prioriza la sesión más reciente de
