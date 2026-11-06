@@ -2,6 +2,14 @@
 # en disco (data/ y models/ existen localmente, solo no se versionan).
 /data/
 /models/
+/prueba/
+
+# Fotos capturadas en vivo por probar_modelo.py -- son de personas reales,
+# no van al repo. Quedan en disco, solo no se versionan.
+/capturas/
+
+# Config local de Claude Code, no es parte del proyecto.
+/.claude/
 
 # Gráficas generadas por scripts/train.py
 /outputs/*.png
@@ -19,3 +27,18 @@ venv/
 *.iml
 .DS_Store
 Thumbs.db
+
+# App web (React + Vite)
+/web/node_modules/
+/web/dist/
+
+# Entorno virtual de WSL (probado localmente, no es parte del repo)
+/.venv-wsl/
+
+# PID del server en vivo (lo usa server/watchdog.sh) -- runtime, no es parte del repo
+/server/.server.pid
+
+# Assets del avatar 3D abandonado (experimento descartado, "quita todo") --
+# pesan cientos de MB/GB (Blender, .glb) y no son parte de la app actual.
+/tools/
+/web/public/models/
