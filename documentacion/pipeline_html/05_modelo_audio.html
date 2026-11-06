@@ -1,0 +1,326 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 3B · Modelo de audio: AudioClassifierHead</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="on" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 3B</div><h1>Modelo de audio: AudioClassifierHead</h1><p class="sub">Red chica sobre el embedding de wav2vec2. Es tu modelo entrenado.</p><div class="io"><div><small>Entra</small>Embedding normalizado (1, 1024)</div><div><small>Sale</small>Probabilidades de 66 clases, filtradas a la palabra pedida</div></div><div class="chips"><span class="chip">Hidden: <b>128</b></span><span class="chip">Dropout: <b>0.4</b></span><span class="chip">Épocas: <b>150</b></span><span class="chip">lr: <b>1e-3</b></span><span class="chip">Weight decay: <b>1e-3</b></span><span class="chip">Paciencia: <b>15</b></span><span class="chip">Validación: <b>20% estratificado</b></span><span class="chip">Semilla: <b>42</b></span><span class="chip">Clases: <b>66</b></span><span class="chip">val_acc: <b>97.68%</b></span></div><h2>Capas, en el orden en que pasa el dato</h2><div class="stack"><div class="layer"><span>Entrada: embedding normalizado</span><span class="shape">(1, 1024)</span><span class="ref">scripts/train_audio_classifier.py:100</span></div><div class="down">↓</div><div class="layer"><span>Linear 1024 a 128</span><span class="shape">(1, 128)</span><span class="ref">scripts/train_audio_classifier.py:100</span></div><div class="down">↓</div><div class="layer"><span>ReLU</span><span class="shape">(1, 128)</span><span class="ref">scripts/train_audio_classifier.py:101</span></div><div class="down">↓</div><div class="layer"><span>Dropout 0.4</span><span class="shape">(1, 128)</span><span class="ref">scripts/train_audio_classifier.py:102</span></div><div class="down">↓</div><div class="layer"><span>Linear 128 a 66</span><span class="shape">(1, 66)</span><span class="ref">scripts/train_audio_classifier.py:103</span></div><div class="down">↓</div><div class="layer"><span>softmax y filtro por palabra</span><span class="shape">clases de esa palabra</span><span class="ref">server/main.py:909</span></div></div><h2>Arquitectura y entrenamiento (train_audio_classifier.py)</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn mio"><div class="num">1</div><div><div class="head"><span class="name">AudioClassifierHead</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>clase</b>scripts/train_audio_classifier.py:95</span><span class="loc"><b>forward</b>scripts/train_audio_classifier.py:106</span></div><pre class="sig">class AudioClassifierHead(in_dim, hidden_dim, num_classes, dropout)</pre><p class="desc">Dos capas lineales con ReLU y dropout en el medio.</p><details><summary>Ver código · scripts/train_audio_classifier.py:56-60 · clase</summary><pre class="code">   95  class AudioClassifierHead(nn.Module):
+   96  
+   97      def __init__(self, in_dim, hidden_dim, num_classes, dropout):
+   98          super().__init__()
+   99          self.net = nn.Sequential(
+  100              nn.Linear(in_dim, hidden_dim),
+  101              nn.ReLU(),
+  102              nn.Dropout(dropout),
+  103              nn.Linear(hidden_dim, num_classes),
+  104          )
+  105  
+  106      def forward(self, x):
+  107          return self.net(x)</pre></details><details><summary>Ver código · scripts/train_audio_classifier.py:59-60 · forward</summary><pre class="code">  106      def forward(self, x):
+  107          return self.net(x)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">stratified_split</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:81</span><span class="loc"><b>uso</b>scripts/train_audio_classifier.py:193</span></div><pre class="sig">def stratified_split(y, val_fraction, seed)</pre><p class="desc">Separa 20% de cada clase para validación.</p><details><summary>Ver código · scripts/train_audio_classifier.py:81-92</summary><pre class="code">  128  def stratified_split(y, val_fraction, seed):
+  129      rng = np.random.RandomState(seed)
+  130      train_idx, val_idx = [], []
+  131      for c in np.unique(y):
+  132          idx = np.where(y == c)[0]
+  133          rng.shuffle(idx)
+  134          n_val = max(1, int(round(len(idx) * val_fraction)))
+  135          val_idx.extend(idx[:n_val])
+  136          train_idx.extend(idx[n_val:])
+  137      rng.shuffle(train_idx)
+  138      rng.shuffle(val_idx)
+  139      return np.array(train_idx), np.array(val_idx)</pre></details><details><summary>Ver código · scripts/train_audio_classifier.py:140-148 · uso</summary><pre class="code">  193      train_idx, val_idx = stratified_split(y, VAL_FRACTION, SEED)
+  194      print(f&quot;Train: {len(train_idx)} | Val: {len(val_idx)}&quot;)
+  195  
+  196      mean = X[train_idx].mean(axis=0, keepdims=True)
+  197      std = X[train_idx].std(axis=0, keepdims=True) + 1e-6
+  198  
+  199      def to_tensor(idx):
+  200          xs = (X[idx] - mean) / std
+  201          return torch.from_numpy(xs).float().to(device), torch.from_numpy(y[idx]).long().to(device)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">main</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:168</span></div><pre class="sig">def main()</pre><p class="desc">Recorrido: clips (222), embeddings (243), split (246), media y desvío (251 y 252), red (261), optimizador Adam (262), pérdida (263), épocas (269), guardado (327).</p><details><summary>Ver código · scripts/train_audio_classifier.py:168-235</summary><pre class="code">  221  def main():
+  222      clips_por_clase = find_labeled_clips()
+  223      if not clips_por_clase:
+  224          print(f&quot;No encontré clips con audio en {SESSIONS_DIR}. Grabá primero con &quot;
+  225                &quot;grabar_video_continuo.py.&quot;)
+  226          return
+  227      print(&quot;Clases encontradas:&quot;)
+  228      for clase, wavs in clips_por_clase.items():
+  229          print(f&quot;  {clase}: {len(wavs)} clips&quot;)
+  230  
+  231      device = &quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;
+  232      todos_cacheados = all(
+  233          item.lower().endswith(&quot;.npy&quot;) for wavs in clips_por_clase.values() for item in wavs
+  234      )
+  235      if todos_cacheados:
+  236          print(&quot;\nTodos los embeddings ya están cacheados -- no hace falta cargar wav2vec2.&quot;)
+  237          model = feature_extractor = None
+  238      else:
+  239          print(f&quot;\nCargando wav2vec2 para extraer embeddings (device={device})...&quot;)
+  240          model, feature_extractor, _vocab, device = load_model(device=device)
+  241  
+  242      print(&quot;\nExtrayendo embeddings (con caché, las corridas siguientes son instantáneas)...&quot;)
+  243      X, y, class_names = build_embeddings(clips_por_clase, model, feature_extractor, device)
+  244      print(f&quot;\nTotal: {len(X)} clips, {len(class_names)} clases: {class_names}&quot;)
+  245  
+  246      train_idx, val_idx = stratified_split(y, VAL_FRACTION, SEED)
+  247      print(f&quot;Train: {len(train_idx)} | Val: {len(val_idx)}&quot;)
+  248  
+  249      # Normalización simple (media/desvío del set de train) -- ayuda a que la
+  250      # red chica converja más estable, nada exótico.
+  251      mean = X[train_idx].mean(axis=0, keepdims=True)
+  252      std = X[train_idx].std(axis=0, keepdims=True) + 1e-6
+  253  
+  254      def to_tensor(idx):
+  255          xs = (X[idx] - mean) / std
+  256          return torch.from_numpy(xs).float().to(device), torch.from_numpy(y[idx]).long().to(device)
+  257  
+  258      x_train, y_train = to_tensor(train_idx)
+  259      x_val, y_val = to_tensor(val_idx)
+  260  
+  261      head = AudioClassifierHead(EMBEDDING_DIM, HIDDEN_DIM, len(class_names), DROPOUT).to(device)
+  262      optimizer = torch.optim.Adam(head.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
+  263      criterion = nn.CrossEntropyLoss()
+  264  
+  265      history = {&quot;train_loss&quot;: [], &quot;val_loss&quot;: [], &quot;train_acc&quot;: [], &quot;val_acc&quot;: []}
+  266      best_val_acc = -1.0
+  267      best_state = None
+  268      early_stopping = EarlyStopping(patience=EARLY_STOPPING_PATIENCE, min_delta=0.001)
+  269      for epoch in range(1, EPOCHS + 1):
+  270          head.train()
+  271          optimizer.zero_grad()
+  272          logits = head(x_train)
+  273          loss = criterion(logits, y_train)
+  274          loss.backward()
+  275          optimizer.step()
+  276  
+  277          head.eval()
+  278          with torch.no_grad():
+  279              train_acc = (head(x_train).argmax(1) == y_train).float().mean().item()
+  280              val_logits = head(x_val)
+  281              val_loss = criterion(val_logits, y_val).item()
+  282              val_acc = (val_logits.argmax(1) == y_val).float().mean().item()
+  283  
+  284          history[&quot;train_loss&quot;].append(loss.item())
+  285          history[&quot;val_loss&quot;].append(val_loss)
+  286          history[&quot;train_acc&quot;].append(train_acc * 100)
+  287          history[&quot;val_acc&quot;].append(val_acc * 100)
+  288  
+  289          if val_acc &gt; best_val_acc:
+  290              best_val_acc = val_acc
+  ...  (recortado)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">EarlyStopping</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:110</span></div><pre class="sig">class EarlyStopping</pre><p class="desc">Corta si val_loss no mejora en 15 épocas.</p><details><summary>Ver código · scripts/train_audio_classifier.py:110-126</summary><pre class="code">  160  class EarlyStopping:
+  161      &quot;&quot;&quot;Corta el entrenamiento si val_loss deja de mejorar por `patience`
+  162      epocas seguidas -- mismo criterio que usa train_landmarks_transformer.py
+  163      para el modelo visual.&quot;&quot;&quot;
+  164  
+  165      def __init__(self, patience=15, min_delta=0.001):
+  166          self.patience = patience
+  167          self.min_delta = min_delta
+  168          self.counter = 0
+  169          self.best_loss = None
+  170          self.early_stop = False
+  171  
+  172      def __call__(self, val_loss):
+  173          if self.best_loss is None or val_loss &lt; self.best_loss - self.min_delta:
+  174              self.best_loss = val_loss
+  175              self.counter = 0
+  176          else:
+  177              self.counter += 1
+  178              if self.counter &gt;= self.patience:
+  179                  self.early_stop = True</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">5</div><div><div class="head"><span class="name">plot_training_curves / plot_confusion_matrix</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>curvas</b>scripts/train_audio_classifier.py:129</span><span class="loc"><b>matriz</b>scripts/train_audio_classifier.py:151</span></div><pre class="sig">plot_confusion_matrix(conf, class_names, val_acc)</pre><p class="desc">Guardan las gráficas en outputs/.</p><details><summary>Ver código · scripts/train_audio_classifier.py:82-98 · curvas</summary><pre class="code">  129  def plot_training_curves(history):
+  130      epochs = range(1, len(history[&quot;train_loss&quot;]) + 1)
+  131      fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
+  132  
+  133      ax1.plot(epochs, history[&quot;train_loss&quot;], &quot;b-&quot;, label=&quot;Train Loss&quot;, linewidth=2)
+  134      ax1.plot(epochs, history[&quot;val_loss&quot;], &quot;r--&quot;, label=&quot;Validation Loss&quot;, linewidth=2)
+  135      ax1.set_title(&quot;Perdida (audio)&quot;)
+  136      ax1.set_xlabel(&quot;Epocas&quot;); ax1.set_ylabel(&quot;Perdida&quot;); ax1.legend(); ax1.grid(True)
+  137  
+  138      ax2.plot(epochs, history[&quot;train_acc&quot;], &quot;b-&quot;, label=&quot;Train Accuracy&quot;, linewidth=2)
+  139      ax2.plot(epochs, history[&quot;val_acc&quot;], &quot;g-&quot;, label=&quot;Validation Accuracy&quot;, linewidth=2)
+  140      ax2.set_title(&quot;Precision del clasificador de audio&quot;)
+  141      ax2.set_xlabel(&quot;Epocas&quot;); ax2.set_ylabel(&quot;Precision (%)&quot;); ax2.legend(); ax2.grid(True)
+  142  
+  143      plt.tight_layout()
+  144      out_path = os.path.join(OUTPUTS_DIR, &quot;audio_classifier_curvas.png&quot;)
+  145      os.makedirs(OUTPUTS_DIR, exist_ok=True)
+  146      plt.savefig(out_path)
+  147      plt.close()
+  148      print(f&quot;-&gt; Grafico guardado: {out_path}&quot;)</pre></details><details><summary>Ver código · scripts/train_audio_classifier.py:101-112 · matriz</summary><pre class="code">  151  def plot_confusion_matrix(conf, class_names, val_acc):
+  152      n = len(class_names)
+  153      fig, ax = plt.subplots(figsize=(max(6, n * 0.45), max(5, n * 0.45)))
+  154      im = ax.imshow(conf, cmap=&quot;Blues&quot;)
+  155      ax.set_xticks(range(n)); ax.set_xticklabels(class_names, rotation=90, fontsize=8)
+  156      ax.set_yticks(range(n)); ax.set_yticklabels(class_names, fontsize=8)
+  157      ax.set_xlabel(&quot;Predicho&quot;); ax.set_ylabel(&quot;Real&quot;)
+  158      ax.set_title(f&quot;Matriz de confusion (audio) -- val acc {val_acc*100:.1f}%&quot;)
+  159      plt.colorbar(im)
+  160      plt.tight_layout()
+  161      out_path = os.path.join(OUTPUTS_DIR, &quot;audio_matriz_confusion.png&quot;)
+  162      os.makedirs(OUTPUTS_DIR, exist_ok=True)
+  163      plt.savefig(out_path)
+  164      plt.close()
+  165      print(f&quot;-&gt; Matriz de confusion guardada: {out_path}&quot;)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">6</div><div><div class="head"><span class="name">Guardado del modelo</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:272</span></div><pre class="sig">torch.save({state_dict, class_names, embedding_dim, hidden_dim, mean, std, val_acc})</pre><p class="desc">Guarda models/audio_classifier.pth con la media y el desvío incluidos.</p><details><summary>Ver código · scripts/train_audio_classifier.py:272-283</summary><pre class="code">  327      torch.save(
+  328          {
+  329              &quot;state_dict&quot;: best_state,
+  330              &quot;class_names&quot;: class_names,
+  331              &quot;embedding_dim&quot;: EMBEDDING_DIM,
+  332              &quot;hidden_dim&quot;: HIDDEN_DIM,
+  333              &quot;mean&quot;: mean,
+  334              &quot;std&quot;: std,
+  335              &quot;val_acc&quot;: best_val_acc,
+  336          },
+  337          MODEL_OUT,
+  338      )</pre></details></div></div></div><h2>En el servidor</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">Carga</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:522 a 623</span></div><pre class="sig">AudioClassifierHead(...); clf.load_state_dict(ckpt[&#x27;state_dict&#x27;])</pre><p class="desc">Se carga al arrancar, junto con los nombres de clase, la media (621) y el desvío (622).</p><details><summary>Ver código · server/main.py:505-515</summary><pre class="code">  613              clf = AudioClassifierHead(
+  614                  ckpt[&quot;embedding_dim&quot;], ckpt[&quot;hidden_dim&quot;], len(ckpt[&quot;class_names&quot;]), dropout=0.0,
+  615              ).to(DEVICE)
+  616              clf.load_state_dict(ckpt[&quot;state_dict&quot;])
+  617              clf.eval()
+  618              _state.update(
+  619                  audio_clf=clf,
+  620                  audio_clf_classes=ckpt[&quot;class_names&quot;],
+  621                  audio_clf_mean=ckpt[&quot;mean&quot;],
+  622                  audio_clf_std=ckpt[&quot;std&quot;],
+  623              )
+  624              print(f&quot;Clasificador de audio entrenado cargado ({len(ckpt[&#x27;class_names&#x27;])} clases, &quot;</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">_classify_audio</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:875</span></div><pre class="sig">def _classify_audio(audio_path, palabra)</pre><p class="desc">Embedding (1105), normalización (1106), red y softmax (1113). Devuelve clase predicha, probabilidad y es_correcto.</p><details><summary>Ver código · server/main.py:858-895</summary><pre class="code"> 1070  def _classify_audio(audio_path, palabra):
+ 1071      &quot;&quot;&quot;Clasificador de audio ENTRENADO con clips reales (ver
+ 1072      train_audio_classifier.py) -- a diferencia del GOP de arriba (que fuerza
+ 1073      el audio contra la palabra esperada pase lo que pase), esto predice
+ 1074      directamente entre las clases que existan para esa palabra
+ 1075      (&quot;&lt;palabra&gt;_correcto&quot;, &quot;&lt;palabra&gt;_incorrecto_*&quot;), así que SÍ puede
+ 1076      reconocer que el audio no se parece a nada de lo esperado.
+ 1077  
+ 1078      Devuelve {&quot;clase_predicha&quot;, &quot;prob&quot;, &quot;es_correcto&quot;} o None si no hay
+ 1079      clasificador entrenado, o si esa palabra no tiene clases entrenadas
+ 1080      todavía (el clasificador solo conoce las palabras con clips grabados).&quot;&quot;&quot;
+ 1081      clf = _state[&quot;audio_clf&quot;]
+ 1082      if clf is None or audio_path is None or not palabra:
+ 1083          return None
+ 1084      class_names = _state[&quot;audio_clf_classes&quot;]
+ 1085      # Solo tiene sentido clasificar si HAY clases de esta palabra entre las
+ 1086      # que el clasificador aprendió -- si pedís &quot;perro&quot; pero solo entrenaste
+ 1087      # con &quot;carro&quot;, no hay nada que comparar.
+ 1088      #
+ 1089      # BUG real detectado (caso &quot;perro&quot;): un simple startswith(f&quot;{palabra}_&quot;)
+ 1090      # también agarraba las sub-familias de RR (&quot;perro_medias_correcto&quot;,
+ 1091      # &quot;perro_doble_correcto&quot;) cuando se pedía la palabra COMPLETA (&quot;perro&quot;),
+ 1092      # porque esos nombres también empiezan con &quot;perro_&quot;. Eso contaminaba la
+ 1093      # familia: decir &quot;perro&quot; mal podía terminar comparado contra clips de
+ 1094      # &quot;perro a medias&quot; (un pedacito, acústicamente muy distinto), no contra
+ 1095      # un &quot;perro&quot; completo mal dicho. Ahora matchea SOLO &quot;&lt;palabra&gt;_correcto&quot;
+ 1096      # o &quot;&lt;palabra&gt;_incorrecto*&quot; -- las sub-familias piden su propio prefijo
+ 1097      # exacto (ej. &quot;perro_medias&quot;), así que no se cuelan acá.
+ 1098      indices_de_la_palabra = [
+ 1099          i for i, c in enumerate(class_names)
+ 1100          if c == f&quot;{palabra}_correcto&quot; or c.startswith(f&quot;{palabra}_incorrecto&quot;)
+ 1101      ]
+ 1102      if not indices_de_la_palabra:
+ 1103          return None
+ 1104      try:
+ 1105          emb = extract_embedding(audio_path, _state[&quot;audio_model&quot;], _state[&quot;audio_feature_extractor&quot;], DEVICE)
+ 1106          emb_norm = (emb - _state[&quot;audio_clf_mean&quot;]) / _state[&quot;audio_clf_std&quot;]
+ 1107          # mean/std se guardaron con shape (1, 1024) (ver train_audio_
+ 1108          # classifier.py) -- emb_norm ya sale (1, 1024) por el broadcasting,
+ 1109          # así que reshape en vez de unsqueeze (que agregaba una dimensión de
+ 1110          # más y rompía el softmax/indexado de abajo).
+ 1111          x = torch.from_numpy(emb_norm.reshape(1, -1)).float().to(DEVICE)
+ 1112          with torch.no_grad():
+ 1113              probs = torch.softmax(clf(x), dim=1)[0]
+ 1114          # BUG real detectado: acá se calculaba el argmax sobre las 58 clases
+ 1115          # completas, sin usar &quot;indices_de_la_palabra&quot; para nada -- si pedías
+ 1116          # &quot;perro&quot; pero el audio se parecía más a &quot;gota&quot;, devolvía
+ 1117          # &quot;gota_correcto&quot; en vez de reconocer que ni siquiera es la palabra
+ 1118          # pedida. Ahora el argmax se restringe a los índices de ESA palabra
+ 1119          # (correcto/incorrecto/medias/doble, lo que tenga entrenado) -- si el
+ 1120          # audio no se parece a nada de esa familia, la probabilidad ahí
+ 1121          # dentro sale baja de por sí (la masa está en otras clases), así que
+ 1122          # cae solo bajo AUDIO_MIN_CONFIDENCE sin necesitar lógica aparte.
+ 1123          probs_familia = probs[indices_de_la_palabra]
+ 1124          idx_local = int(torch.argmax(probs_familia).item())
+ 1125          idx = indices_de_la_palabra[idx_local]
+ 1126          clase_predicha = class_names[idx]
+ 1127          return {
+ 1128              &quot;clase_predicha&quot;: clase_predicha,
+ 1129              &quot;prob&quot;: float(probs[idx].item()),
+ 1130              &quot;es_correcto&quot;: clase_predicha == f&quot;{palabra}_correcto&quot;,
+ 1131          }
+ 1132      except Exception as e:
+ 1133          print(f&quot;[AVISO] Falló el clasificador de audio entrenado ({e}) -- sigo solo con el GOP.&quot;)
+ 1134          return None</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">Filtro por palabra</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>lista</b>server/main.py:894</span><span class="loc"><b>restricción</b>server/main.py:909</span></div><pre class="sig">indices_de_la_palabra; probs_familia = probs[indices_de_la_palabra]</pre><p class="desc">Se queda solo con palabra_correcto y palabra_incorrecto. La probabilidad que devuelve es la del softmax global, por eso sale baja si el audio no se parece a nada de esa palabra.</p><details><summary>Ver código · server/main.py:729-740 · lista</summary><pre class="code">  729              status_code=404,
+  730              detail=f&quot;No hay clips grabados en {safe_palabra}_correcto/clips/ todavía.&quot;,
+  731          )
+  732      clip_path, filename = elegido
+  733  
+  734      cached = _reference_cache.get(safe_palabra)
+  735      if cached is not None and cached[&quot;filename&quot;] == filename:
+  736          return cached[&quot;response&quot;]
+  737  
+  738      cap = cv2.VideoCapture(clip_path)
+  739      if not cap.isOpened():
+  740          cap.release()</pre></details><details><summary>Ver código · server/main.py:744-747 · restricción</summary><pre class="code">  744          ok, frame = cap.read()
+  745          if not ok:
+  746              break
+  747          h, w = frame.shape[:2]</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">Quién la llama</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>solo voz</b>server/main.py:925</span><span class="loc"><b>con cámara</b>server/main.py:1150</span><span class="loc"><b>frase</b>server/main.py:1304</span></div><pre class="sig">_classify_audio(audio_path, palabra)</pre><p class="desc">Los tres caminos usan la misma función.</p><details><summary>Ver código · server/main.py:760-762 · solo voz</summary><pre class="code">  760              vector = None
+  761          if vector is not None:
+  762              last_valid_vector = vector</pre></details><details><summary>Ver código · server/main.py:899-905 · con cámara</summary><pre class="code">  899          return score_word_in_sentence(
+  900              audio_path, frase, palabra,
+  901              _state[&quot;audio_model&quot;], _state[&quot;audio_feature_extractor&quot;], _state[&quot;audio_vocab&quot;], DEVICE,
+  902          )
+  903      except Exception as e:
+  904          print(f&quot;[AVISO] Falló el análisis de frase ({e}).&quot;)
+  905          return None</pre></details><details><summary>Ver código · server/main.py:1000-1002 · frase</summary><pre class="code"> 1000          &quot;audio_clasificador&quot;: audio_clf_resultado,
+ 1001          &quot;tipo_error&quot;: tipo_error if (confianza_suficiente and veredicto_final == &quot;a_practicar&quot;) else None,
+ 1002          &quot;palabra_distinta&quot;: False,</pre></details></div></div></div><nav class="pn"><a href="04_modelo_video.html">← 3A. Modelo de video</a><a href="06_gop.html">3C. GOP (fonemas) →</a></nav></main></body></html>

@@ -1,0 +1,130 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dónde se usan los modelos</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+
+table.cmp{width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 18px;font-size:14px;background:var(--surface);overflow-wrap:anywhere;word-break:break-word}
+table.cmp th,table.cmp td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+table.cmp th{background:var(--code-bg)}
+.qa{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:12px;padding:12px 16px;margin:10px 0}
+.qa b{display:block;margin-bottom:4px}
+.aviso{background:#fff4e0;border:1px solid #f0c060;border-radius:12px;padding:12px 16px;margin:14px 0;color:#5a3d00}
+@media (prefers-color-scheme: dark){.aviso{background:#3a2d10;border-color:#8a6a20;color:#f2dca6}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="on" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 4 · Mapa del código</div><h1>Dónde se usan los modelos</h1>
+<p class="sub">Para cada modelo: dónde se define, dónde se entrena, dónde se guarda, dónde se carga el servidor y dónde se usa al evaluar. Los números de línea son los del código actual; con el nombre de la función se vuelve a encontrar con Ctrl+F.</p>
+<div class="legend"><span class="tag mio">Tu modelo entrenado</span><span class="tag ext">Modelo externo ya entrenado</span><span class="tag cod">Código / procedimiento</span></div>
+<h2>Los cinco modelos de un vistazo</h2>
+<table class="cmp"><tr><th>Modelo</th><th>Se define / se entrena</th><th>Se guarda</th><th>El servidor lo carga</th><th>El servidor lo usa</th></tr>
+<tr><td><b>HRNet / FAN</b><br><span class="tag ext">externo</span><br>puntos de la cara</td><td>No se entrena: paquete face-alignment<br>scripts/extraer_landmarks_npy.py:178</td><td>—</td><td>server/main.py:479<br>(server/main.py:89)</td><td>server/main.py:1058 (en /predict)<br>server/main.py:105</td></tr>
+<tr><td><b>LipReadingConformer</b><br><span class="tag mio">tuyo</span><br>video: TCN + Conformer</td><td>Clase: scripts/train_landmarks_transformer.py:179<br>Entrena: scripts/train_landmarks_transformer.py:407</td><td>scripts/train_landmarks_transformer.py:462 → models/best.pth (scripts/train_landmarks_transformer.py:23)</td><td>server/main.py:449<br>(clase en server/main.py:391)</td><td>server/main.py:1131 dentro de _run_prediction_pipeline (server/main.py:1013)</td></tr>
+<tr><td><b>LipReadingConformer (cara completa)</b><br><span class="tag mio">tuyo</span><br>video con 68 puntos, 15 clases</td><td>Misma clase: scripts/train_landmarks_transformer.py:179<br>Entrena: Colab/Entrenar_Cara_Completa_FonoKids.ipynb</td><td>data/modelos_cara_completa/best_cara_completa.pth</td><td>server/main.py:454</td><td>server/main.py:1049 (único modelo de video; perro va solo con audio)</td></tr>
+<tr><td><b>wav2vec2</b><br><span class="tag ext">externo</span><br>voz a fonemas</td><td>No se entrena: facebook/wav2vec2-xlsr-53-espeak-cv-ft<br>scripts/audio_pronunciation.py:129</td><td>—</td><td>server/main.py:515</td><td>Embedding: scripts/audio_pronunciation.py:167<br>GOP: scripts/audio_pronunciation.py:296 y scripts/audio_pronunciation.py:385</td></tr>
+<tr><td><b>AudioClassifierHead</b><br><span class="tag mio">tuyo</span><br>audio: clasificador del embedding</td><td>Clase: scripts/train_audio_classifier.py:95<br>Entrena: scripts/train_audio_classifier.py:168</td><td>scripts/train_audio_classifier.py:272 → models/audio_classifier.pth (scripts/train_audio_classifier.py:16)</td><td>server/main.py:524</td><td>server/main.py:908 (softmax en 907)</td></tr></table>
+<p class="sub">También se usa <b>MediaPipe Face Landmarker</b> (modelo externo) directamente en el navegador, para las praxias de los ejercicios: web/src/screens/EjerciciosScreen.jsx. No pasa por el servidor.</p>
+<h2>Qué pasa cuando el niño dice una palabra frente a la cámara</h2><div style="display:flex;flex-direction:column;gap:8px">
+<div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">La app manda el clip</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>web</b>web/src/screens/HomeScreen.jsx:451</span><span class="loc"><b>web</b>web/src/api.js:263</span></div><pre class="sig">predict(baseUrl, videoBlob, filename, onRetrying, audioBlob, palabra)</pre><p class="desc">La pantalla de práctica graba video y audio y llama a predict(), que hace un POST a /predict del servidor.</p></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">Endpoint /predict</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1259</span></div><pre class="sig">predict(file, audio, palabra)</pre><p class="desc">Recibe el video y el audio, guarda el audio en un archivo temporal y manda todo al hilo de la GPU con _run_prediction_pipeline. Si solo llegó audio (modo «solo voz»), usa _run_audio_only_pipeline.</p></div></div><div class="down">↓</div>
+<div class="fn ext"><div class="num">3</div><div><div class="head"><span class="name">HRNet saca los puntos de la cara</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1058</span></div><pre class="sig">detect_landmarks_batch(landmarker, frames)</pre><p class="desc">Detecta los 68 puntos en cada frame (de a 4 frames). De ahí se usan los 68 y se normalizan con los ojos igual que en el entrenamiento.</p></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">Se comprueba que la palabra tenga modelo de video (cara completa)</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1049</span></div><pre class="sig">modelo_video = &#x27;cara_completa&#x27;</pre><p class="desc">Si la palabra pedida está en el modelo de cara completa y se ven los ojos, se usan los 68 puntos normalizados con los ojos (408 números por frame). Si la palabra no está (perro) se evalúa solo con el audio, y si no se ven los ojos se pide repetir la toma.</p><details><summary>Ver código · server/main.py:1049-1056 · sin modelo de labios: palabra sin modelo de video → solo audio</summary><pre class="code"> 1049      modelo_video = &quot;cara_completa&quot;
+ 1050      if palabra_esperada is not None and not (
+ 1051              f&quot;{palabra_esperada}_correcto&quot; in class_names and f&quot;{palabra_esperada}_incorrecto&quot; in class_names):
+ 1052          # La palabra no está en el modelo de cara completa (hoy: perro): se evalúa solo con el audio.
+ 1053          print(f&quot;[predict] &#x27;{palabra_esperada}&#x27; no está en el modelo de cara completa -&gt; solo audio&quot;)
+ 1054          if audio_path is not None:
+ 1055              return _run_audio_only_pipeline(audio_path, palabra_esperada)
+ 1056          return {&quot;valid&quot;: False, &quot;reason&quot;: f&quot;no hay modelo de video para &#x27;{palabra_esperada}&#x27; -- mandá también el audio&quot;}</pre></details></div></div><div class="down">↓</div>
+<div class="fn mio"><div class="num">5</div><div><div class="head"><span class="name">El modelo de video clasifica</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1131</span></div><pre class="sig">logits = model(sequence, src_key_padding_mask=mask)</pre><p class="desc">LipReadingConformer recibe la secuencia (1, 60, 408) de cara completa y devuelve una probabilidad por clase (54 clases). Se toma la clase más probable y su confianza.</p><details><summary>Ver código · server/main.py:1128-1134 · inferencia del modelo de video</summary><pre class="code"> 1128      sequence, mask = preprocess_sequence(filled, max_frames)
+ 1129      sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
+ 1130      with torch.inference_mode():
+ 1131          logits = model(sequence, src_key_padding_mask=mask)
+ 1132          probs = torch.softmax(logits, dim=1)[0]
+ 1133      print(f&quot;[predict] modelo Conformer ({modelo_video}) listo ({time.time() - t_start:.1f}s total)&quot;)
+ 1134  </pre></details></div></div><div class="down">↓</div>
+<div class="fn ext"><div class="num">6</div><div><div class="head"><span class="name">wav2vec2 + GOP puntúa cada sonido</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:878</span><span class="loc"><b>audio</b>scripts/audio_pronunciation.py:296</span></div><pre class="sig">_score_audio_pronunciation(audio_path, palabra)</pre><p class="desc">Alinea el audio con los fonemas esperados de la palabra y puntúa cada uno (GOP). Marca como «sospechosos» los que suenan dudosos y revisa si se dijo otra palabra.</p></div></div><div class="down">↓</div>
+<div class="fn mio"><div class="num">7</div><div><div class="head"><span class="name">El clasificador de audio decide si suena correcto</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:908</span><span class="loc"><b>embedding</b>server/main.py:920</span></div><pre class="sig">_classify_audio(audio_path, palabra)</pre><p class="desc">Saca el embedding de 1024 números con wav2vec2, lo normaliza con la media y desviación guardadas en el checkpoint, y AudioClassifierHead devuelve una probabilidad por clase (softmax). Solo se mira las clases de la palabra pedida.</p></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">8</div><div><div class="head"><span class="name">Se combinan las dos señales en un veredicto</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1178 a 1175</span></div><pre class="sig">acoustic_match · visual_match · audio_confirma</pre><p class="desc">Si el audio confirma la palabra (clasificador correcto con buena confianza, o confianza media y el GOP de acuerdo), el veredicto es «bien», salvo que el video esté muy seguro de que fue la misma palabra dicha mal. Si no, se combinan las dos señales y sale «bien», «a practicar» o «no concluyente».</p><details><summary>Ver código · server/main.py:1178-1192 · acústico y visual</summary><pre class="code"> 1178      acoustic_match = (
+ 1179          audio_clf_resultado is not None
+ 1180          and audio_clf_resultado[&quot;prob&quot;] &gt;= ACOUSTIC_MATCH_THRESHOLD
+ 1181          and audio_clf_resultado[&quot;es_correcto&quot;]
+ 1182      )
+ 1183      visual_match = top_prob &gt;= VISUAL_MATCH_THRESHOLD and pronunciacion_correcta
+ 1184  
+ 1185      confianza_suficiente = audio_clf_resultado is not None
+ 1186  
+ 1187      audio_gop_ok = (
+ 1188          audio_resultado is not None
+ 1189          and not audio_resultado[&quot;sospechosos&quot;]
+ 1190          and audio_resultado[&quot;palabra_reconocida&quot;]
+ 1191      )
+ 1192      audio_confirma = (</pre></details></div></div>
+</div>
+<h2>Otros lugares donde se usan los modelos</h2>
+<table class="cmp"><tr><th>Para qué</th><th>Endpoint (servidor)</th><th>Qué modelos usa</th><th>Quién lo llama (web)</th></tr>
+<tr><td>Palabra con cámara</td><td>server/main.py:1259 /predict</td><td>HRNet + LipReadingConformer (cara completa) + wav2vec2 + AudioClassifierHead</td><td>web/src/screens/HomeScreen.jsx:451 · api.js:263</td></tr>
+<tr><td>Frase solo con voz (prueba y práctica)</td><td>server/main.py:1328 /predict_frase</td><td>wav2vec2 (GOP) + AudioClassifierHead</td><td>web/src/screens/LearningPathScreen.jsx:909 · web/src/screens/DiagnosticoScreen.jsx:137 · api.js:228</td></tr>
+<tr><td>Ejercicios de voz (pa-ta-ka, trabalenguas)</td><td>server/main.py:1469 /ejercicio_voz</td><td>wav2vec2 (reconocimiento libre y GOP)</td><td>web/src/screens/EjerciciosScreen.jsx:524 · api.js:284</td></tr>
+<tr><td>Praxias de cara (sonrisa, beso, mejillas…)</td><td>No usa el servidor</td><td>MediaPipe Face Landmarker, en el navegador</td><td>web/src/screens/EjerciciosScreen.jsx</td></tr></table>
+<h2>Preguntas que te pueden hacer</h2>
+<div class="qa"><b>¿Cuáles de los modelos entrenaste tú?</b>Dos: LipReadingConformer (video) y AudioClassifierHead (audio). HRNet/FAN y wav2vec2 ya venían entrenados y solo se usan; el GOP es un procedimiento sobre wav2vec2, no un modelo.</div>
+<div class="qa"><b>¿Dónde se carga el modelo?</b>Una sola vez, al arrancar el servidor, en load_everything (server/main.py:445). Por eso la primera petición no tiene que cargar nada.</div>
+<div class="qa"><b>¿Qué archivos son los modelos?</b>data/modelos_cara_completa/best_cara_completa.pth (video) y models/audio_classifier.pth (audio). Cada uno guarda sus pesos, los nombres de las clases y, el de video, el tamaño de entrada.</div>
+<div class="qa"><b>¿Cuál pesa más en el veredicto?</b>El audio: mide ~97 % de acierto contra ~90 % del video de cara completa. El video es la señal de apoyo y solo bloquea cuando está muy seguro de que se dijo la misma palabra mal.</div>
+<div class="qa"><b>¿Y si el servidor no tiene el modelo de audio?</b>Sigue funcionando solo con el video: la carga del audio está en un try/except y avisa en consola.</div>
+</main></body></html>

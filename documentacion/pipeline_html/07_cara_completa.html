@@ -1,0 +1,241 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 2C · Landmarks de cara completa</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+
+table.cmp{width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 18px;font-size:14px;background:var(--surface);overflow-wrap:anywhere;word-break:break-word}
+table.cmp th,table.cmp td{border:1px solid var(--border);padding:8px 12px;text-align:left;vertical-align:top}
+table.cmp th{background:var(--code-bg)}
+.qa{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--accent);border-radius:12px;padding:12px 16px;margin:10px 0}
+.qa b{display:block;margin-bottom:4px}
+.aviso{background:#fff4e0;border:1px solid #f0c060;border-radius:12px;padding:12px 16px;margin:14px 0;color:#5a3d00}
+@media (prefers-color-scheme: dark){.aviso{background:#3a2d10;border-color:#8a6a20;color:#f2dca6}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="on" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 2C · Cara completa (el único modelo de video de la app)</div><h1>Landmarks de toda la cara</h1>
+<p class="sub">Hasta ahora el modelo de video solo veía los <b>20 puntos de los labios</b>. Este modelo le da <b>68 puntos de toda la cara</b> (contorno y mandíbula, cejas, nariz, ojos y boca), para que también aprenda del movimiento de la mandíbula y de la cara, como pidió el docente.</p>
+<div class="io"><div><small>Entra</small>Video (.avi o .webm) con T frames</div><div><small>Sale</small>.npy de (T, 408) por clip, en data/landmarks_cara_completa_npy/&lt;clase&gt;/</div></div>
+<div class="chips"><span class="chip">Puntos: <b>68 (índices 0 a 67)</b></span><span class="chip">Referencia: <b>ojos 36 y 45</b></span><span class="chip">Por frame: <b>408 = 136 + 136 + 136</b></span>
+<span class="chip">Salto máximo: <b>0.15</b></span><span class="chip">Suavizado alpha: <b>0.4</b></span><span class="chip">Mínimo con cara: <b>50 % de los frames</b></span><span class="chip">Clases del modelo: <b>23 (blanco, burro, carro, casa, cama, clavo, cohete, copa, cubo y flor)</b></span></div>
+<h2>Qué cambia respecto al modelo actual</h2>
+<table class="cmp"><tr><th></th><th>Actual (solo boca)</th><th>Modelo final (cara completa)</th></tr>
+<tr><td>Puntos</td><td>20 (labios, índices 48-67)</td><td>68 (índices 0-67)</td></tr>
+<tr><td>Referencia para normalizar</td><td>Comisuras de la boca (48 y 54)</td><td>Esquinas externas de los ojos (36 y 45)</td></tr>
+<tr><td>Números por frame</td><td>120 (40 posición + 40 velocidad + 40 aceleración)</td><td>408 (136 + 136 + 136)</td></tr>
+<tr><td>Clips con la cara cortada</td><td>Se guardan igual (basta ver la boca)</td><td>Se descartan si la cara se ve en menos del 50 % de los frames</td></tr>
+<tr><td>Carpeta de salida</td><td>data/landmarks_npy/</td><td>data/landmarks_cara_completa_npy/</td></tr>
+<tr><td>Modelo que se entrena</td><td>LipReadingConformer, input_dim 120</td><td>La misma red, input_dim 408 (se detecta sola desde el .npy)</td></tr>
+<tr><td>Dónde queda el modelo</td><td>models/best.pth (modelo de labios; desactivado en el servidor)</td><td>data/modelos_cara_completa/best_cara_completa.pth (el que usa la app)</td></tr></table>
+<h2>Recorrido</h2><div style="display:flex;flex-direction:column;gap:8px">
+<div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">Buscar los videos y contar por clase</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>extracción</b>Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 3</span></div><pre class="sig">clase_del_video(ruta)</pre><p class="desc">Recorre data/sesiones_continuas y dataARCHIVADO, toma .avi y .webm, y los agrupa en las 58 clases. Imprime cuántos videos hay por clase junto a cuántos landmarks viejos había, para ver antes de empezar si faltan videos.</p><details><summary>Ver código · Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 3</summary><pre class="code">def clase_del_video(ruta):
+    carpeta = os.path.basename(os.path.dirname(ruta))
+    if carpeta.lower() != &#x27;clips&#x27;:
+        return None
+    return os.path.basename(os.path.dirname(os.path.dirname(ruta)))
+
+
+videos_por_clase = {}
+for raiz in CARPETAS_VIDEOS:
+    if not os.path.isdir(raiz):
+        print(f&#x27;(no existe, se omite) {raiz}&#x27;)
+        continue
+    for carpeta, _, archivos in os.walk(raiz):
+        for f in archivos:
+            if f.lower().endswith(EXTENSIONES):
+                ruta = os.path.join(carpeta, f)
+                clase = clase_del_video(ruta)
+                if clase and (SOLO_CLASES is None or clase in SOLO_CLASES):
+                    videos_por_clase.setdefault(clase, {}).setdefault(os.path.splitext(f)[0], ruta)
+
+clases = sorted(videos_por_clase)
+assert clases, f&#x27;No encontre videos {EXTENSIONES} en &lt;clase&gt;/clips/ dentro de {RUTA_VIDEOS}&#x27;</pre></details></div></div><div class="down">↓</div>
+<div class="fn ext"><div class="num">2</div><div><div class="head"><span class="name">Detector HRNet / FAN</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc"><b>extracción</b>Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</span></div><pre class="sig">build_hrnet_detector()  ·  detect_hrnet(landmarker, frame_bgr)</pre><p class="desc">El mismo detector de siempre (paquete face-alignment): da 68 puntos (x, y) por frame, o None si no encuentra la cara. Esta vez se usan los 68 y no solo los de los labios.</p><details><summary>Ver código · Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</summary><pre class="code">def build_hrnet_detector():
+    try:
+        import torch._dynamo
+        torch._dynamo.config.suppress_errors = True
+    except Exception:
+        pass
+    device = &#x27;cuda&#x27; if torch.cuda.is_available() else &#x27;cpu&#x27;
+    if device == &#x27;cpu&#x27;:
+        print(&#x27;[AVISO] No hay GPU: va a funcionar, pero mas lento.&#x27;)
+    detector = face_alignment.FaceAlignment(
+        face_alignment.LandmarksType.TWO_D, device=device, flip_input=False, compile=False,
+    )
+    print(f&#x27;&gt;&gt;&gt; Detector HRNet/FAN corriendo en {device.upper()}. &lt;&lt;&lt;&#x27;)
+    return detector
+
+
+def detect_hrnet(landmarker, frame_bgr):
+    rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    preds = landmarker.get_landmarks(rgb)
+    if not preds:
+        return None
+    return preds[0].astype(np.float32)</pre></details></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">Normalizar la cara completa</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>extracción</b>Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</span></div><pre class="sig">normalize_face_landmarks(landmarks_px)</pre><p class="desc">Centro = punto medio entre las esquinas externas de los ojos (36 y 45); escala = distancia entre ellas; rotación = para dejarlas horizontales. Así la mandíbula y la boca se miden contra la parte rígida de la cara. Devuelve 136 números (68 × 2).</p><details><summary>Ver código · Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</summary><pre class="code">def normalize_face_landmarks(landmarks_px):
+    right_eye = landmarks_px[EYE_OUTER_RIGHT].astype(np.float64)
+    left_eye = landmarks_px[EYE_OUTER_LEFT].astype(np.float64)
+    center = (right_eye + left_eye) / 2.0
+    eye_vector = left_eye - right_eye
+    scale = np.linalg.norm(eye_vector)
+    if scale &lt; 1e-3:
+        return None
+    angle = math.atan2(eye_vector[1], eye_vector[0])
+    cos_a, sin_a = math.cos(-angle), math.sin(-angle)
+    rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
+    pts = landmarks_px[FACE_INDICES].astype(np.float64)
+    normalized = ((pts - center) @ rotation.T) / (scale + SCALE_EPSILON)
+    return normalized.astype(np.float32).flatten()</pre></details></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">Completar, suavizar y calcular velocidad y aceleración</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>extracción</b>Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</span></div><pre class="sig">fill_missing_frames  ·  smooth_positions  ·  add_dynamics  ·  process_clip</pre><p class="desc">Idéntico al modelo de solo boca: se rellenan los frames sin cara, se suaviza (alpha 0.4) y se calculan velocidad y aceleración. La salida son 136 + 136 + 136 = 408 números por frame.</p><details><summary>Ver código de process_clip · Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 4</summary><pre class="code">def process_clip(landmarker, video_path):
+    cap = cv2.VideoCapture(video_path)
+    positions, detected, total, last_valid = [], 0, 0, None
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        total += 1
+        landmarks_px = detect_hrnet(landmarker, frame)
+        vector = normalize_face_landmarks(landmarks_px) if landmarks_px is not None else None
+        if vector is not None and is_outlier(vector, last_valid):
+            vector = None
+        if vector is not None:
+            detected += 1
+            last_valid = vector
+        positions.append(vector)
+    cap.release()
+    filled = fill_missing_frames(positions)
+    if filled is None:
+        return None, detected, total
+    return add_dynamics(smooth_positions(filled)), detected, total</pre></details></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">5</div><div><div class="head"><span class="name">Filtro de calidad: ¿se ve la cara completa?</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>extracción</b>Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 5</span></div><pre class="sig">MIN_FRACCION_CON_CARA = 0.5</pre><p class="desc">Si el detector no encuentra la cara en al menos la mitad de los frames (por ejemplo, la cámara corta la cara y no se ven los ojos), el clip se descarta y queda anotado en descartados_sin_cara_completa.json. Sin este filtro se guardaría una posición repetida, que no es movimiento. Se puede poner 0 para guardar todo.</p><details><summary>Ver código · Colab/Extraer_Cara_Completa_FonoKids.ipynb · celda 5</summary><pre class="code">        if total and detected / total &lt; MIN_FRACCION_CON_CARA:
+            descartados.setdefault(word, []).append(nombre)
+            continue</pre></details></div></div><div class="down">↓</div>
+<div class="fn mio"><div class="num">6</div><div><div class="head"><span class="name">Entrenar con los landmarks de cara completa</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>Colab/Entrenar_Cara_Completa_FonoKids.ipynb · celdas 3 a 5</span></div><pre class="sig">LipReadingConformer(num_classes=58, input_dim=408)</pre><p class="desc">Es exactamente la misma red (TCN + Conformer) y los mismos hiperparámetros (50 épocas completas, sin parada temprana, lote 32, 60 frames, lr 1e-3, label smoothing 0.1, semilla 42 y 80/20). Lo único que cambia es el tamaño de la entrada, que se detecta solo desde el .npy. Guarda en data/modelos_cara_completa/, que es lo que carga la app; el models/best.pth (labios) ya no se usa en el servidor.</p></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">7</div><div><div class="head"><span class="name">Comparar contra el modelo de solo labios</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>Colab/Entrenar_Cara_Completa_FonoKids.ipynb · celda 7</span></div><pre class="sig">Top-1 · Top-3 · bien o mal</pre><p class="desc">Al terminar imprime una tabla con Top-1, Top-3 y acierto bien/mal del modelo nuevo junto a las cifras del modelo actual (67,17 % / 92,46 % / 75,98 %) y la diferencia. También guarda las curvas, la matriz de confusión y un JSON de resultados.</p><details><summary>Ver código · Colab/Entrenar_Cara_Completa_FonoKids.ipynb · celda 7</summary><pre class="code">REFERENCIA_LABIOS = {&#x27;top1&#x27;: 67.17, &#x27;top3&#x27;: 92.46, &#x27;binaria&#x27;: 75.98}
+n_clases = len(dataset.class_names)
+if n_clases == 58:
+    print(f&quot;{&#x27;&#x27;:28s} {&#x27;Solo labios&#x27;:&gt;12s} {&#x27;Cara completa&#x27;:&gt;14s} {&#x27;Diferencia&#x27;:&gt;11s}&quot;)
+    for nombre, clave, valor in ((&#x27;Top-1 (clase exacta, 58)&#x27;, &#x27;top1&#x27;, top1), (&#x27;Top-3&#x27;, &#x27;top3&#x27;, top3), (&#x27;Bien o mal (binaria)&#x27;, &#x27;binaria&#x27;, binaria)):
+        ref = REFERENCIA_LABIOS[clave]
+        print(f&#x27;{nombre:28s} {ref:11.2f}% {valor:13.2f}% {valor - ref:+10.2f}&#x27;)
+else:
+    print(f&#x27;Cara completa ({n_clases} clases): Top-1 {top1:.2f}% | Top-3 {top3:.2f}% | Bien o mal {binaria:.2f}%&#x27;)
+    print(&#x27;Las cifras del modelo de solo labios (67.17 % / 92.46 % / 75.98 %) son de 58 clases con el dataset completo: con otras clases u otra cantidad de clips NO son comparables.&#x27;)
+    print(&#x27;Para comparar justo: entrena el modelo de labios con Entrenar_Modelos_FonoKids.ipynb sobre los MISMOS clips (sus landmarks de boca) y compara con estas cifras.&#x27;)
+print(f&#x27;\nClips de validacion: {len(all_labels)} | Entrada: {input_dim} numeros por frame&#x27;)</pre></details></div></div>
+<div class="down">↓</div>
+<div class="fn mio"><div class="num">8</div><div><div class="head"><span class="name">Entrenamiento real en la PC (54 clases)</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>Colab/Entrenar_Cara_Completa_FonoKids.ipynb · celdas 3 a 7</span></div><pre class="sig">LipReadingConformer(num_classes=54, input_dim=408)</pre><p class="desc">Con los 10.917 clips extraídos (54 clases con datos de 23 palabras; falta perro): 8.739 para entrenar y 2.178 para validar. Se entrenaron las 50 épocas completas, sin parada anticipada (con paciencia de 15 un intento se detuvo en la época 27 con 64 % porque la pérdida de validación salta mucho al inicio). Resultado: Top-1 89,67 %, Top-3 99,17 % y bien o mal 90,36 %. Para compararlo justo se entrenó el modelo de labios con los mismos clips, las mismas clases y la misma división (los 20 puntos de la boca sacados de los mismos archivos): Top-1 85,17 %, Top-3 98,76 % y bien o mal 86,69 %. La cara completa queda 4,5 puntos arriba en Top-1 (IC 95 %: 3,0 a 5,9; McNemar p &lt; 0,001) y 3,7 en bien o mal (p &lt; 0,001); en Top-3 la diferencia no es significativa (p = 0,14). Salió de una sola corrida con una semilla. El reparto sale de las mismas sesiones y voces.</p></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">9</div><div><div class="head"><span class="name">El servidor elige qué modelo de video usar</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>servidor</b>server/main.py:1049</span><span class="loc"><b>carga</b>server/main.py:454</span><span class="loc"><b>normalización</b>server/main.py:171</span></div><pre class="sig">modelo_video = &#x27;cara_completa&#x27;</pre><p class="desc">Si la palabra pedida tiene sus dos clases (_correcto e _incorrecto) en el modelo de cara completa, el servidor normaliza los 68 puntos con los ojos y, si la cara se ve entera en al menos el 60 % de los frames, usa ese modelo; si no, pide repetir la toma. El modelo de labios quedó desactivado (comentado en el código con la marca [LABIOS DESACTIVADO]). Si la palabra no está en el modelo de cara completa (hoy, perro), se evalúa solo con el audio. La respuesta trae modelo_video = cara_completa.</p><details><summary>Ver código · server/main.py:171-184 · normalización con los ojos</summary><pre class="code">  171  def normalize_face_landmarks(landmarks_px):
+  172      ojo_derecho = landmarks_px[OJO_DERECHO_EXTERNO].astype(np.float64)
+  173      ojo_izquierdo = landmarks_px[OJO_IZQUIERDO_EXTERNO].astype(np.float64)
+  174      centro = (ojo_derecho + ojo_izquierdo) / 2.0
+  175      vector_ojos = ojo_izquierdo - ojo_derecho
+  176      escala = np.linalg.norm(vector_ojos)
+  177      if escala &lt; 1e-3:
+  178          return None
+  179      angulo = math.atan2(vector_ojos[1], vector_ojos[0])
+  180      cos_a, sin_a = math.cos(-angulo), math.sin(-angulo)
+  181      rotacion = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
+  182      puntos = landmarks_px[:68].astype(np.float64)
+  183      normalizados = ((puntos - centro) @ rotacion.T) / (escala + SCALE_EPSILON)
+  184      return normalizados.astype(np.float32).flatten()</pre></details><details><summary>Ver código · server/main.py:454-461 · carga del modelo de cara completa</summary><pre class="code">  454      ckpt_cara = safe_torch_load(MODELO_CARA_PATH)
+  455      class_names = ckpt_cara[&quot;class_names&quot;]
+  456      max_frames = ckpt_cara[&quot;max_frames&quot;]
+  457      modelo_cara = LipReadingConformer(num_classes=len(class_names), input_dim=ckpt_cara[&quot;input_dim&quot;]).to(DEVICE)
+  458      modelo_cara.load_state_dict(ckpt_cara[&quot;model_state_dict&quot;])
+  459      modelo_cara.eval()
+  460      print(f&quot;Modelo de cara completa cargado ({len(class_names)} clases, entrada {ckpt_cara[&#x27;input_dim&#x27;]}, &quot;
+  461            f&quot;val_acc guardado: {ckpt_cara.get(&#x27;val_acc&#x27;, &#x27;?&#x27;)}).&quot;)</pre></details><details><summary>Ver código · server/main.py:1049-1056 · sin modelo de labios: palabra sin modelo de video → solo audio</summary><pre class="code"> 1049      modelo_video = &quot;cara_completa&quot;
+ 1050      if palabra_esperada is not None and not (
+ 1051              f&quot;{palabra_esperada}_correcto&quot; in class_names and f&quot;{palabra_esperada}_incorrecto&quot; in class_names):
+ 1052          # La palabra no está en el modelo de cara completa (hoy: perro): se evalúa solo con el audio.
+ 1053          print(f&quot;[predict] &#x27;{palabra_esperada}&#x27; no está en el modelo de cara completa -&gt; solo audio&quot;)
+ 1054          if audio_path is not None:
+ 1055              return _run_audio_only_pipeline(audio_path, palabra_esperada)
+ 1056          return {&quot;valid&quot;: False, &quot;reason&quot;: f&quot;no hay modelo de video para &#x27;{palabra_esperada}&#x27; -- mandá también el audio&quot;}</pre></details></div></div><div class="down">↓</div>
+<div class="fn cod"><div class="num">10</div><div><div class="head"><span class="name">Lo que se ve en la pantalla</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>web</b>web/src/screens/HomeScreen.jsx:39</span></div><pre class="sig">gruposDeLaCara()  ·  dibujarPuntos(ctx, cara, indices, color, radio, ancho, alto)</pre><p class="desc">La cámara dibuja sobre la cara, con MediaPipe en el navegador: contorno y mandíbula (violeta), cejas (naranja), ojos (celeste), labios (verde), mejillas (rosado) y nariz (blanco). Es solo visual: quien decide es el servidor.</p><details><summary>Ver código · web/src/screens/HomeScreen.jsx:39-58 · dibujo de la cara</summary><pre class="code">   39  function gruposDeLaCara() {
+   40    return [
+   41      { conexiones: FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, color: &quot;rgba(124,92,255,0.85)&quot;, ancho: 2.5 },
+   42      { conexiones: FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, color: &quot;rgba(255,176,32,0.9)&quot;, ancho: 2 },
+   43      { conexiones: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, color: &quot;rgba(255,176,32,0.9)&quot;, ancho: 2 },
+   44      { conexiones: FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, color: &quot;rgba(80,200,255,0.9)&quot;, ancho: 1.5 },
+   45      { conexiones: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, color: &quot;rgba(80,200,255,0.9)&quot;, ancho: 1.5 },
+   46      { conexiones: FaceLandmarker.FACE_LANDMARKS_LIPS, color: &quot;rgba(46,204,143,0.95)&quot;, ancho: 2 },
+   47    ];
+   48  }
+   49  function dibujarPuntos(ctx, cara, indices, color, radio, ancho, alto) {
+   50    ctx.fillStyle = color;
+   51    for (const i of indices) {
+   52      const p = cara[i];
+   53      if (!p) continue;
+   54      ctx.beginPath();
+   55      ctx.arc(p.x * ancho, p.y * alto, radio, 0, Math.PI * 2);
+   56      ctx.fill();
+   57    }
+   58  }</pre></details></div></div>
+</div>
+<div class="aviso"><b>Estado:</b> el modelo de cara completa se entrenó en la PC con 54 clases y está conectado al servidor, y es el único modelo de video del servidor (el de labios quedó desactivado y comentado); perro no está en ese conjunto y se evalúa solo con audio. En la comparación justa (mismos 10.917 clips, mismas clases, misma división) la cara completa acertó 89,67 % y los labios 85,17 %: <b>la mejora es estadísticamente significativa (+4,5 puntos; p &lt; 0,001)</b>, aunque proviene de una sola corrida y de voces compartidas con el entrenamiento.</div>
+<h2>Preguntas que te pueden hacer</h2>
+<div class="qa"><b>¿Qué cambió respecto a antes?</b>Antes el modelo recibía 20 puntos de los labios. Ahora recibe 68 puntos de toda la cara (contorno y mandíbula, cejas, nariz, ojos y boca), medidos contra los ojos. La red es la misma.</div>
+<div class="qa"><b>¿Por qué se normaliza con los ojos y no con la boca?</b>Porque ahora también se mide la mandíbula y la boca: necesitan una referencia que no se mueva al hablar. Las esquinas de los ojos casi no se mueven; las de la boca sí.</div>
+<div class="qa"><b>¿Por qué se descartan clips?</b>Algunos clips se grabaron con la cámara tan baja que no se ven los ojos. El detector no encuentra la cara completa y lo que quedaría es una posición repetida, que no sirve para entrenar. El notebook lista cuántos se descartan por clase. Por eso, en la app, si no se ven los ojos el servidor pide repetir la toma.</div>
+<div class="qa"><b>¿Incluye las mejillas?</b>El detector de 68 puntos da el contorno de la cara (mandíbula y borde de las mejillas), no puntos dentro de las mejillas. Para más detalle se podría usar MediaPipe con 478 puntos; sería otro experimento.</div>
+<div class="qa"><b>¿Ya mejoró el modelo?</b>Sí. Con los mismos 10.917 clips y las mismas clases, la cara completa dio 89,67 % y los labios 85,17 % (top-3: 99,17 % y 98,76 %; bien o mal: 90,36 % y 86,69 %). La diferencia en el acierto exacto (4,5 puntos) es estadísticamente significativa (prueba de McNemar exacta, p &lt; 0,001; IC 95 % de la diferencia: 3,0 a 5,9), pero salió de una sola corrida y de voces compartidas entre entrenamiento y validación, así que puede ser optimista. Falta repetirla con otras semillas, con voces nuevas y con la palabra perro.</div>
+<div class="qa"><b>¿Ya está en la app?</b>Sí. El servidor lo carga al arrancar y es su único modelo de video, para las 23 palabras con datos (todas menos perro) cuando se ven los ojos; si no se ven, pide repetir la toma, y perro se evalúa solo con audio.</div>
+<div class="qa"><b>¿Qué se ve en pantalla?</b>La cámara dibuja el contorno de la cara y la mandíbula, las cejas, los ojos, los labios, las mejillas y la nariz. Es solo visual; el servidor decide con el modelo.</div>
+<div class="qa"><b>¿Qué limitaciones tiene?</b>Necesita los videos originales (ya se extrajeron 10.917 clips en 54 clases; falta la palabra perro). Los clips con la cara cortada se pierden. Y el detector es lento: unos 14 s por clip en la PC, porque procesa un frame a la vez.</div>
+</main></body></html>

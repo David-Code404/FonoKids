@@ -1,0 +1,774 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 3A · Modelo de video: LipReadingConformer</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="on" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 3A</div><h1>Modelo de video: LipReadingConformer</h1><p class="sub">TCN + Conformer sobre la secuencia de landmarks. Es tu modelo entrenado.</p><div class="io"><div><small>Entra</small>Tensor (1, 60, 120) y máscara (1, 60)</div><div><small>Sale</small>Logits (1, 66) y luego softmax</div></div><div class="chips"><span class="chip">input_dim: <b>120</b></span><span class="chip">max_frames: <b>60</b></span><span class="chip">Clases: <b>66</b></span><span class="chip">hidden_dim: <b>128</b></span><span class="chip">Dropout: <b>0.3</b></span><span class="chip">Épocas: <b>50</b></span><span class="chip">Batch: <b>32</b></span><span class="chip">lr: <b>1e-3</b></span><span class="chip">Weight decay: <b>1e-3</b></span><span class="chip">Label smoothing: <b>0.1</b></span><span class="chip">Calentamiento: <b>5 épocas</b></span><span class="chip">Paciencia: <b>15</b></span><span class="chip">Validación: <b>20% estratificado</b></span><span class="chip">Acierto exacto: <b>70.27%</b></span><span class="chip">Bien o mal: <b>78.16%</b></span><span class="chip">Confianza suficiente: <b>87.75%</b></span><span class="chip">Latencia: <b>15.38 ms</b></span></div><h2>Capas, en el orden en que pasa el dato</h2><div class="stack"><div class="layer"><span>Entrada</span><span class="shape">(B, 60, 120)</span><span class="ref">scripts/train_landmarks_transformer.py:213</span></div><div class="down">↓</div><div class="layer"><span>input_proj  Linear 408 a 128</span><span class="shape">(B, 60, 128)</span><span class="ref">scripts/train_landmarks_transformer.py:184</span></div><div class="down">↓</div><div class="layer"><span>TCN: 3 bloques, dilatación 1, 2, 4, kernel 3</span><span class="shape">(B, 60, 128)</span><span class="ref">scripts/train_landmarks_transformer.py:186</span></div><div class="down">↓</div><div class="layer"><span>PositionalEncoding</span><span class="shape">(B, 60, 128)</span><span class="ref">scripts/train_landmarks_transformer.py:190</span></div><div class="down">↓</div><div class="layer"><span>Conformer: 2 capas, 8 cabezas, feed-forward 256, kernel 15</span><span class="shape">(B, 60, 128)</span><span class="ref">scripts/train_landmarks_transformer.py:192</span></div><div class="down">↓</div><div class="layer"><span>masked_mean_pool (ignora el relleno)</span><span class="shape">(B, 128)</span><span class="ref">scripts/train_landmarks_transformer.py:217</span></div><div class="down">↓</div><div class="layer"><span>classifier  128 a 64 a 66</span><span class="shape">(B, 66)</span><span class="ref">scripts/train_landmarks_transformer.py:198</span></div></div><h2>Piezas de la arquitectura (train_landmarks_transformer.py, copia en server/main.py)</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn mio"><div class="num">1</div><div><div class="head"><span class="name">LipReadingConformer</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/train_landmarks_transformer.py:179</span><span class="loc"><b>copia en el servidor</b>server/main.py:387</span></div><pre class="sig">class LipReadingConformer(num_classes, input_dim, hidden_dim=128, n_layers=2, n_heads=8, ...)</pre><p class="desc">El modelo completo. forward en la línea 292 y forward_features en la 278.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:123-155 · entrenamiento</summary><pre class="code">  179  class LipReadingConformer(nn.Module):
+  180      def __init__(self, num_classes, input_dim, hidden_dim=128,
+  181                   n_layers=2, n_heads=8, dim_feedforward=256,
+  182                   conv_kernel_size=15, tcn_blocks=3, tcn_kernel_size=3, dropout=0.3):
+  183          super().__init__()
+  184          self.input_proj = nn.Linear(input_dim, hidden_dim)
+  185  
+  186          self.tcn = TCNFeatureExtractor(
+  187              hidden_dim, n_blocks=tcn_blocks, kernel_size=tcn_kernel_size, dropout=dropout
+  188          )
+  189  
+  190          self.pos_encoder = PositionalEncoding(hidden_dim)
+  191  
+  192          self.conformer_encoder = ConformerEncoder(
+  193              d_model=hidden_dim, n_layers=n_layers, n_heads=n_heads,
+  194              dim_feedforward=dim_feedforward, conv_kernel_size=conv_kernel_size,
+  195              dropout=dropout,
+  196          )
+  197  
+  198          self.classifier = nn.Sequential(
+  199              nn.Linear(hidden_dim, 64),
+  200              nn.ReLU(),
+  201              nn.Dropout(dropout),
+  202              nn.Linear(64, num_classes),
+  203          )
+  204  
+  205      def forward_features(self, x, src_key_padding_mask=None):
+  206          x = self.input_proj(x)
+  207          x = self.tcn(x, key_padding_mask=src_key_padding_mask)
+  208          x = self.pos_encoder(x)
+  209          x = self.conformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
+  210          return masked_mean_pool(x, src_key_padding_mask)
+  211  
+  212      def forward(self, x, src_key_padding_mask=None):
+  213          pooled = self.forward_features(x, src_key_padding_mask=src_key_padding_mask)
+  214          return self.classifier(pooled)</pre></details><details><summary>Ver código · server/main.py:309-331 · copia en el servidor</summary><pre class="code">  309              nn.Dropout(dropout),
+  310          )
+  311  
+  312      def forward(self, x):
+  313          return self.net(x)
+  314  
+  315  
+  316  class ConformerConvModule(nn.Module):
+  317      def __init__(self, d_model, kernel_size=15, dropout=0.1):
+  318          super().__init__()
+  319          self.layer_norm = nn.LayerNorm(d_model)
+  320          self.pointwise_conv1 = nn.Conv1d(d_model, 2 * d_model, kernel_size=1)
+  321          self.glu = nn.GLU(dim=1)
+  322          padding = (kernel_size - 1) // 2
+  323          self.depthwise_conv = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=padding, groups=d_model)
+  324          self.batch_norm = nn.BatchNorm1d(d_model)
+  325          self.swish = nn.SiLU()
+  326          self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
+  327          self.dropout = nn.Dropout(dropout)
+  328  
+  329      def forward(self, x, key_padding_mask=None):
+  330          residual = x
+  331          x = self.layer_norm(x)</pre></details></div></div><div class="down">↓</div><div class="fn mio"><div class="num">2</div><div><div class="head"><span class="name">TCNFeatureExtractor / TCNBlock</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>TCNFeatureExtractor</b>scripts/train_landmarks_transformer.py:65</span><span class="loc"><b>TCNBlock</b>scripts/train_landmarks_transformer.py:43</span><span class="loc"><b>servidor</b>server/main.py:282 y 338</span></div><pre class="sig">TCNBlock(channels, kernel_size=3, dilation=1, dropout=0.1)</pre><p class="desc">Convoluciones 1D con dilatación creciente (1, 2, 4), BatchNorm y conexión residual. Captan el movimiento local.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:32-40 · TCNFeatureExtractor</summary><pre class="code">   65  class TCNFeatureExtractor(nn.Module):
+   66      def __init__(self, channels, n_blocks=3, kernel_size=3, dropout=0.1):
+   67          super().__init__()
+   68          self.blocks = nn.ModuleList([
+   69              TCNBlock(channels, kernel_size=kernel_size, dilation=2 ** i, dropout=dropout)
+   70              for i in range(n_blocks)
+   71          ])
+   72  
+   73      def forward(self, x, key_padding_mask=None):
+   74          for block in self.blocks:
+   75              x = block(x, key_padding_mask=key_padding_mask)
+   76          return x</pre></details><details><summary>Ver código · scripts/train_landmarks_transformer.py:19-29 · TCNBlock</summary><pre class="code">   43  class TCNBlock(nn.Module):
+   44      def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
+   45          super().__init__()
+   46          padding = (kernel_size - 1) * dilation // 2
+   47          self.conv1 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+   48          self.bn1 = nn.BatchNorm1d(channels)
+   49          self.conv2 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+   50          self.bn2 = nn.BatchNorm1d(channels)
+   51          self.relu = nn.ReLU()
+   52          self.dropout = nn.Dropout(dropout)
+   53  
+   54      def forward(self, x, key_padding_mask=None):
+   55          residual = x
+   56          x = x.transpose(1, 2)
+   57          if key_padding_mask is not None:
+   58              x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+   59          x = self.dropout(self.relu(self.bn1(self.conv1(x))))
+   60          x = self.bn2(self.conv2(x))
+   61          x = x.transpose(1, 2)
+   62          return self.relu(residual + self.dropout(x))</pre></details><details><summary>Ver código · server/main.py:208-218 · servidor</summary><pre class="code">  208      i = primer_valido
+  209      while i &lt; ultimo_valido_idx:
+  210          if relleno[i + 1] is None:
+  211              j = i + 1
+  212              while relleno[j] is None:
+  213                  j += 1
+  214              inicio, fin = relleno[i], relleno[j]
+  215              pasos = j - i
+  216              for k in range(1, pasos):
+  217                  t = k / pasos
+  218                  relleno[i + k] = (1 - t) * inicio + t * fin</pre></details><details><summary>Ver código · server/main.py:190-205 · servidor</summary><pre class="code">  190  def is_outlier(vector, last_valid_vector):
+  191      if last_valid_vector is None:
+  192          return False
+  193      return float(np.abs(vector - last_valid_vector).max()) &gt; OUTLIER_MAX_JUMP
+  194  
+  195  
+  196  def fill_missing_frames(positions):
+  197      primeros_validos = [i for i, p in enumerate(positions) if p is not None]
+  198      if not primeros_validos:
+  199          return None
+  200  
+  201      primer_valido = primeros_validos[0]
+  202      ultimo_valido_idx = primeros_validos[-1]
+  203      relleno = list(positions)
+  204  
+  205      for i in range(primer_valido):</pre></details></div></div><div class="down">↓</div><div class="fn mio"><div class="num">3</div><div><div class="head"><span class="name">PositionalEncoding</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:29</span><span class="loc"><b>servidor</b>server/main.py:250</span></div><pre class="sig">class PositionalEncoding(d_model, max_len=500)</pre><p class="desc">Suma una señal sinusoidal para que el modelo sepa el orden de los frames.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:29-40</summary><pre class="code">   62  class PositionalEncoding(nn.Module):
+   63      def __init__(self, d_model, max_len=500):
+   64          super().__init__()
+   65          pe = torch.zeros(max_len, d_model)
+   66          position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+   67          div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+   68          pe[:, 0::2] = torch.sin(position * div_term)
+   69          pe[:, 1::2] = torch.cos(position * div_term)
+   70          self.register_buffer(&quot;pe&quot;, pe.unsqueeze(0))
+   71  
+   72      def forward(self, x):
+   73          return x + self.pe[:, : x.size(1)]</pre></details><details><summary>Ver código · server/main.py:163-168 · servidor</summary><pre class="code">  163      lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
+  164      translated = lip_pts - mouth_center
+  165      rotated = translated @ rotation.T
+  166      normalized = rotated / (scale + SCALE_EPSILON)
+  167  
+  168      return normalized.astype(np.float32).flatten()</pre></details></div></div><div class="down">↓</div><div class="fn mio"><div class="num">4</div><div><div class="head"><span class="name">ConformerEncoder / ConformerBlock</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>Encoder</b>scripts/train_landmarks_transformer.py:164</span><span class="loc"><b>Block</b>scripts/train_landmarks_transformer.py:131</span><span class="loc"><b>servidor</b>server/main.py:364 y 420</span></div><pre class="sig">ConformerBlock(d_model, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1)</pre><p class="desc">Cada bloque: feed-forward a medio peso, atención, módulo convolucional y feed-forward a medio peso.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:112-120 · Encoder</summary><pre class="code">  164  class ConformerEncoder(nn.Module):
+  165      def __init__(self, d_model, n_layers, n_heads, dim_feedforward,
+  166                   conv_kernel_size=15, dropout=0.1):
+  167          super().__init__()
+  168          self.layers = nn.ModuleList([
+  169              ConformerBlock(d_model, n_heads, dim_feedforward, conv_kernel_size, dropout)
+  170              for _ in range(n_layers)
+  171          ])
+  172  
+  173      def forward(self, x, src_key_padding_mask=None):
+  174          for layer in self.layers:
+  175              x = layer(x, src_key_padding_mask=src_key_padding_mask)
+  176          return x</pre></details><details><summary>Ver código · scripts/train_landmarks_transformer.py:85-108 · Block</summary><pre class="code">  131  class ConformerBlock(nn.Module):
+  132      def __init__(self, d_model, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
+  133          super().__init__()
+  134          self.ff1 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+  135  
+  136          self.self_attn_norm = nn.LayerNorm(d_model)
+  137          self.self_attn = nn.MultiheadAttention(
+  138              d_model, n_heads, dropout=dropout, batch_first=True
+  139          )
+  140          self.attn_dropout = nn.Dropout(dropout)
+  141  
+  142          self.conv_module = ConformerConvModule(d_model, conv_kernel_size, dropout)
+  143  
+  144          self.ff2 = ConformerFeedForward(d_model, dim_feedforward, dropout)
+  145          self.final_norm = nn.LayerNorm(d_model)
+  146  
+  147      def forward(self, x, src_key_padding_mask=None):
+  148          x = x + 0.5 * self.ff1(x)
+  149  
+  150          residual = x
+  151          x_norm = self.self_attn_norm(x)
+  152          attn_out, _ = self.self_attn(
+  153              x_norm, x_norm, x_norm, key_padding_mask=src_key_padding_mask, need_weights=False
+  154          )
+  155          x = residual + self.attn_dropout(attn_out)
+  156  
+  157          x = self.conv_module(x, key_padding_mask=src_key_padding_mask)
+  158  
+  159          x = x + 0.5 * self.ff2(x)
+  160  
+  161          return self.final_norm(x)</pre></details><details><summary>Ver código · server/main.py:286-296 · servidor</summary><pre class="code">  286  class TCNFeatureExtractor(nn.Module):
+  287      def __init__(self, channels, n_blocks=3, kernel_size=3, dropout=0.1):
+  288          super().__init__()
+  289          self.blocks = nn.ModuleList([
+  290              TCNBlock(channels, kernel_size=kernel_size, dilation=2 ** i, dropout=dropout)
+  291              for i in range(n_blocks)
+  292          ])
+  293  
+  294      def forward(self, x, key_padding_mask=None):
+  295          for block in self.blocks:
+  296              x = block(x, key_padding_mask=key_padding_mask)</pre></details><details><summary>Ver código · server/main.py:264-283 · servidor</summary><pre class="code">  264  class TCNBlock(nn.Module):
+  265      def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
+  266          super().__init__()
+  267          padding = (kernel_size - 1) * dilation // 2
+  268          self.conv1 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+  269          self.bn1 = nn.BatchNorm1d(channels)
+  270          self.conv2 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
+  271          self.bn2 = nn.BatchNorm1d(channels)
+  272          self.relu = nn.ReLU()
+  273          self.dropout = nn.Dropout(dropout)
+  274  
+  275      def forward(self, x, key_padding_mask=None):
+  276          residual = x
+  277          x = x.transpose(1, 2)
+  278          if key_padding_mask is not None:
+  279              x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+  280          x = self.dropout(self.relu(self.bn1(self.conv1(x))))
+  281          x = self.bn2(self.conv2(x))
+  282          x = x.transpose(1, 2)
+  283          return self.relu(residual + self.dropout(x))</pre></details></div></div><div class="down">↓</div><div class="fn mio"><div class="num">5</div><div><div class="head"><span class="name">ConformerFeedForward / ConformerConvModule</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc"><b>FeedForward</b>scripts/train_landmarks_transformer.py:79</span><span class="loc"><b>ConvModule</b>scripts/train_landmarks_transformer.py:96</span><span class="loc"><b>servidor</b>server/main.py:296 y 390</span></div><pre class="sig">ConformerConvModule: pointwise, GLU, depthwise (kernel 15), BatchNorm, SiLU, pointwise</pre><p class="desc">El módulo convolucional es lo que distingue al Conformer de un Transformer común.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:43-54 · FeedForward</summary><pre class="code">   79  class ConformerFeedForward(nn.Module):
+   80  
+   81      def __init__(self, d_model, dim_feedforward, dropout):
+   82          super().__init__()
+   83          self.net = nn.Sequential(
+   84              nn.LayerNorm(d_model),
+   85              nn.Linear(d_model, dim_feedforward),
+   86              nn.SiLU(),
+   87              nn.Dropout(dropout),
+   88              nn.Linear(dim_feedforward, d_model),
+   89              nn.Dropout(dropout),
+   90          )
+   91  
+   92      def forward(self, x):
+   93          return self.net(x)</pre></details><details><summary>Ver código · scripts/train_landmarks_transformer.py:56-82 · ConvModule</summary><pre class="code">   96  class ConformerConvModule(nn.Module):
+   97  
+   98      def __init__(self, d_model, kernel_size=15, dropout=0.1):
+   99          super().__init__()
+  100          self.layer_norm = nn.LayerNorm(d_model)
+  101          self.pointwise_conv1 = nn.Conv1d(d_model, 2 * d_model, kernel_size=1)
+  102          self.glu = nn.GLU(dim=1)
+  103          padding = (kernel_size - 1) // 2
+  104          self.depthwise_conv = nn.Conv1d(
+  105              d_model, d_model, kernel_size=kernel_size, padding=padding, groups=d_model
+  106          )
+  107          self.batch_norm = nn.BatchNorm1d(d_model)
+  108          self.swish = nn.SiLU()
+  109          self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
+  110          self.dropout = nn.Dropout(dropout)
+  111  
+  112      def forward(self, x, key_padding_mask=None):
+  113          residual = x
+  114          x = self.layer_norm(x)
+  115          x = x.transpose(1, 2)
+  116  
+  117          if key_padding_mask is not None:
+  118              x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+  119  
+  120          x = self.pointwise_conv1(x)
+  121          x = self.glu(x)
+  122          x = self.depthwise_conv(x)
+  123          x = self.batch_norm(x)
+  124          x = self.swish(x)
+  125          x = self.pointwise_conv2(x)
+  126          x = self.dropout(x)
+  127          x = x.transpose(1, 2)
+  128          return residual + x</pre></details><details><summary>Ver código · server/main.py:223-235 · servidor</summary><pre class="code">  223      for i in range(ultimo_valido_idx + 1, len(relleno)):
+  224          relleno[i] = relleno[ultimo_valido_idx]
+  225  
+  226      return np.stack(relleno, axis=0).astype(np.float32)
+  227  
+  228  
+  229  SMOOTHING_ALPHA = 0.4
+  230  
+  231  
+  232  def smooth_positions(positions, alpha=SMOOTHING_ALPHA):
+  233      smoothed = np.empty_like(positions)
+  234      smoothed[0] = positions[0]
+  235      for t in range(1, positions.shape[0]):</pre></details><details><summary>Ver código · server/main.py:240-261 · servidor</summary><pre class="code">  240  def add_dynamics(positions):
+  241      velocity = np.zeros_like(positions)
+  242      velocity[1:] = positions[1:] - positions[:-1]
+  243  
+  244      acceleration = np.zeros_like(positions)
+  245      acceleration[1:] = velocity[1:] - velocity[:-1]
+  246  
+  247      return np.concatenate([positions, velocity, acceleration], axis=1).astype(np.float32)
+  248  
+  249  
+  250  class PositionalEncoding(nn.Module):
+  251      def __init__(self, d_model, max_len=500):
+  252          super().__init__()
+  253          pe = torch.zeros(max_len, d_model)
+  254          position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+  255          div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+  256          pe[:, 0::2] = torch.sin(position * div_term)
+  257          pe[:, 1::2] = torch.cos(position * div_term)
+  258          self.register_buffer(&quot;pe&quot;, pe.unsqueeze(0))
+  259  
+  260      def forward(self, x):
+  261          return x + self.pe[:, : x.size(1)]</pre></details></div></div><div class="down">↓</div><div class="fn mio"><div class="num">6</div><div><div class="head"><span class="name">masked_mean_pool</span><span class="tag mio">Tu modelo entrenado</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:217</span><span class="loc"><b>servidor</b>server/main.py:378</span></div><pre class="sig">def masked_mean_pool(x, src_key_padding_mask)</pre><p class="desc">Promedia en el tiempo ignorando los frames de relleno.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:217-224</summary><pre class="code">  298  def masked_mean_pool(x, src_key_padding_mask):
+  299      &quot;&quot;&quot;Global Average Pooling que IGNORA los frames de padding.
+  300  
+  301      x.mean(dim=1) directo diluye la representación con los frames en cero
+  302      del padding -- acá se promedia solo sobre los frames reales, usando la
+  303      máscara invertida (src_key_padding_mask es True en el padding).
+  304      &quot;&quot;&quot;
+  305      if src_key_padding_mask is None:
+  306          return x.mean(dim=1)
+  307  
+  308      real_mask = (~src_key_padding_mask).unsqueeze(-1).float()   # (B, T, 1), 1=real, 0=padding
+  309      summed = (x * real_mask).sum(dim=1)                          # (B, hidden_dim)
+  310      counts = real_mask.sum(dim=1).clamp(min=1.0)                 # (B, 1) -- evita /0 si T real=0
+  311      return summed / counts</pre></details><details><summary>Ver código · server/main.py:300-306 · servidor</summary><pre class="code">  300  class ConformerFeedForward(nn.Module):
+  301      def __init__(self, d_model, dim_feedforward, dropout):
+  302          super().__init__()
+  303          self.net = nn.Sequential(
+  304              nn.LayerNorm(d_model),
+  305              nn.Linear(d_model, dim_feedforward),
+  306              nn.SiLU(),</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">7</div><div><div class="head"><span class="name">make_padding_mask</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:227</span><span class="loc"><b>servidor</b>server/main.py:412</span></div><pre class="sig">def make_padding_mask(lengths, max_len, device)</pre><p class="desc">Marca con True los frames de relleno.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:227-229</summary><pre class="code">  314  def make_padding_mask(lengths, max_len, device):
+  315      &quot;&quot;&quot;True donde hay padding (para que el encoder -- y el masked pooling --
+  316      lo ignoren).&quot;&quot;&quot;
+  317      idx = torch.arange(max_len, device=device).unsqueeze(0)
+  318      return idx &gt;= lengths.unsqueeze(1)</pre></details><details><summary>Ver código · server/main.py:334-335 · servidor</summary><pre class="code">  334              x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
+  335          x = self.pointwise_conv1(x)</pre></details></div></div></div><h2>Entrenamiento</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">build_dataloaders</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/lip_reading_dataset.py:99</span></div><pre class="sig">def build_dataloaders(data_dir, max_frames=60, batch_size=32, val_ratio=0.2, seed=42, ...)</pre><p class="desc">Arma los datos de train y validación separando por clase (estratificado).</p><details><summary>Ver código · scripts/lip_reading_dataset.py:99-130</summary><pre class="code">  153  def build_dataloaders(data_dir=DEFAULT_DATA_DIR, max_frames=60, batch_size=32,
+  154                         val_ratio=0.2, seed=42, num_workers=0, augment_train=True):
+  155      &quot;&quot;&quot;Arma el dataset completo, lo separa en train/val a nivel de ARCHIVOS
+  156      (no de tensores ya cargados) para poder darle augmentation SOLO al
+  157      split de entrenamiento (nunca a val), y devuelve los DataLoaders listos
+  158      junto con un dataset &quot;de referencia&quot; (para leer class_names/landmark_dim).
+  159  
+  160      Split ESTRATIFICADO por clase: separa val_ratio de CADA clase por
+  161      separado (no un permutation al azar sobre TODO el dataset) -- con
+  162      clases de tamaños muy distintos (ej. &quot;perro_correcto&quot; con cientos de
+  163      clips vs &quot;perro_incorrecto_dentalizacion&quot; con 50), un split global podía
+  164      dejar alguna clase chica con pocas o CERO muestras de validación.&quot;&quot;&quot;
+  165      reference = LipReadingDataset(data_dir=data_dir, max_frames=max_frames)
+  166      file_paths = reference.file_paths
+  167  
+  168      labels_by_path = {p: reference.label_map[_nfc(os.path.basename(os.path.dirname(p)))] for p in file_paths}
+  169      paths_by_class = {}
+  170      for p in file_paths:
+  171          paths_by_class.setdefault(labels_by_path[p], []).append(p)
+  172  
+  173      rng = np.random.default_rng(seed)
+  174      train_paths, val_paths = [], []
+  175      for label, paths in paths_by_class.items():
+  176          paths = list(paths)
+  177          rng.shuffle(paths)
+  178          n_val = max(1, int(round(len(paths) * val_ratio)))
+  179          val_paths.extend(paths[:n_val])
+  180          train_paths.extend(paths[n_val:])
+  181      rng.shuffle(train_paths)
+  182      rng.shuffle(val_paths)
+  183  
+  184      train_ds = LipReadingDataset(data_dir=data_dir, max_frames=max_frames,
+  185                                    file_paths=train_paths, augment=augment_train)
+  186      val_ds = LipReadingDataset(data_dir=data_dir, max_frames=max_frames,
+  187                                  file_paths=val_paths, augment=False)
+  188  
+  189      train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True,
+  190                                 num_workers=num_workers, drop_last=False)
+  191      val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False,
+  192                               num_workers=num_workers, drop_last=False)
+  193  
+  194      return reference, train_loader, val_loader</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">LipReadingDataset</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>clase</b>scripts/lip_reading_dataset.py:20</span><span class="loc"><b>__getitem__</b>scripts/lip_reading_dataset.py:73</span></div><pre class="sig">class LipReadingDataset(Dataset)</pre><p class="desc">Lee los .npy y el label_map.json. Rellena o recorta cada secuencia a 60 frames.</p><details><summary>Ver código · scripts/lip_reading_dataset.py:1-25 · clase</summary><pre class="code">   20  class LipReadingDataset(Dataset):
+   21  
+   22      def __init__(self, data_dir=DEFAULT_DATA_DIR, max_frames=60, file_paths=None, augment=False):
+   23          self.data_dir = data_dir
+   24          self.max_frames = max_frames
+   25          self.augment = augment
+   26  
+   27          label_map_path = os.path.join(data_dir, &quot;label_map.json&quot;)
+   28          if not os.path.exists(label_map_path):
+   29              raise FileNotFoundError(
+   30                  f&quot;No encontré {label_map_path}. Corré extraer_landmarks_npy.py primero.&quot;
+   31              )
+   32          with open(label_map_path, &quot;r&quot;, encoding=&quot;utf-8&quot;) as f:
+   33              raw_label_map = json.load(f)
+   34          self.label_map = {_nfc(word): idx for word, idx in raw_label_map.items()}
+   35  
+   36          num_classes = max(self.label_map.values()) + 1
+   37          self.class_names = [&quot;?&quot;] * num_classes
+   38          for word, idx in self.label_map.items():
+   39              self.class_names[idx] = word
+   40  
+   41          if file_paths is not None:
+   42              self.file_paths = list(file_paths)
+   43          else:
+   44              self.file_paths = sorted(glob.glob(os.path.join(data_dir, &quot;*&quot;, &quot;*.npy&quot;)))
+   45          if not self.file_paths:
+   46              raise RuntimeError(f&quot;No hay archivos .npy en {data_dir}.&quot;)
+   47  
+   48          first_sample = np.load(self.file_paths[0])
+   49          self.landmark_dim = int(first_sample.shape[-1])
+   50  
+   51      def __len__(self):
+   52          return len(self.file_paths)
+   53  
+   54      def _label_from_path(self, path):
+   55          word = _nfc(os.path.basename(os.path.dirname(path)))
+   56          return self.label_map[word]
+   57  
+   58      def _apply_augmentation(self, sequence):
+   59          sequence = sequence + np.random.normal(0, 0.003, sequence.shape).astype(np.float32)
+   60  
+   61          shift = np.random.uniform(-0.01, 0.01, size=(1, sequence.shape[1])).astype(np.float32)
+   62          scale = np.random.uniform(0.97, 1.03)
+   63          sequence = sequence * scale + shift</pre></details><details><summary>Ver código · scripts/lip_reading_dataset.py:36-55 · __getitem__</summary><pre class="code">   73      def __getitem__(self, idx):
+   74          path = self.file_paths[idx]
+   75          sequence = np.load(path).astype(np.float32)
+   76          label = self._label_from_path(path)
+   77  
+   78          if self.augment:
+   79              sequence = self._apply_augmentation(sequence)
+   80  
+   81          T = sequence.shape[0]
+   82          if T &lt; self.max_frames:
+   83              pad = np.zeros((self.max_frames - T, sequence.shape[1]), dtype=np.float32)
+   84              sequence = np.concatenate([sequence, pad], axis=0)
+   85              real_length = T
+   86          elif T &gt; self.max_frames:
+   87              sequence = sequence[: self.max_frames]
+   88              real_length = self.max_frames
+   89          else:
+   90              real_length = T
+   91  
+   92          return (
+   93              torch.from_numpy(sequence),
+   94              torch.tensor(label, dtype=torch.long),
+   95              torch.tensor(real_length, dtype=torch.long),
+   96          )</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">_apply_augmentation</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/lip_reading_dataset.py:58</span></div><pre class="sig">def _apply_augmentation(self, sequence)</pre><p class="desc">Solo en train: ruido 0.003 (línea 107), desplazamiento y escala (112 a 114), enmascarado de 8 a 12% de frames (119 a 123).</p><details><summary>Ver código · scripts/lip_reading_dataset.py:58-71</summary><pre class="code">   99      def _apply_augmentation(self, sequence):
+  100          &quot;&quot;&quot;Aumento de datos SOLO para entrenamiento -- opera sobre la
+  101          secuencia (T, landmark_dim) ANTES de hacer padding, para no meter
+  102          ruido en los frames de relleno.&quot;&quot;&quot;
+  103          # Ruido gaussiano leve (simula jitter de detección de landmarks).
+  104          # Valor chico a propósito: la señal normalizada ya es de por sí
+  105          # pequeña (std temporal típica ~0.02-0.03), así que un ruido más
+  106          # fuerte que eso tapa el movimiento real en vez de robustecer.
+  107          sequence = sequence + np.random.normal(0, 0.003, sequence.shape).astype(np.float32)
+  108  
+  109          # Shift/scale aleatorio leve de las coordenadas (variación residual
+  110          # de encuadre/escala que la normalización geométrica no cubre del
+  111          # todo) -- valores chicos a propósito, para no destruir la señal.
+  112          shift = np.random.uniform(-0.01, 0.01, size=(1, sequence.shape[1])).astype(np.float32)
+  113          scale = np.random.uniform(0.97, 1.03)
+  114          sequence = sequence * scale + shift
+  115  
+  116          # Time masking: enmascara un 8-12% de los frames a cero, simulando
+  117          # oclusiones o frames sin detección -- fuerza al modelo a no
+  118          # depender de un frame puntual.
+  119          T = sequence.shape[0]
+  120          n_mask = max(1, int(round(T * np.random.uniform(0.08, 0.12))))
+  121          n_mask = min(n_mask, T)
+  122          mask_idx = np.random.choice(T, size=n_mask, replace=False)
+  123          sequence[mask_idx] = 0.0
+  124  
+  125          return sequence.astype(np.float32)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">train</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:407</span></div><pre class="sig">def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3, ...)</pre><p class="desc">Pesos por clase (570 a 574), pérdida (583), AdamW (584), scheduler (585) y bucle de épocas (594).</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:407-467</summary><pre class="code">  546  def train(epochs=50, batch_size=32, max_frames=60, lr=1e-3, weight_decay=1e-3,
+  547            val_ratio=0.2, early_stopping_patience=15, warmup_epochs=5,
+  548            label_smoothing=0.1):
+  549      device = torch.device(&quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;)
+  550      print(f&quot;Entrenando en: {device}&quot;)
+  551  
+  552      dataset, train_loader, val_loader = build_dataloaders(
+  553          data_dir=RUTA_DATASET, max_frames=max_frames, batch_size=batch_size,
+  554          val_ratio=val_ratio, seed=SEED, augment_train=True,
+  555      )
+  556      num_classes = len(dataset.class_names)
+  557      input_dim = dataset.landmark_dim  # detectado del .npy real, no hardcodeado
+  558      print(f&quot;Clases ({num_classes}): {dataset.class_names}&quot;)
+  559      print(f&quot;Dimensión de entrada detectada: {input_dim}&quot;)
+  560      print(f&quot;Total muestras: {len(dataset)} | Train: {len(train_loader.dataset)} | &quot;
+  561            f&quot;Val: {len(val_loader.dataset)}&quot;)
+  562  
+  563      model = LipReadingConformer(num_classes=num_classes, input_dim=input_dim).to(device)
+  564  
+  565      # Peso por clase en la loss -- si alguna clase termina con más o menos
+  566      # muestras que el resto en train (ej. &quot;no_es_riesgo&quot;, que junta clips de
+  567      # fuentes distintas), esto evita que el entrenamiento se incline a
+  568      # favor/en contra de ella solo por cantidad. Con clases parejas los
+  569      # pesos quedan cerca de 1.0 y casi no cambian nada.
+  570      train_labels = [dataset._label_from_path(p) for p in train_loader.dataset.file_paths]
+  571      class_counts = np.bincount(train_labels, minlength=num_classes).astype(np.float64)
+  572      class_counts[class_counts == 0] = 1.0  # evita división por cero
+  573      class_weights = class_counts.sum() / (num_classes * class_counts)
+  574      class_weights_t = torch.tensor(class_weights, dtype=torch.float32, device=device)
+  575      print(&quot;Pesos por clase (loss):&quot;)
+  576      for name, w, c in zip(dataset.class_names, class_weights, class_counts):
+  577          print(f&quot;  {name:28s} {int(c):4d} muestras -- peso {w:.3f}&quot;)
+  578  
+  579      # Label smoothing: en vez de pedirle al modelo 100% de confianza en la
+  580      # clase correcta y 0% en el resto, le pide un poco menos (ej. 90%/10%
+  581      # repartido) -- reduce sobreconfianza y sobreajuste, más notorio cuantas
+  582      # más clases hay (acá van a ser 57).
+  583      criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing, weight=class_weights_t)
+  584      optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+  585      scheduler = build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs)
+  586      early_stopping = EarlyStopping(patience=early_stopping_patience, min_delta=0.001)
+  587  
+  588      os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+  589      best_val_loss = float(&quot;inf&quot;)
+  590  
+  591      history = {&quot;train_loss&quot;: [], &quot;val_loss&quot;: [], &quot;train_acc&quot;: [], &quot;val_acc&quot;: []}
+  592  
+  593      print(&quot;\nIniciando entrenamiento (Conformer)...&quot;)
+  594      for epoch in range(epochs):
+  595          train_loss, train_acc = run_epoch(model, train_loader, criterion, optimizer, device, train=True)
+  596          val_loss, val_acc = run_epoch(model, val_loader, criterion, optimizer, device, train=False)
+  597          scheduler.step()
+  598  
+  599          history[&quot;train_loss&quot;].append(train_loss)
+  600          history[&quot;val_loss&quot;].append(val_loss)
+  601          history[&quot;train_acc&quot;].append(train_acc)
+  602          history[&quot;val_acc&quot;].append(val_acc)
+  603  
+  604          lr_actual = optimizer.param_groups[0][&quot;lr&quot;]
+  605          print(f&quot;Época [{epoch+1}/{epochs}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.2f}% | &quot;
+  606                f&quot;Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% | LR: {lr_actual:.6f}&quot;)
+  607  
+  608          if val_loss &lt; best_val_loss:
+  609              best_val_loss = val_loss
+  610              torch.save({
+  611                  &quot;model_state_dict&quot;: model.state_dict(),
+  612                  &quot;class_names&quot;: dataset.class_names,
+  613                  &quot;max_frames&quot;: max_frames,
+  614                  &quot;input_dim&quot;: input_dim,
+  615                  &quot;val_loss&quot;: val_loss,
+  ...  (recortado)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">5</div><div><div class="head"><span class="name">run_epoch</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:272</span></div><pre class="sig">def run_epoch(model, loader, criterion, optimizer, device, train)</pre><p class="desc">Una pasada completa por los datos, entrenando o validando.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:272-302</summary><pre class="code">  370  def run_epoch(model, loader, criterion, optimizer, device, train):
+  371      model.train() if train else model.eval()
+  372      total_loss, correct, total = 0.0, 0, 0
+  373  
+  374      context = torch.enable_grad() if train else torch.no_grad()
+  375      with context:
+  376          for sequences, labels, lengths in loader:
+  377              sequences = sequences.to(device)
+  378              labels = labels.to(device)
+  379              lengths = lengths.to(device)
+  380              mask = make_padding_mask(lengths, sequences.shape[1], device)
+  381  
+  382              if train:
+  383                  optimizer.zero_grad()
+  384  
+  385              outputs = model(sequences, src_key_padding_mask=mask)
+  386              loss = criterion(outputs, labels)
+  387  
+  388              if train:
+  389                  loss.backward()
+  390                  # Gradient clipping -- los Transformer/Conformer entrenados desde
+  391                  # cero son propensos a picos de gradiente que hacen &quot;rebotar&quot; la
+  392                  # pérdida en vez de converger suavemente (justo lo que se veía:
+  393                  # Val Loss subiendo y bajando sin mejorar). Esto lo estabiliza.
+  394                  torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+  395                  optimizer.step()
+  396  
+  397              total_loss += loss.item() * sequences.size(0)
+  398              _, predicted = outputs.max(1)
+  399              correct += predicted.eq(labels).sum().item()
+  400              total += labels.size(0)
+  401  
+  402      avg_loss = total_loss / total if total &gt; 0 else 0.0
+  403      acc = 100.0 * correct / total if total &gt; 0 else 0.0
+  404      return avg_loss, acc</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">6</div><div><div class="head"><span class="name">build_warmup_cosine_scheduler / EarlyStopping</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>scheduler</b>scripts/train_landmarks_transformer.py:305</span><span class="loc"><b>EarlyStopping</b>scripts/train_landmarks_transformer.py:232</span></div><pre class="sig">build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs=5)</pre><p class="desc">Calentamiento de 5 épocas y luego coseno. EarlyStopping corta si val_loss no mejora en 15 épocas.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:218-227 · scheduler</summary><pre class="code">  305  def build_warmup_cosine_scheduler(optimizer, epochs, warmup_epochs=5):
+  306      warmup_epochs = max(1, min(warmup_epochs, epochs - 1)) if epochs &gt; 1 else 1
+  307  
+  308      def lr_lambda(epoch):
+  309          if epoch &lt; warmup_epochs:
+  310              return (epoch + 1) / warmup_epochs
+  311          progress = (epoch - warmup_epochs) / max(1, epochs - warmup_epochs)
+  312          return 0.5 * (1 + math.cos(math.pi * progress))
+  313  
+  314      return optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)</pre></details><details><summary>Ver código · scripts/train_landmarks_transformer.py:173-179 · EarlyStopping</summary><pre class="code">  232  class EarlyStopping:
+  233      def __init__(self, patience=8, min_delta=0.001):
+  234          self.patience = patience
+  235          self.min_delta = min_delta
+  236          self.counter = 0
+  237          self.best_loss = None
+  238          self.early_stop = False
+  239  
+  240      def __call__(self, val_loss):
+  241          if self.best_loss is None or val_loss &lt; self.best_loss - self.min_delta:
+  242              self.best_loss = val_loss
+  243              self.counter = 0
+  244          else:
+  245              self.counter += 1
+  246              if self.counter &gt;= self.patience:
+  247                  self.early_stop = True</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">7</div><div><div class="head"><span class="name">Guardado del modelo</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:462</span></div><pre class="sig">torch.save({model_state_dict, class_names, max_frames, input_dim, ...})</pre><p class="desc">Guarda models/best.pth cada vez que mejora val_loss.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:462-473</summary><pre class="code">  610              torch.save({
+  611                  &quot;model_state_dict&quot;: model.state_dict(),
+  612                  &quot;class_names&quot;: dataset.class_names,
+  613                  &quot;max_frames&quot;: max_frames,
+  614                  &quot;input_dim&quot;: input_dim,
+  615                  &quot;val_loss&quot;: val_loss,
+  616                  &quot;val_acc&quot;: val_acc,
+  617              }, MODEL_PATH)
+  618              print(f&quot;  -&gt; Nuevo mejor modelo guardado (Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%)&quot;)
+  619  
+  620          early_stopping(val_loss)
+  621          if early_stopping.early_stop:</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">8</div><div><div class="head"><span class="name">evaluate_final_report</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_landmarks_transformer.py:321</span></div><pre class="sig">def evaluate_final_report(model, val_loader, class_names, device)</pre><p class="desc">Calcula acierto exacto, acierto bien o mal, matriz de confusión y latencia. Escribe outputs/reporte_resultados.md.</p><details><summary>Ver código · scripts/train_landmarks_transformer.py:321-377</summary><pre class="code">  440  def evaluate_final_report(model, val_loader, class_names, device):
+  441      model.eval()
+  442      all_preds, all_labels, all_top3_hit, all_top_probs = [], [], [], []
+  443      latencies_ms = []
+  444  
+  445      with torch.no_grad():
+  446          for sequences, labels, lengths in val_loader:
+  447              sequences = sequences.to(device)
+  448              lengths_dev = lengths.to(device)
+  449              mask = make_padding_mask(lengths_dev, sequences.shape[1], device)
+  450  
+  451              outputs = model(sequences, src_key_padding_mask=mask)
+  452              probs = torch.softmax(outputs, dim=1)
+  453  
+  454              top1 = probs.argmax(dim=1).cpu()
+  455              top3 = probs.topk(min(3, probs.shape[1]), dim=1).indices.cpu()
+  456              top_prob = probs.max(dim=1).values.cpu()
+  457  
+  458              all_preds.extend(top1.tolist())
+  459              all_labels.extend(labels.tolist())
+  460              all_top_probs.extend(top_prob.tolist())
+  461              for i in range(labels.size(0)):
+  462                  all_top3_hit.append(labels[i].item() in top3[i].tolist())
+  463  
+  464              # Latencia real: una muestra a la vez (batch=1), como sería en
+  465              # la app de verdad -- una persona graba, se manda una sola
+  466              # secuencia al modelo, no un lote.
+  467              for i in range(sequences.size(0)):
+  468                  start = time.perf_counter()
+  469                  _ = model(sequences[i : i + 1], src_key_padding_mask=mask[i : i + 1])
+  470                  latencies_ms.append((time.perf_counter() - start) * 1000)
+  471  
+  472      total = len(all_labels)
+  473      top1_acc = 100.0 * sum(p == l for p, l in zip(all_preds, all_labels)) / total
+  474      top3_acc = 100.0 * sum(all_top3_hit) / total
+  475  
+  476      # --- Matriz de confusión ---
+  477      cm_path = os.path.join(BASE_DIR, &quot;outputs&quot;, &quot;matriz_confusion.png&quot;)
+  478      os.makedirs(os.path.dirname(cm_path), exist_ok=True)
+  479      cm = confusion_matrix(all_labels, all_preds, labels=list(range(len(class_names))))
+  480      plt.figure(figsize=(max(8, len(class_names) * 0.35), max(6, len(class_names) * 0.35)))
+  481      if sns is not None:
+  482          sns.heatmap(cm, xticklabels=class_names, yticklabels=class_names, cmap=&quot;Blues&quot;)
+  483      else:
+  484          plt.imshow(cm, cmap=&quot;Blues&quot;)
+  485          plt.xticks(range(len(class_names)), class_names)
+  486          plt.yticks(range(len(class_names)), class_names)
+  487      plt.xlabel(&quot;Predicho&quot;)
+  488      plt.ylabel(&quot;Real&quot;)
+  489      plt.title(&quot;Matriz de confusion (validacion)&quot;)
+  490      plt.xticks(rotation=90)
+  491      plt.yticks(rotation=0)
+  492      plt.tight_layout()
+  493      plt.savefig(cm_path)
+  494      plt.close()
+  495  
+  496      # --- Accuracy de correcta/incorrecta (binaria, agrupando clases) ---
+  497      # Más importante en la práctica que el top-1 exacto: a un chico le
+  498      # importa que el sistema le diga bien si la dijo bien o mal, aunque el
+  499      # top-1 exacto se equivoque de vez en cuando entre dos subtipos de
+  500      # error parecidos (ej. confundir lambdacismo con dentalización, pero
+  501      # los dos siguen siendo &quot;incorrecto&quot;).
+  502      es_correcta_real = [_es_clase_correcta(class_names[l]) for l in all_labels]
+  503      es_correcta_pred = [_es_clase_correcta(class_names[p]) for p in all_preds]
+  504      binaria_acc = 100.0 * sum(r == p for r, p in zip(es_correcta_real, es_correcta_pred)) / total
+  505  
+  506      # Umbral de confianza (MIN_CONFIDENCE_PROB en server/main.py): por
+  507      # debajo de esto, el server no le devuelve un resultado al chico, le
+  508      # pide repetir la toma en vez de arriesgar una respuesta dudosa.
+  509      umbral = 0.40
+  ...  (recortado)</pre></details></div></div></div><h2>En el servidor</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">Carga</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:454 y 569</span><span class="loc"><b>lectura</b>server/main.py:417</span></div><pre class="sig">model = LipReadingConformer(...); model.load_state_dict(...)</pre><p class="desc">safe_torch_load lee data/modelos_cara_completa/best_cara_completa.pth y load_everything arma el modelo de cara completa al arrancar (el de models/best.pth, el de labios, quedó comentado).</p><details><summary>Ver código · server/main.py:455-464</summary><pre class="code">  568      model = LipReadingConformer(num_classes=len(class_names), input_dim=input_dim).to(DEVICE)
+  569      model.load_state_dict(checkpoint[&quot;model_state_dict&quot;])
+  570      model.eval()
+  571  
+  572      print(&quot;Cargando detector de landmarks (HRNet/FAN)...&quot;)
+  573      landmarker = build_hrnet_detector()
+  574  
+  575      # Precalentamiento: la PRIMERA vez que HRNet corre, PyTorch intenta
+  576      # compilar la red (torch.compile/dynamo), falla en Windows y cae a
+  577      # modo eager -- ese intento fallido es lo que hace que la primera
+  578      # predicción real tarde ~50-90s en vez de ~10-20s. Absorbemos ese
+  579      # costo ACÁ, antes de aceptar requests, para que la primera</pre></details><details><summary>Ver código · server/main.py:456-464</summary><pre class="code">  569      model.load_state_dict(checkpoint[&quot;model_state_dict&quot;])
+  570      model.eval()
+  571  
+  572      print(&quot;Cargando detector de landmarks (HRNet/FAN)...&quot;)
+  573      landmarker = build_hrnet_detector()
+  574  
+  575      # Precalentamiento: la PRIMERA vez que HRNet corre, PyTorch intenta
+  576      # compilar la red (torch.compile/dynamo), falla en Windows y cae a
+  577      # modo eager -- ese intento fallido es lo que hace que la primera
+  578      # predicción real tarde ~50-90s en vez de ~10-20s. Absorbemos ese
+  579      # costo ACÁ, antes de aceptar requests, para que la primera
+  580      # predicción de un usuario real ya sea rápida.</pre></details><details><summary>Ver código · server/main.py:339-343 · lectura</summary><pre class="code">  339          x = self.swish(x)
+  340          x = self.pointwise_conv2(x)
+  341          x = self.dropout(x)
+  342          x = x.transpose(1, 2)
+  343          return residual + x</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">Llamada</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:1035</span><span class="loc"><b>softmax</b>server/main.py:1035</span></div><pre class="sig">logits = model(sequence, src_key_padding_mask=mask)</pre><p class="desc">Dentro de _run_prediction_pipeline. El softmax da la clase ganadora y su confianza.</p><details><summary>Ver código · server/main.py:1018-1028</summary><pre class="code"> 1306          logits = model(sequence, src_key_padding_mask=mask)
+ 1307          probs = torch.softmax(logits, dim=1)[0]
+ 1308      print(f&quot;[predict] modelo Conformer listo ({time.time() - t_start:.1f}s total)&quot;)
+ 1309  
+ 1310      sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+ 1311      top_idx = int(sorted_idx[0].item())
+ 1312      top_prob = float(sorted_probs[0].item())
+ 1313      second_prob = float(sorted_probs[1].item()) if len(sorted_probs) &gt; 1 else 0.0
+ 1314      margin = top_prob - second_prob
+ 1315      clase_predicha = class_names[top_idx]
+ 1316      print(f&quot;[predict] video: clase={clase_predicha} prob={top_prob:.2f} margin={margin:.2f} &quot;
+ 1317            f&quot;(2da opcion: {class_names[int(sorted_idx[1].item())] if len(sorted_idx) &gt; 1 else &#x27;?&#x27;} &quot;</pre></details><details><summary>Ver código · server/main.py:845-850 · softmax</summary><pre class="code">  845      try:
+  846          os.makedirs(DEBUG_FRASES_DIR, exist_ok=True)
+  847          marca = time.strftime(&quot;%Y%m%d_%H%M%S&quot;)
+  848          base = os.path.join(DEBUG_FRASES_DIR, f&quot;{marca}_{palabra}_{motivo}&quot;)
+  849          if audio_path and os.path.exists(audio_path):
+  850              shutil.copyfile(audio_path, base + &quot;_completo.wav&quot;)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">_parse_clase_predicha</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:63</span><span class="loc"><b>uso</b>server/main.py:1047</span></div><pre class="sig">def _parse_clase_predicha(nombre_clase)</pre><p class="desc">Convierte una clase como perro_correcto en (palabra, correcta, tipo de error).</p><details><summary>Ver código · server/main.py:63-74</summary><pre class="code">  115  def _parse_clase_predicha(nombre_clase):
+  116      &quot;&quot;&quot;&#x27;perro_correcto&#x27; -&gt; (&#x27;perro&#x27;, True, None).
+  117      &#x27;perro_incorrecto&#x27; -&gt; (&#x27;perro&#x27;, False, None).
+  118      &#x27;perro_incorrecto_lambdacismo&#x27; -&gt; (&#x27;perro&#x27;, False, &#x27;lambdacismo&#x27;).
+  119      Si la clase no tiene ninguno de los dos marcadores (checkpoint viejo o
+  120      mal entrenado), devuelve (nombre_clase, None, None) -- se trata como &quot;no
+  121      se pudo determinar corrección&quot; en vez de asumir un valor.&quot;&quot;&quot;
+  122      if nombre_clase.endswith(SUFIJO_CORRECTO):
+  123          return nombre_clase[: -len(SUFIJO_CORRECTO)], True, None
+  124  
+  125      idx = nombre_clase.find(MARCADOR_INCORRECTO)
+  126      if idx != -1:
+  127          palabra = nombre_clase[:idx]
+  128          resto = nombre_clase[idx + len(MARCADOR_INCORRECTO):]
+  129          subtipo = resto[1:] if resto.startswith(&quot;_&quot;) else None
+  130          return palabra, False, subtipo or None
+  131  
+  132      return nombre_clase, None, None</pre></details><details><summary>Ver código · server/main.py:851-860 · uso</summary><pre class="code">  851          if recortado_path and os.path.exists(recortado_path):
+  852              shutil.copyfile(recortado_path, base + &quot;_recorte.wav&quot;)
+  853          archivos = sorted(
+  854              (os.path.join(DEBUG_FRASES_DIR, f) for f in os.listdir(DEBUG_FRASES_DIR)),
+  855              key=os.path.getmtime,
+  856          )
+  857          for viejo in archivos[:-DEBUG_FRASES_MAX_ARCHIVOS]:
+  858              os.remove(viejo)
+  859      except Exception as e:
+  860          print(f&quot;[AVISO] No se pudo guardar el audio de depuracion ({e}).&quot;)</pre></details></div></div></div><nav class="pn"><a href="03_extraccion_audio.html">← 2B. Extracción de audio</a><a href="05_modelo_audio.html">3B. Modelo de audio →</a></nav></main></body></html>

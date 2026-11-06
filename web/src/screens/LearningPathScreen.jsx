@@ -5,6 +5,7 @@ import { SOUND_CATEGORIES } from "../soundCategories.js";
 import { speakWord, playWordReference } from "../speak.js";
 import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
 import { createAudioRecorder } from "../audioRecorder.js";
+import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { tipoErrorInfo } from "../errorTips.js";
 import { getFallosSeguidos, registrarIntento, resetFallos, UMBRAL_DESCANSO } from "../practiceStats.js";
 import { getEstado, mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
@@ -859,6 +860,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
   const [grabando, setGrabando] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  const [esfuerzo, setEsfuerzo] = useState(null);
 
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
@@ -904,6 +906,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
     setGrabando(false);
     const blob = recorderRef.current.stop();
     if (!blob) return;
+    setEsfuerzo(recorderRef.current.esfuerzo());
     setProcesando(true);
     try {
       const r = await predictFrase(getServerUrl(), blob, frase, word);
@@ -967,6 +970,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
               <span className="result-overlay-tip-label">
                 {resultado.correcta ? "¡Muy bien dicho!" : (errorInfo?.label || "¡Casi! Practiquemos de nuevo")}
               </span>
+              <EsfuerzoResumen esfuerzo={esfuerzo} />
               {!resultado.correcta && (
                 <>
                   <span className="result-overlay-tip-text">

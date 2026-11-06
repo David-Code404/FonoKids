@@ -61,3 +61,70 @@ export const EJERCICIOS = [
 ];
 
 export const ETIQUETA_TIPO = { praxia: "Cara", soplo: "Soplo", voz: "Voz" };
+
+// Estimación del esfuerzo (versión de PRUEBA, sin validar con niños ni con un
+// especialista). No mide el esfuerzo muscular real: estima qué tan fuerte, qué
+// tan sostenido y qué tan parejo fue el gesto respecto al MÁXIMO de esa misma
+// persona (el que se mide en el paso 2 de la praxia). Se muestra al chico solo
+// como estrellas (1 a 3), nunca como porcentaje. Los cortes son valores
+// iniciales a calibrar.
+const FUERTE = 0.75; // un instante cuenta como «firme» si llega al 75 % de su máximo
+
+const media = (v) => v.reduce((a, x) => a + x, 0) / Math.max(v.length, 1);
+const nivel = (valor, cortes) => (valor >= cortes[1] ? 3 : valor >= cortes[0] ? 2 : 1);
+
+export const ETIQUETAS_ESFUERZO = {
+  fuerza: "💪 Fuerza",
+  aguante: "⏱️ Aguante",
+  parejo: "🔁 Repeticiones parejas",
+  voz: "🗣️ Voz fuerte y clara",
+};
+
+/// Praxias. `reps`: una entrada por repetición con `fuerza` (intensidad media
+/// durante los 3 s, 1 = su máximo) y `firme` (fracción del tiempo en que llegó
+/// al 75 % de su máximo o más).
+export function esfuerzoPraxia(reps) {
+  if (!reps?.length) return null;
+  const fuerzas = reps.map((r) => r.fuerza);
+  const alto = Math.max(...fuerzas);
+  const bajo = Math.min(...fuerzas);
+  return {
+    fuerza: nivel(media(fuerzas), [0.65, 0.9]),
+    aguante: nivel(media(reps.map((r) => r.firme)), [0.5, 0.85]),
+    parejo: nivel(alto > 0 ? 1 - (alto - bajo) / alto : 0, [0.7, 0.9]),
+  };
+}
+
+/// Soplo. No hay máximo personal (la calibración solo mide el ruido de fondo),
+/// así que la fuerza se compara contra el umbral de soplo: `rmsMedio` y
+/// `umbral` salen del volumen del micrófono; `firme` es la fracción del soplo
+/// con volumen de al menos 1,5 veces el umbral.
+export function esfuerzoSoplo(rmsMedio, umbral, firme) {
+  return {
+    fuerza: nivel(rmsMedio / umbral, [1.5, 2.5]),
+    aguante: nivel(firme, [0.5, 0.85]),
+  };
+}
+
+/// Práctica de palabras y frases. Mide qué tan fuerte y clara se oyó la voz
+/// frente al ruido de fondo de ESA grabación: el volumen de los tramos más
+/// fuertes dividido por el de los más tranquilos (percentil 90 sobre percentil
+/// 10 del volumen de cada bloque de audio). No usa un volumen absoluto porque
+/// depende de la ganancia del micrófono. `chunks`: bloques Float32 del
+/// grabador. Devuelve null si el audio es demasiado corto para medir.
+export function esfuerzoVoz(chunks) {
+  if (!chunks || chunks.length < 6) return null;
+  const rms = chunks.map((c) => {
+    let s = 0;
+    for (let i = 0; i < c.length; i++) s += c[i] * c[i];
+    return Math.sqrt(s / Math.max(c.length, 1));
+  }).sort((a, b) => a - b);
+  const pct = (p) => rms[Math.floor(p * (rms.length - 1))];
+  const voz = pct(0.9);
+  const ruido = pct(0.1);
+  if (voz < 0.005) return { voz: 1 }; // casi no se oyó nada
+  return { voz: nivel(voz / Math.max(ruido, 1e-4), [3, 8]) };
+}
+
+export const SOPLO_FIRME = 1.5;
+export const GESTO_FIRME = FUERTE;

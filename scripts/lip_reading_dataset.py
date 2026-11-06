@@ -1,27 +1,3 @@
-"""
-lip_reading_dataset.py
---------------------------
-PARTE 2 del pipeline Transformer-puro: Dataset y DataLoader de PyTorch que
-leen los .npy generados por extraer_landmarks_npy.py (secuencias de 240
-números por frame: posición + velocidad + aceleración de los landmarks
-de labios normalizados).
-
-Cada video tiene una cantidad de frames distinta -- acá se hace padding con
-ceros (o truncado) para que todas las secuencias queden en max_frames fijos,
-y se devuelve también la longitud real (la usa el Transformer para el
-masked pooling / padding mask, no solo de adorno).
-
-Incluye:
-    - Detección DINÁMICA de la dimensión real del landmark (leyendo el
-      primer .npy), en vez de asumir un número fijo -- si el extractor
-      cambia de forma en el futuro, esto no rompe con un shape mismatch.
-    - Normalización NFC de las palabras (label_map y nombre de carpeta),
-      para que dos formas Unicode distintas de la misma palabra con tilde
-      (ej. "á" precompuesto vs "a"+tilde combinante) no generen labels
-      duplicados.
-    - Aumento de datos (SOLO para el split de entrenamiento, ver `augment`):
-      ruido gaussiano leve, shift/scale aleatorio, y time masking.
-"""
 import os
 import glob
 import json
@@ -34,8 +10,6 @@ from torch.utils.data import Dataset, DataLoader
 DEFAULT_DATA_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "landmarks_npy"
 )
-# Valor de referencia/documentación -- el real se detecta por archivo (ver
-# LipReadingDataset.landmark_dim) para no romper si el extractor cambia.
 LANDMARK_DIM = 240
 
 
@@ -44,18 +18,6 @@ def _nfc(text):
 
 
 class LipReadingDataset(Dataset):
-    """Lee .npy de landmarks y arma (secuencia, label, longitud_real).
-
-    Args:
-        data_dir: carpeta con subcarpetas por palabra (label_map.json adentro).
-        max_frames: longitud fija de secuencia (padding con ceros o truncado).
-        file_paths: lista explícita de archivos a usar (para separar train/val
-            sin compartir estado de augmentation entre ambos splits). Si es
-            None, usa TODOS los .npy de data_dir.
-        augment: si True, aplica aumento de datos en cada __getitem__
-            (ruido gaussiano, shift/scale, time masking). Usar SOLO en el
-            split de entrenamiento -- nunca en validación/test.
-    """
 
     def __init__(self, data_dir=DEFAULT_DATA_DIR, max_frames=60, file_paths=None, augment=False):
         self.data_dir = data_dir
@@ -83,9 +45,6 @@ class LipReadingDataset(Dataset):
         if not self.file_paths:
             raise RuntimeError(f"No hay archivos .npy en {data_dir}.")
 
-        # Detección dinámica de la dimensión real por frame -- evita shape
-        # mismatch si el extractor cambia (ej. si en el futuro se agregan o
-        # sacan features). Se lee del primer archivo, todos deben coincidir.
         first_sample = np.load(self.file_paths[0])
         self.landmark_dim = int(first_sample.shape[-1])
 
@@ -97,25 +56,12 @@ class LipReadingDataset(Dataset):
         return self.label_map[word]
 
     def _apply_augmentation(self, sequence):
-        """Aumento de datos SOLO para entrenamiento -- opera sobre la
-        secuencia (T, landmark_dim) ANTES de hacer padding, para no meter
-        ruido en los frames de relleno."""
-        # Ruido gaussiano leve (simula jitter de detección de landmarks).
-        # Valor chico a propósito: la señal normalizada ya es de por sí
-        # pequeña (std temporal típica ~0.02-0.03), así que un ruido más
-        # fuerte que eso tapa el movimiento real en vez de robustecer.
         sequence = sequence + np.random.normal(0, 0.003, sequence.shape).astype(np.float32)
 
-        # Shift/scale aleatorio leve de las coordenadas (variación residual
-        # de encuadre/escala que la normalización geométrica no cubre del
-        # todo) -- valores chicos a propósito, para no destruir la señal.
         shift = np.random.uniform(-0.01, 0.01, size=(1, sequence.shape[1])).astype(np.float32)
         scale = np.random.uniform(0.97, 1.03)
         sequence = sequence * scale + shift
 
-        # Time masking: enmascara un 8-12% de los frames a cero, simulando
-        # oclusiones o frames sin detección -- fuerza al modelo a no
-        # depender de un frame puntual.
         T = sequence.shape[0]
         n_mask = max(1, int(round(T * np.random.uniform(0.08, 0.12))))
         n_mask = min(n_mask, T)
@@ -126,7 +72,7 @@ class LipReadingDataset(Dataset):
 
     def __getitem__(self, idx):
         path = self.file_paths[idx]
-        sequence = np.load(path).astype(np.float32)  # (T, landmark_dim)
+        sequence = np.load(path).astype(np.float32)
         label = self._label_from_path(path)
 
         if self.augment:
@@ -144,24 +90,14 @@ class LipReadingDataset(Dataset):
             real_length = T
 
         return (
-            torch.from_numpy(sequence),                   # (max_frames, landmark_dim)
+            torch.from_numpy(sequence),
             torch.tensor(label, dtype=torch.long),
-            torch.tensor(real_length, dtype=torch.long),   # frames reales antes del padding
+            torch.tensor(real_length, dtype=torch.long),
         )
 
 
 def build_dataloaders(data_dir=DEFAULT_DATA_DIR, max_frames=60, batch_size=32,
                        val_ratio=0.2, seed=42, num_workers=0, augment_train=True):
-    """Arma el dataset completo, lo separa en train/val a nivel de ARCHIVOS
-    (no de tensores ya cargados) para poder darle augmentation SOLO al
-    split de entrenamiento (nunca a val), y devuelve los DataLoaders listos
-    junto con un dataset "de referencia" (para leer class_names/landmark_dim).
-
-    Split ESTRATIFICADO por clase: separa val_ratio de CADA clase por
-    separado (no un permutation al azar sobre TODO el dataset) -- con
-    clases de tamaños muy distintos (ej. "perro_correcto" con cientos de
-    clips vs "perro_incorrecto_dentalizacion" con 50), un split global podía
-    dejar alguna clase chica con pocas o CERO muestras de validación."""
     reference = LipReadingDataset(data_dir=data_dir, max_frames=max_frames)
     file_paths = reference.file_paths
 
@@ -195,7 +131,6 @@ def build_dataloaders(data_dir=DEFAULT_DATA_DIR, max_frames=60, batch_size=32,
 
 
 if __name__ == "__main__":
-    # Chequeo rápido de que todo lee bien -- no entrena nada.
     dataset, train_loader, val_loader = build_dataloaders()
     print(f"Clases ({len(dataset.class_names)}): {dataset.class_names}")
     print(f"Dimensión detectada por frame: {dataset.landmark_dim}")

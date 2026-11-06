@@ -1,0 +1,438 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 3C · GOP: pronunciación por fonema</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="on" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 3C</div><h1>GOP: pronunciación por fonema</h1><p class="sub">Procedimiento sobre wav2vec2. No es un modelo entrenado por vos: alinea los fonemas esperados contra el audio y dice cuáles suenan dudosos.</p><div class="io"><div><small>Entra</small>WAV y palabra (o frase y palabra objetivo)</div><div><small>Sale</small>Fonemas, score por fonema, dudosos, lo reconocido y tipo de error</div></div><div class="chips"><span class="chip">Umbral de dudoso: <b>-3.0 (aud:52)</b></span><span class="chip">Palabra no reconocida: <b>distancia &gt; 0.5 (aud:63)</b></span><span class="chip">Frase entera: <b>≥ 60% (aud:556)</b></span><span class="chip">Frase pedida: <b>menos de 2 dudosos fuera</b></span></div><h2>Palabra sola: score_pronunciation</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">score_pronunciation</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:296</span><span class="loc"><b>envoltorio</b>server/main.py:856</span></div><pre class="sig">def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, device)</pre><p class="desc">Orquesta todos los pasos de abajo y arma el resultado.</p><details><summary>Ver código · scripts/audio_pronunciation.py:296-346</summary><pre class="code">  454  def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, device):
+  455      &quot;&quot;&quot;Puntúa la pronunciación de `palabra` en el clip `wav_path`.
+  456  
+  457      Devuelve un dict:
+  458          {
+  459              &quot;fonemas&quot;: [&quot;p&quot;, &quot;e&quot;, &quot;r&quot;, &quot;o&quot;],
+  460              &quot;scores&quot;: [-0.12, -0.34, -2.81, -0.09],   # log-prob promedio, uno por fonema
+  461              &quot;sospechosos&quot;: [2],                        # índices por debajo del umbral
+  462              &quot;reconocido_libre&quot;: &quot;p e ɾ o&quot;,              # qué reconoció el modelo SIN forzar la palabra
+  463          }
+  464      &quot;&quot;&quot;
+  465      waveform = load_audio_16k(wav_path)
+  466  
+  467      inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors=&quot;pt&quot;)
+  468      with torch.inference_mode():
+  469          logits = model(inputs.input_values.to(device)).logits  # (1, T, C)
+  470      log_probs = torch.log_softmax(logits, dim=-1)
+  471  
+  472      id_to_phoneme = {v: k for k, v in vocab.items()}
+  473      blank_id = vocab[&quot;&lt;pad&gt;&quot;]  # el token &lt;pad&gt; es el blank de CTC en este modelo
+  474  
+  475      # Reconocimiento LIBRE (greedy CTC decode, sin forzar ninguna palabra) --
+  476      # sirve como referencia de qué escuchó el modelo posta, útil para debug.
+  477      pred_ids = torch.argmax(log_probs, dim=-1)[0].tolist()
+  478      reconocido_libre = _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id)
+  479  
+  480      fonemas_esperados = texto_a_fonemas(palabra)
+  481      target_ids, fonemas_usados = _phoneme_to_token_ids(fonemas_esperados, vocab)
+  482      if not target_ids:
+  483          raise ValueError(f&quot;No se pudo mapear ningún fonema de &#x27;{palabra}&#x27; al vocabulario del modelo.&quot;)
+  484  
+  485      targets = torch.tensor([target_ids], dtype=torch.int32, device=device)
+  486  
+  487      aligned_labels, aligned_scores = F.forced_align(
+  488          log_probs, targets, blank=blank_id,
+  489      )
+  490      aligned_labels = aligned_labels[0].tolist()
+  491      aligned_scores = aligned_scores[0].tolist()
+  492  
+  493      # Agrupa los frames alineados por fonema (cada fonema ocupa varios
+  494      # frames consecutivos) y promedia el score dentro de cada grupo.
+  495      scores_por_fonema = []
+  496      idx_target = 0
+  497      frame_scores_actual = []
+  498      for label, score in zip(aligned_labels, aligned_scores):
+  499          if label == blank_id:
+  500              continue
+  501          if idx_target &lt; len(target_ids) and label == target_ids[idx_target]:
+  502              frame_scores_actual.append(score)
+  503          elif frame_scores_actual:
+  504              # Cambió de fonema -- cierra el grupo anterior y arranca el siguiente.
+  505              scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+  506              frame_scores_actual = [score]
+  507              idx_target += 1
+  508          else:
+  509              frame_scores_actual = [score]
+  510      if frame_scores_actual:
+  511          scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+  512  
+  513      # Completa con None si por algún motivo quedaron menos grupos que
+  514      # fonemas esperados (clip cortado a mitad de palabra, etc.) -- mejor
+  515      # marcarlo explícito que fingir un score que no se calculó de verdad.
+  516      while len(scores_por_fonema) &lt; len(fonemas_usados):
+  517          scores_por_fonema.append(None)
+  518  
+  519      sospechosos = [
+  520          i for i, s in enumerate(scores_por_fonema)
+  521          if s is not None and s &lt; GOP_SUSPICIOUS_THRESHOLD
+  522      ]
+  523  
+  ...  (recortado)</pre></details><details><summary>Ver código · server/main.py:702-705 · envoltorio</summary><pre class="code">  702  def _pick_reference_clip(palabra):
+  703      clips_dir = os.path.join(SESSIONS_DIR, f&quot;{palabra}_correcto&quot;, &quot;clips&quot;)
+  704      if not os.path.isdir(clips_dir):
+  705          return None</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">texto_a_fonemas</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:22</span></div><pre class="sig">def texto_a_fonemas(palabra)</pre><p class="desc">Reglas del español: rr y r inicial dan r, r suave da ɾ, ch da tʃ, ll da ʝ, c y z dan s, la h es muda.</p><details><summary>Ver código · scripts/audio_pronunciation.py:22-86</summary><pre class="code">   82  def texto_a_fonemas(palabra):
+   83      &quot;&quot;&quot;&#x27;perro&#x27; -&gt; [&#x27;p&#x27;,&#x27;e&#x27;,&#x27;r&#x27;,&#x27;o&#x27;]. &#x27;carro&#x27; -&gt; [&#x27;k&#x27;,&#x27;a&#x27;,&#x27;r&#x27;,&#x27;o&#x27;].
+   84      &#x27;flor&#x27; -&gt; [&#x27;f&#x27;,&#x27;l&#x27;,&#x27;o&#x27;,&#x27;ɾ&#x27;] (r suave, no vibrante, porque no está al
+   85      principio de palabra ni duplicada).&quot;&quot;&quot;
+   86      palabra = palabra.strip().lower()
+   87      for acentuada, simple in VOCALES_ACENTUADAS.items():
+   88          palabra = palabra.replace(acentuada, simple)
+   89  
+   90      fonemas = []
+   91      i = 0
+   92      n = len(palabra)
+   93      while i &lt; n:
+   94          c = palabra[i]
+   95          nxt = palabra[i + 1] if i + 1 &lt; n else &quot;&quot;
+   96          prev = palabra[i - 1] if i &gt; 0 else &quot;&quot;
+   97  
+   98          if c == &quot;r&quot;:
+   99              doble = nxt == &quot;r&quot;
+  100              al_inicio = i == 0
+  101              tras_nls = prev in (&quot;n&quot;, &quot;l&quot;, &quot;s&quot;)
+  102              fonemas.append(&quot;r&quot; if (doble or al_inicio or tras_nls) else &quot;ɾ&quot;)
+  103              i += 2 if doble else 1
+  104              continue
+  105  
+  106          if c == &quot;c&quot; and nxt in (&quot;e&quot;, &quot;i&quot;):
+  107              fonemas.append(&quot;s&quot;)  # seseo
+  108              i += 1
+  109              continue
+  110          if c == &quot;c&quot; and nxt == &quot;h&quot;:
+  111              fonemas.append(&quot;tʃ&quot;)
+  112              i += 2
+  113              continue
+  114          if c == &quot;c&quot;:
+  115              fonemas.append(&quot;k&quot;)
+  116              i += 1
+  117              continue
+  118  
+  119          if c == &quot;q&quot; and nxt == &quot;u&quot;:
+  120              fonemas.append(&quot;k&quot;)
+  121              i += 2  # la &quot;u&quot; de &quot;qu&quot; es muda
+  122              continue
+  123  
+  124          if c == &quot;g&quot; and nxt == &quot;u&quot; and i + 2 &lt; n and palabra[i + 2] in (&quot;e&quot;, &quot;i&quot;):
+  125              fonemas.append(&quot;ɡ&quot;)
+  126              i += 2  # &quot;gu&quot; antes de e/i -&gt; &quot;u&quot; muda
+  127              continue
+  128          if c == &quot;g&quot; and nxt in (&quot;e&quot;, &quot;i&quot;):
+  129              fonemas.append(&quot;x&quot;)
+  130              i += 1
+  131              continue
+  132          if c == &quot;g&quot;:
+  133              fonemas.append(&quot;ɡ&quot;)
+  134              i += 1
+  135              continue
+  136  
+  137          if c == &quot;l&quot; and nxt == &quot;l&quot;:
+  138              fonemas.append(&quot;ʝ&quot;)  # yeísmo
+  139              i += 2
+  140              continue
+  141  
+  142          if c == &quot;y&quot;:
+  143              # Vocal (al final de palabra, tras vocal, ej. &quot;hoy&quot;) vs
+  144              # consonante (ej. &quot;yo&quot;, yeísmo -- mismo sonido que &quot;ll&quot;).
+  145              es_vocal_final = (i == n - 1) and prev in &quot;aeiou&quot;
+  146              fonemas.append(&quot;i&quot; if es_vocal_final else &quot;ʝ&quot;)
+  147              i += 1
+  148              continue
+  149  
+  150          if c == &quot;z&quot;:
+  151              fonemas.append(&quot;s&quot;)  # seseo
+  ...  (recortado)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">_phoneme_to_token_ids</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:176</span></div><pre class="sig">def _phoneme_to_token_ids(fonemas, vocab)</pre><p class="desc">Pasa cada fonema a su número en el vocabulario del modelo.</p><details><summary>Ver código · scripts/audio_pronunciation.py:176-185</summary><pre class="code">  283  def _phoneme_to_token_ids(fonemas, vocab):
+  284      &quot;&quot;&quot;Mapea cada símbolo IPA de texto_a_fonemas() a su id en el vocabulario
+  285      del modelo. Si algún fonema no está en el vocabulario (no debería pasar
+  286      con los símbolos que usa texto_a_fonemas(), todos estándar), se avisa y
+  287      se saltea -- mejor perder un fonema puntual que romper todo el score.&quot;&quot;&quot;
+  288      ids = []
+  289      fonemas_usados = []
+  290      for f in fonemas:
+  291          if f in vocab:
+  292              ids.append(vocab[f])
+  293              fonemas_usados.append(f)
+  294          else:
+  295              print(f&quot;[AVISO] Fonema &#x27;{f}&#x27; no está en el vocabulario del modelo, se saltea.&quot;)
+  296      return ids, fonemas_usados</pre></details></div></div><div class="down">↓</div><div class="fn ext"><div class="num">4</div><div><div class="head"><span class="name">forced_align</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:317</span></div><pre class="sig">F.forced_align(log_probs, targets, blank=blank_id)</pre><p class="desc">Alineación CTC de torchaudio: ubica cada fonema esperado en el audio y da su score medio.</p><details><summary>Ver código · scripts/audio_pronunciation.py:317-326</summary><pre class="code">  487      aligned_labels, aligned_scores = F.forced_align(
+  488          log_probs, targets, blank=blank_id,
+  489      )
+  490      aligned_labels = aligned_labels[0].tolist()
+  491      aligned_scores = aligned_scores[0].tolist()
+  492  
+  493      # Agrupa los frames alineados por fonema (cada fonema ocupa varios
+  494      # frames consecutivos) y promedia el score dentro de cada grupo.
+  495      scores_por_fonema = []
+  496      idx_target = 0
+  497      frame_scores_actual = []
+  498      for label, score in zip(aligned_labels, aligned_scores):</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">5</div><div><div class="head"><span class="name">_greedy_ctc_decode</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:188</span></div><pre class="sig">def _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id)</pre><p class="desc">Reconocimiento libre: qué fonemas sonaron sin forzar la palabra.</p><details><summary>Ver código · scripts/audio_pronunciation.py:188-195</summary><pre class="code">  299  def _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id):
+  300      &quot;&quot;&quot;Decodificación CTC libre (sin forzar ninguna palabra) -- colapsa
+  301      repeticiones consecutivas y saca el blank, igual que hace
+  302      processor.batch_decode() normalmente. Devuelve la lista de símbolos
+  303      (no un string) porque además de mostrarse en el reporte, se usa para
+  304      comparar contra los fonemas esperados (ver _distancia_edicion).&quot;&quot;&quot;
+  305      fonemas = []
+  306      anterior = None
+  307      for tid in pred_ids:
+  308          if tid != anterior and tid != blank_id:
+  309              fonemas.append(id_to_phoneme.get(tid, &quot;?&quot;))
+  310          anterior = tid
+  311      return fonemas</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">6</div><div><div class="head"><span class="name">_distancia_edicion</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:205</span></div><pre class="sig">def _distancia_edicion(a, b)</pre><p class="desc">Distancia entre lo esperado y lo reconocido. Si pasa de 0.5 se considera que no dijo la palabra.</p><details><summary>Ver código · scripts/audio_pronunciation.py:205-218</summary><pre class="code">  326  def _distancia_edicion(a, b):
+  327      &quot;&quot;&quot;Distancia de Levenshtein entre dos listas de símbolos -- cuántas
+  328      inserciones/borrados/sustituciones hacen falta para convertir `a` en
+  329      `b`. Programación dinámica clásica, O(len(a)*len(b)).&quot;&quot;&quot;
+  330      n, m = len(a), len(b)
+  331      dp = [[0] * (m + 1) for _ in range(n + 1)]
+  332      for i in range(n + 1):
+  333          dp[i][0] = i
+  334      for j in range(m + 1):
+  335          dp[0][j] = j
+  336      for i in range(1, n + 1):
+  337          for j in range(1, m + 1):
+  338              if a[i - 1] == b[j - 1]:
+  339                  dp[i][j] = dp[i - 1][j - 1]
+  340              else:
+  341                  dp[i][j] = 1 + min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1])
+  342      return dp[n][m]</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">7</div><div><div class="head"><span class="name">diagnose_tipo_error</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:268</span><span class="loc"><b>tablas</b>scripts/audio_pronunciation.py:256 y 411</span></div><pre class="sig">def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista)</pre><p class="desc">Usa _align_ops (línea 357) para ver qué se sustituyó. Ej.: r por l es lambdacismo, s por θ es interdental.</p><details><summary>Ver código · scripts/audio_pronunciation.py:268-293</summary><pre class="code">  414  def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista):
+  415      &quot;&quot;&quot;Devuelve un tipo de error (omision / lambdacismo / dentalizacion /
+  416      anteriorizacion / debilitamiento / interdental / oclusion / epentesis)
+  417      o None, mirando qué pasó en la posición del fonema difícil de la
+  418      palabra dentro de la alineación entre lo esperado y lo reconocido
+  419      libremente. Cubre los 5 sonidos que el proyecto entrena hoy (R/RR, S,
+  420      G, C/K, Sinfones con L) -- si la palabra no tiene ninguno de esos
+  421      fonemas, o el error no encaja en ningún patrón conocido, devuelve None
+  422      en vez de forzar una etiqueta.&quot;&quot;&quot;
+  423      ops = _align_ops(fonemas_esperados, reconocido_libre_lista)
+  424  
+  425      # Sinfones (bl/cl/fl/gl/pl): el error típico es comerse la &quot;l&quot; del grupo
+  426      # (reducción) o meter una vocal en el medio (epéntesis) -- se busca una
+  427      # &quot;l&quot; esperada que venga justo después de una consonante de sinfón.
+  428      for idx, (tipo, esperado, reconocido) in enumerate(ops):
+  429          if esperado == &quot;l&quot; and idx &gt; 0:
+  430              anterior = ops[idx - 1][1]  # fonema esperado anterior
+  431              if anterior and (anterior + &quot;l&quot;) in _SINFONES:
+  432                  if tipo == &quot;del&quot;:
+  433                      return &quot;omision&quot;
+  434                  if tipo == &quot;sub&quot; and reconocido and reconocido not in (&quot;l&quot;,):
+  435                      return &quot;distorsion&quot;
+  436      for idx, (tipo, esperado, reconocido) in enumerate(ops):
+  437          if tipo == &quot;ins&quot; and idx &gt; 0:
+  438              previo = ops[idx - 1]
+  439              if previo[0] in (&quot;match&quot;, &quot;sub&quot;) and previo[1] and (previo[1] + &quot;l&quot;) in _SINFONES:
+  440                  return &quot;epentesis&quot;
+  441  
+  442      # R/RR, S, G, C/K: un solo fonema difícil, sustitución directa.
+  443      for tipo, esperado, reconocido in ops:
+  444          tabla = _SUSTITUCIONES_CONOCIDAS.get(esperado)
+  445          if tabla is None:
+  446              continue
+  447          if tipo == &quot;del&quot;:
+  448              return &quot;omision&quot;
+  449          if tipo == &quot;sub&quot; and reconocido in tabla:
+  450              return tabla[reconocido]
+  451      return None</pre></details><details><summary>Ver código · scripts/audio_pronunciation.py:164-167 · tablas</summary><pre class="code">  256  _SUSTITUCIONES_CONOCIDAS = {
+  257      &quot;r&quot;: {&quot;l&quot;: &quot;lambdacismo&quot;, &quot;d&quot;: &quot;dentalizacion&quot;},
+  258      &quot;ɾ&quot;: {&quot;l&quot;: &quot;lambdacismo&quot;, &quot;d&quot;: &quot;dentalizacion&quot;},
+  259      &quot;k&quot;: {&quot;t&quot;: &quot;anteriorizacion&quot;, &quot;x&quot;: &quot;debilitamiento&quot;, &quot;h&quot;: &quot;debilitamiento&quot;},
+  260      &quot;ɡ&quot;: {&quot;d&quot;: &quot;anteriorizacion&quot;, &quot;x&quot;: &quot;debilitamiento&quot;, &quot;h&quot;: &quot;debilitamiento&quot;},
+  261      &quot;s&quot;: {&quot;θ&quot;: &quot;interdental&quot;, &quot;t&quot;: &quot;oclusion&quot;, &quot;d&quot;: &quot;oclusion&quot;},
+  262      &quot;ʝ&quot;: {&quot;l&quot;: &quot;distorsion&quot;, &quot;i&quot;: &quot;debilitamiento&quot;},
+  263      &quot;tʃ&quot;: {&quot;ʃ&quot;: &quot;distorsion&quot;, &quot;t&quot;: &quot;debilitamiento&quot;, &quot;s&quot;: &quot;debilitamiento&quot;},
+  264  }
+  265  _SINFONES = {&quot;bl&quot;, &quot;kl&quot;, &quot;fl&quot;, &quot;ɡl&quot;, &quot;pl&quot;}</pre></details><details><summary>Ver código · scripts/audio_pronunciation.py:168-167 · tablas</summary><pre class="code">  265  _SINFONES = {&quot;bl&quot;, &quot;kl&quot;, &quot;fl&quot;, &quot;ɡl&quot;, &quot;pl&quot;}
+  266  
+  267  
+  268  def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista):</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">8</div><div><div class="head"><span class="name">fonemas_a_texto_aproximado</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:201</span></div><pre class="sig">def fonemas_a_texto_aproximado(fonemas)</pre><p class="desc">Texto aproximado de lo que sonó.</p><details><summary>Ver código · scripts/audio_pronunciation.py:201-202</summary><pre class="code">  321  def fonemas_a_texto_aproximado(fonemas):
+  322      &quot;&quot;&quot;[&#x27;p&#x27;,&#x27;e&#x27;,&#x27;l&#x27;,&#x27;o&#x27;] -&gt; &#x27;pelo&#x27;. Solo para mostrar, no para comparar.&quot;&quot;&quot;
+  323      return &quot;&quot;.join(_FONEMA_A_LETRA.get(f, f) for f in fonemas)</pre></details></div></div></div><h2>Frase completa: score_word_in_sentence</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">score_word_in_sentence</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:385</span><span class="loc"><b>envoltorio</b>server/main.py:864</span></div><pre class="sig">def score_word_in_sentence(wav_path, frase, palabra_objetivo, model, feature_extractor, vocab, device)</pre><p class="desc">Alinea la frase entera (forced_align en la línea 621), ubica la palabra, calcula los dos filtros y recorta su audio con 150 ms de margen.</p><details><summary>Ver código · scripts/audio_pronunciation.py:385-435</summary><pre class="code">  586  def score_word_in_sentence(wav_path, frase, palabra_objetivo, model, feature_extractor, vocab, device):
+  587      &quot;&quot;&quot;Como score_pronunciation(), pero el chico dice una FRASE completa
+  588      (ej. &quot;el perro corre por las montañas&quot;) en vez de la palabra sola --
+  589      pedido explícito: que se pueda practicar en un contexto más natural,
+  590      no solo palabras sueltas. No usa el clasificador de audio entrenado
+  591      (ver train_audio_classifier.py) porque ESE se entrenó únicamente con
+  592      clips de la palabra sola: si se le da una frase entera, el embedding
+  593      resume toda la frase junta y la clasificación no tiene sentido. Esto
+  594      en cambio solo necesita el GOP genérico (wav2vec2 sin entrenamiento
+  595      propio), que no depende de ningún dataset -- se alinea la frase
+  596      ENTERA contra el audio, y después se recorta el resultado solo al
+  597      tramo donde aparece `palabra_objetivo` dentro de esa frase.
+  598  
+  599      Devuelve el mismo formato que score_pronunciation(), más &quot;frase&quot; y
+  600      &quot;palabra_objetivo&quot; para que el cliente sepa contra qué se comparó.&quot;&quot;&quot;
+  601      waveform = load_audio_16k(wav_path)
+  602  
+  603      inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors=&quot;pt&quot;)
+  604      with torch.inference_mode():
+  605          logits = model(inputs.input_values.to(device)).logits
+  606      log_probs = torch.log_softmax(logits, dim=-1)
+  607  
+  608      id_to_phoneme = {v: k for k, v in vocab.items()}
+  609      blank_id = vocab[&quot;&lt;pad&gt;&quot;]
+  610  
+  611      pred_ids = torch.argmax(log_probs, dim=-1)[0].tolist()
+  612      reconocido_libre = _greedy_ctc_decode(pred_ids, id_to_phoneme, blank_id)
+  613  
+  614      fonemas_frase = texto_a_fonemas(frase)
+  615      fonemas_palabra = texto_a_fonemas(palabra_objetivo)
+  616      target_ids, fonemas_frase_usados = _phoneme_to_token_ids(fonemas_frase, vocab)
+  617      if not target_ids:
+  618          raise ValueError(f&quot;No se pudo mapear ningún fonema de la frase &#x27;{frase}&#x27; al vocabulario del modelo.&quot;)
+  619  
+  620      targets = torch.tensor([target_ids], dtype=torch.int32, device=device)
+  621      aligned_labels, aligned_scores = F.forced_align(log_probs, targets, blank=blank_id)
+  622      aligned_labels = aligned_labels[0].tolist()
+  623      aligned_scores = aligned_scores[0].tolist()
+  624  
+  625      # Además del score por fonema, se guarda en qué FRAME de audio empieza y
+  626      # termina cada grupo -- hace falta para recortar la forma de onda más
+  627      # abajo, no solo los fonemas/scores.
+  628      scores_por_fonema = []
+  629      frame_ranges = []
+  630      idx_target = 0
+  631      frame_scores_actual = []
+  632      frame_indices_actual = []
+  633      for frame_idx, (label, score) in enumerate(zip(aligned_labels, aligned_scores)):
+  634          if label == blank_id:
+  635              continue
+  636          if idx_target &lt; len(target_ids) and label == target_ids[idx_target]:
+  637              frame_scores_actual.append(score)
+  638              frame_indices_actual.append(frame_idx)
+  639          elif frame_scores_actual:
+  640              scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+  641              frame_ranges.append((frame_indices_actual[0], frame_indices_actual[-1]))
+  642              frame_scores_actual = [score]
+  643              frame_indices_actual = [frame_idx]
+  644              idx_target += 1
+  645          else:
+  646              frame_scores_actual = [score]
+  647              frame_indices_actual = [frame_idx]
+  648      if frame_scores_actual:
+  649          scores_por_fonema.append(float(np.mean(frame_scores_actual)))
+  650          frame_ranges.append((frame_indices_actual[0], frame_indices_actual[-1]))
+  651      while len(scores_por_fonema) &lt; len(fonemas_frase_usados):
+  652          scores_por_fonema.append(None)
+  653          frame_ranges.append(None)
+  654  
+  655      # Recorta todo (fonemas y scores) al tramo de la frase donde está la
+  ...  (recortado)</pre></details><details><summary>Ver código · server/main.py:706-714 · envoltorio</summary><pre class="code">  706      candidatos = [f for f in os.listdir(clips_dir) if f.lower().endswith(VIDEO_EXTENSIONS)]
+  707      if not candidatos:
+  708          return None
+  709  
+  710      def _n_frames(filename):
+  711          cap = cv2.VideoCapture(os.path.join(clips_dir, filename))
+  712          n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+  713          cap.release()
+  714          return n</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">_localizar_subsecuencia</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:369</span></div><pre class="sig">def _localizar_subsecuencia(secuencia, objetivo)</pre><p class="desc">Busca dónde cae la palabra dentro de la frase por distancia de edición.</p><details><summary>Ver código · scripts/audio_pronunciation.py:369-382</summary><pre class="code">  559  def _localizar_subsecuencia(secuencia, objetivo):
+  560      &quot;&quot;&quot;Busca dónde aparece `objetivo` (lista de fonemas de la palabra sola)
+  561      dentro de `secuencia` (lista de fonemas de la frase completa), probando
+  562      todas las ventanas de largo parecido y quedándose con la de menor
+  563      distancia de edición. No exige coincidencia exacta a propósito: la
+  564      regla de &quot;r fuerte al principio de palabra&quot; en texto_a_fonemas() mira
+  565      el inicio del STRING completo, así que una palabra que empieza con r
+  566      en medio de una frase puede fonemizarse levemente distinto que la
+  567      misma palabra calculada sola -- por eso se busca la MEJOR ventana, no
+  568      un substring exacto.
+  569  
+  570      Devuelve (inicio, fin) del mejor tramo dentro de `secuencia`.&quot;&quot;&quot;
+  571      n, m = len(secuencia), len(objetivo)
+  572      if m == 0 or n == 0:
+  573          return 0, 0
+  574      mejor_inicio, mejor_fin, mejor_dist = 0, min(m, n), None
+  575      for largo in (max(1, m - 1), m, m + 1):
+  576          for inicio in range(0, max(1, n - largo + 1)):
+  577              fin = inicio + largo
+  578              if fin &gt; n:
+  579                  continue
+  580              dist = _distancia_edicion(secuencia[inicio:fin], objetivo)
+  581              if mejor_dist is None or dist &lt; mejor_dist:
+  582                  mejor_inicio, mejor_fin, mejor_dist = inicio, fin, dist
+  583      return mejor_inicio, mejor_fin</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">Filtros de la frase</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entera</b>scripts/audio_pronunciation.py:366</span><span class="loc"><b>pedida</b>server/main.py:1297</span></div><pre class="sig">frase_completa_dicha; resto_de_la_frase_ok</pre><p class="desc">El largo de lo reconocido debe ser al menos el 60% de lo esperado, y debe haber menos de 2 fonemas dudosos fuera de la palabra.</p><details><summary>Ver código · scripts/audio_pronunciation.py:226-229 · entera</summary><pre class="code">  366  FRASE_COMPLETA_LARGO_MINIMO = 0.6
+  367  
+  368  
+  369  def _localizar_subsecuencia(secuencia, objetivo):</pre></details><details><summary>Ver código · server/main.py:993-1001 · pedida</summary><pre class="code">  993              &quot;fonemas&quot;: audio_resultado[&quot;fonemas&quot;],
+  994              &quot;scores&quot;: audio_resultado[&quot;scores&quot;],
+  995              &quot;sospechosos&quot;: audio_resultado[&quot;sospechosos&quot;],
+  996              &quot;reconocido_libre&quot;: audio_resultado[&quot;reconocido_libre&quot;],
+  997              &quot;sonido_reconocido&quot;: audio_resultado[&quot;sonido_reconocido&quot;],
+  998              &quot;palabra_reconocida&quot;: audio_resultado[&quot;palabra_reconocida&quot;],
+  999          } if audio_resultado is not None else None,
+ 1000          &quot;audio_clasificador&quot;: audio_clf_resultado,
+ 1001          &quot;tipo_error&quot;: tipo_error if (confianza_suficiente and veredicto_final == &quot;a_practicar&quot;) else None,</pre></details></div></div></div><h2>Probarlo solo</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">print_report</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:501</span></div><pre class="sig">python scripts/audio_pronunciation.py &lt;archivo.wav&gt; &lt;palabra&gt;</pre><p class="desc">Imprime el reporte fonema por fonema. Sirve para mostrar el GOP en vivo.</p><details><summary>Ver código · scripts/audio_pronunciation.py:501-518</summary><pre class="code">  750  def print_report(palabra, resultado):
+  751      print(f&quot;\nPalabra objetivo: &#x27;{palabra}&#x27;&quot;)
+  752      print(f&quot;Fonemas esperados: {&#x27; &#x27;.join(resultado[&#x27;fonemas&#x27;])}&quot;)
+  753      print(f&quot;Lo que reconoció el modelo (libre, sin forzar): {resultado[&#x27;reconocido_libre&#x27;]}&quot;)
+  754      print(&quot;Score por fonema (más alto = más claro, más bajo = más dudoso):&quot;)
+  755      for i, (fon, score) in enumerate(zip(resultado[&quot;fonemas&quot;], resultado[&quot;scores&quot;])):
+  756          marca = &quot; &lt;-- sospechoso&quot; if i in resultado[&quot;sospechosos&quot;] else &quot;&quot;
+  757          score_str = f&quot;{score:.2f}&quot; if score is not None else &quot;N/A&quot;
+  758          print(f&quot;  {fon:&gt;4s}: {score_str}{marca}&quot;)
+  759      if resultado[&quot;sospechosos&quot;]:
+  760          letras = [resultado[&quot;fonemas&quot;][i] for i in resultado[&quot;sospechosos&quot;]]
+  761          print(f&quot;\n-&gt; Posible error de pronunciación en: {&#x27;, &#x27;.join(letras)}&quot;)
+  762      else:
+  763          print(&quot;\n-&gt; Todos los fonemas dentro de lo esperado.&quot;)
+  764      if not resultado[&quot;palabra_reconocida&quot;]:
+  765          print(f&quot;-&gt; OJO: lo reconocido libremente se parece poco a &#x27;{palabra}&#x27; &quot;
+  766                f&quot;(distancia normalizada {resultado[&#x27;distancia_normalizada&#x27;]:.2f}) -- &quot;
+  767                &quot;probablemente dijo otra palabra.&quot;)</pre></details></div></div></div><nav class="pn"><a href="05_modelo_audio.html">← 3B. Modelo de audio</a><a href="index.html">Inicio →</a></nav></main></body></html>
