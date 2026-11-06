@@ -97,8 +97,10 @@
 .camera-frame {
   position: relative;
   /* clamp con vw -- crece con el ancho de ventana en pantallas grandes en
-     vez de quedar chico rodeado de espacio en blanco. */
-  width: clamp(280px, 52vw, 680px);
+     vez de quedar chico rodeado de espacio en blanco. Achicado (antes
+     llegaba a 680px) -- pedido explícito, quedaba una caja enorme que
+     tapaba el cartel de "Decí: <palabra>" de arriba en pantallas chicas. */
+  width: clamp(260px, 38vw, 460px);
   flex: 0 0 auto;
   /* 4:3 en vez de 3:4 -- el recuadro angosto (tipo selfie) recortaba
      demasiado de los costados y dejaba muy poco margen para encuadrar bien
