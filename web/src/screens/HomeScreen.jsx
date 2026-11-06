@@ -7,6 +7,8 @@ import {
 import { iconFor } from "../wordIcons.js";
 import { tipoErrorInfo } from "../errorTips.js";
 import SettingsDialog from "../components/SettingsDialog.jsx";
+import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
+import { esfuerzoVoz } from "../ejercicios.js";
 import "./HomeScreen.css";
 
 // Tope de duración de una toma -- coincide con MAX_FRAMES_BUFFER de
@@ -33,6 +35,29 @@ const PREVIEW_LIP_INDICES = new Set([
   95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 191, 80, 81, 82, 13, 312, 311, 310, 415,
 ]);
 const PREVIEW_EYE_CORNERS = new Set([33, 263]);
+const PREVIEW_MEJILLAS = [205, 425, 50, 280, 116, 345, 147, 376];
+const PREVIEW_NARIZ = [168, 6, 197, 195, 5, 4, 1, 98, 327];
+const PREVIEW_MANDIBULA = [152, 148, 377, 176, 400, 149, 378, 150, 379];
+function gruposDeLaCara() {
+  return [
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, color: "rgba(124,92,255,0.85)", ancho: 2.5 },
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, color: "rgba(255,176,32,0.9)", ancho: 2 },
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, color: "rgba(255,176,32,0.9)", ancho: 2 },
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, color: "rgba(80,200,255,0.9)", ancho: 1.5 },
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, color: "rgba(80,200,255,0.9)", ancho: 1.5 },
+    { conexiones: FaceLandmarker.FACE_LANDMARKS_LIPS, color: "rgba(46,204,143,0.95)", ancho: 2 },
+  ];
+}
+function dibujarPuntos(ctx, cara, indices, color, radio, ancho, alto) {
+  ctx.fillStyle = color;
+  for (const i of indices) {
+    const p = cara[i];
+    if (!p) continue;
+    ctx.beginPath();
+    ctx.arc(p.x * ancho, p.y * alto, radio, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 const LIVE_DETECT_EVERY = 2; // correr el detector del preview cada N frames
 
 // Arma un .wav de 16 bits mono a partir de los chunks Float32 que entrega
@@ -131,6 +156,7 @@ export default function HomeScreen({
   const audioProcessorRef = useRef(null);
   const audioSourceRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const [esfuerzoDeVoz, setEsfuerzoDeVoz] = useState(null);
   // Stream de SOLO MICRÓFONO -- para cuando el chico elige practicar sin
   // cámara (ver acceptAudioOnly más abajo). Separado de streamRef (que es
   // el de cámara+mic juntos) porque son dos pedidos de permiso distintos.
@@ -290,26 +316,27 @@ export default function HomeScreen({
       const face = result.faceLandmarks?.[0];
       if (!face) return;
 
-      for (let i = 0; i < face.length; i++) {
-        const { x, y } = face[i];
-        const px = x * canvas.width;
-        const py = y * canvas.height;
-        let radius = 1;
-        let color = "rgba(255,0,0,0.5)";
-        if (PREVIEW_LIP_INDICES.has(i)) {
-          radius = 2.5;
-          color = "#2ECC8F";
-        } else if (PREVIEW_EYE_CORNERS.has(i)) {
-          radius = 3.5;
-          color = "#FFD84D";
-        } else {
-          continue; // el resto de la malla no aporta nada visualmente acá
-        }
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.lineCap = "round";
+      for (const grupo of gruposDeLaCara()) {
+        ctx.strokeStyle = grupo.color;
+        ctx.lineWidth = grupo.ancho;
         ctx.beginPath();
-        ctx.arc(px, py, radius, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
+        for (const { start, end } of grupo.conexiones) {
+          const a = face[start];
+          const b = face[end];
+          if (!a || !b) continue;
+          ctx.moveTo(a.x * w, a.y * h);
+          ctx.lineTo(b.x * w, b.y * h);
+        }
+        ctx.stroke();
       }
+      dibujarPuntos(ctx, face, PREVIEW_LIP_INDICES, "#2ECC8F", 2.5, w, h);
+      dibujarPuntos(ctx, face, PREVIEW_MANDIBULA, "#7C5CFF", 3.5, w, h);
+      dibujarPuntos(ctx, face, PREVIEW_MEJILLAS, "#FF6FA5", 4, w, h);
+      dibujarPuntos(ctx, face, PREVIEW_NARIZ, "#FFFFFF", 2.5, w, h);
+      dibujarPuntos(ctx, face, PREVIEW_EYE_CORNERS, "#FFD84D", 3.5, w, h);
     }
     rafRef.current = requestAnimationFrame(loop);
 
@@ -527,6 +554,7 @@ export default function HomeScreen({
     audioChunksRef.current = [];
 
     if (!ctx) return null;
+    setEsfuerzoDeVoz(esfuerzoVoz(chunks));
     const sampleRate = ctx.sampleRate;
     try {
       processor?.disconnect();
@@ -781,6 +809,7 @@ export default function HomeScreen({
         <ResultOverlay
           result={lastResult}
           promptText={promptText}
+          esfuerzo={esfuerzoDeVoz}
           onClose={() => setLastResult(null)}
         />
       )}
@@ -799,7 +828,7 @@ export default function HomeScreen({
 /// Tarjeta grande centrada con el resultado del intento -- se tapa sola
 /// apenas arranca la próxima grabación (ver startRecording), o el chico
 /// puede tocar afuera para cerrarla antes.
-function ResultOverlay({ result, promptText, onClose }) {
+function ResultOverlay({ result, promptText, esfuerzo, onClose }) {
   if (!result.valid) {
     // Pedido explícito: nunca mostrarle al chico el motivo técnico crudo
     // que manda el servidor (ej. "cara detectada solo en 0/75 frames --
@@ -863,6 +892,7 @@ function ResultOverlay({ result, promptText, onClose }) {
       <div className={`result-overlay-card ${result.correcta ? "success" : "retry"}`} onClick={(e) => e.stopPropagation()}>
         <div className="result-overlay-emoji">{result.correcta ? "🎉" : (result.palabra_distinta ? "🙃" : (errorInfo?.icon || "🔁"))}</div>
         <div className="result-overlay-word">{palabra}</div>
+        <EsfuerzoResumen esfuerzo={esfuerzo} />
         {result.correcta ? (
           <div className="result-overlay-message">¡Muy bien dicho!</div>
         ) : result.palabra_distinta ? (

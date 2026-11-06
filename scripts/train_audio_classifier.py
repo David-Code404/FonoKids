@@ -1,33 +1,3 @@
-"""
-train_audio_classifier.py
---------------------------
-Entrena un clasificador de AUDIO real, con TUS clips grabados (los .wav que
-graba grabar_video_continuo.py junto a cada .avi) -- a diferencia del GOP de
-audio_pronunciation.py (que usa el modelo wav2vec2 genérico "tal cual viene",
-sin entrenamiento propio), esto aprende directamente de tus datos, igual
-criterio que train_landmarks_transformer.py con los landmarks visuales.
-
-Por qué hace falta esto además del GOP: el GOP fuerza el audio contra los
-fonemas de la palabra esperada pase lo que pase, así que a veces no detecta
-que se dijo OTRA palabra (confirmado: "pedo" en vez de "perro" no siempre
-disparaba la alarma). Un clasificador entrenado con ejemplos reales de cada
-clase (correcto/incorrecto de cada tipo) aprende a distinguir eso de forma
-directa, en vez de depender de una alineación forzada.
-
-Pipeline:
-    1. Extrae un embedding (vector fijo de 1024 números, ver
-       audio_pronunciation.extract_embedding) por cada clip .wav de
-       data/sesiones_continuas/<clase>/clips/ -- se cachea en
-       data/audio_embeddings_cache/ para no recalcular en cada corrida.
-    2. Separa en train/val (80/20, estratificado por clase).
-    3. Entrena una red chica (Linear -> ReLU -> Dropout -> Linear) sobre los
-       embeddings -- no hace falta más, ya es una representación rica.
-    4. Reporta accuracy real de validación (sin inventar números).
-    5. Guarda models/audio_classifier.pth.
-
-Uso:
-    python train_audio_classifier.py
-"""
 import os
 import re
 import sys
@@ -57,15 +27,6 @@ EARLY_STOPPING_PATIENCE = 15
 
 
 def find_labeled_clips():
-    """{clase: [ruta.wav o ruta.npy, ...]} -- el cache de embeddings
-    (data/audio_embeddings_cache/, formato "<clase>_NNNN.npy") es la fuente
-    de verdad: ahí está TODO el dataset real ya extraído (miles de clips),
-    mientras que data/sesiones_continuas/ puede tener carpetas viejas o
-    incompletas (clips sueltos que quedaron sin archivar, carpetas de
-    pruebas de otras épocas del proyecto como "puerco") -- entrenar desde
-    ahí sin querer se comería solo esas sobras en vez del dataset completo.
-    Por eso el cache manda siempre que exista y tenga algo; sesiones_continuas
-    solo se usa como fallback si el cache no existe todavía."""
     if os.path.isdir(CACHE_DIR):
         por_clase = {}
         for f in sorted(os.listdir(CACHE_DIR)):
@@ -92,14 +53,6 @@ def find_labeled_clips():
 
 
 def build_embeddings(clips_por_clase, model, feature_extractor, device):
-    """Extrae (o lee de la caché) el embedding de cada clip. Devuelve
-    (X, y, class_names) -- X: (N, 1024) float32, y: (N,) int, class_names:
-    lista ordenada usada para mapear y -> nombre de clase.
-
-    Los items de clips_por_clase pueden ser rutas a .wav (caso normal) o
-    directo a un .npy ya cacheado (caso fallback sin sesiones_continuas,
-    ver find_labeled_clips) -- en ese caso se carga tal cual, sin necesitar
-    el modelo de wav2vec2."""
     os.makedirs(CACHE_DIR, exist_ok=True)
     class_names = sorted(clips_por_clase.keys())
     X, y = [], []
@@ -140,9 +93,6 @@ def stratified_split(y, val_fraction, seed):
 
 
 class AudioClassifierHead(nn.Module):
-    """Cabeza chica sobre el embedding congelado de wav2vec2 -- con ~200
-    clips en total y un embedding de 1024, una red más grande solo
-    sobreajustaría. Dropout + weight_decay como regularización principal."""
 
     def __init__(self, in_dim, hidden_dim, num_classes, dropout):
         super().__init__()
@@ -158,9 +108,6 @@ class AudioClassifierHead(nn.Module):
 
 
 class EarlyStopping:
-    """Corta el entrenamiento si val_loss deja de mejorar por `patience`
-    epocas seguidas -- mismo criterio que usa train_landmarks_transformer.py
-    para el modelo visual."""
 
     def __init__(self, patience=15, min_delta=0.001):
         self.patience = patience
@@ -246,8 +193,6 @@ def main():
     train_idx, val_idx = stratified_split(y, VAL_FRACTION, SEED)
     print(f"Train: {len(train_idx)} | Val: {len(val_idx)}")
 
-    # Normalización simple (media/desvío del set de train) -- ayuda a que la
-    # red chica converja más estable, nada exótico.
     mean = X[train_idx].mean(axis=0, keepdims=True)
     std = X[train_idx].std(axis=0, keepdims=True) + 1e-6
 

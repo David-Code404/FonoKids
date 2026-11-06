@@ -1,0 +1,368 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 2A · Extracción de video</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="on" href="02_extraccion_video.html">2A. Extracción de video</a><a class="" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 2A</div><h1>Extracción de video</h1><p class="sub">Del video a los 68 puntos de la cara. Los mismos pasos corren dos veces: al preparar el dataset y en vivo en el servidor.</p><div class="note">Esta página explica los pasos comunes (leer el video, detectar con HRNet, descartar saltos, rellenar, suavizar y agregar velocidad y aceleración). En la app, el último paso de normalización es el de <b>cara completa</b> con los ojos (ver la página 2C); la normalización de solo labios (20 puntos, 120 números) quedó desactivada.</div><div class="io"><div><small>Entra</small>Video con T frames</div><div><small>Sale</small>Entrenamiento: .npy de (T, 120) por clip · En vivo: tensor (1, 60, 120) y máscara (1, 60)</div></div><div class="chips"><span class="chip">Puntos de boca: <b>índices 48 a 67 (main:82)</b></span><span class="chip">Salto máximo: <b>0.15 (extraer:252 · main:168)</b></span><span class="chip">Suavizado alpha: <b>0.4 (extraer:294 · main:226)</b></span><span class="chip">Detector: <b>hrnet (extraer:14)</b></span><span class="chip">Lote de HRNet: <b>4 frames (main:83)</b></span><span class="chip">Ancho máximo: <b>640 (main:55)</b></span></div><h2>Recorrido (mismo en entrenamiento y en vivo)</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn ext"><div class="num">1</div><div><div class="head"><span class="name">Detector HRNet / FAN</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:178</span><span class="loc"><b>en vivo</b>server/main.py:89</span></div><pre class="sig">_build_hrnet_detector()  ·  build_hrnet_detector()</pre><p class="desc">Paquete face-alignment, modelo ya entrenado. Se crea una vez. En el servidor se carga al arrancar (línea 573).</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:59-60 · entrenamiento</summary><pre class="code">  178  def _build_hrnet_detector():
+  179      import face_alignment
+  180      import torch
+  181      import torch._dynamo
+  182  
+  183      torch._dynamo.config.suppress_errors = True
+  184  
+  185      device = &quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;
+  186      if device == &quot;cpu&quot;:
+  187          print(&quot;[AVISO] No hay GPU disponible -- HRNet/FAN en CPU va a ser MUY lento &quot;
+  188                &quot;(mucho más que MediaPipe en CPU). Se recomienda GPU para este backend.&quot;)
+  189  
+  190      detector = face_alignment.FaceAlignment(
+  191          face_alignment.LandmarksType.TWO_D, device=device, flip_input=False, compile=False,
+  192      )
+  193      print(f&quot;&gt;&gt;&gt; Detector HRNet/FAN corriendo en {device.upper()}. &lt;&lt;&lt;&quot;)
+  194      return detector</pre></details><details><summary>Ver código · server/main.py:57 · en vivo</summary><pre class="code">   57  AUDIO_MIN_CONFIDENCE = 0.60</pre></details></div></div><div class="down">↓</div><div class="fn ext"><div class="num">2</div><div><div class="head"><span class="name">Landmarks por frame</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:110</span><span class="loc"><b>en vivo</b>server/main.py:101</span></div><pre class="sig">detect_frame_landmarks(landmarker, frame_bgr, timestamp_ms, frame_ms=40)  ·  detect_landmarks_batch(detector, frames_bgr)</pre><p class="desc">Da 68 puntos (x, y) por frame, o None si no encuentra cara. En vivo procesa de a 4 frames.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:28-28 · entrenamiento</summary><pre class="code">  110  def detect_frame_landmarks(landmarker, frame_bgr, timestamp_ms, frame_ms=40):
+  111      if DETECTOR_BACKEND == &quot;hrnet&quot;:
+  112          return _detect_hrnet(landmarker, frame_bgr), timestamp_ms
+  113      return _detect_mediapipe(landmarker, frame_bgr, timestamp_ms, frame_ms)</pre></details><details><summary>Ver código · server/main.py:59-80 · en vivo</summary><pre class="code">   59  AUDIO_CONFIRMA_CON_GOP = 0.30
+   60  ACOUSTIC_MATCH_THRESHOLD = 0.80
+   61  VISUAL_MATCH_THRESHOLD = 0.75
+   62  
+   63  SUFIJO_CORRECTO = &quot;_correcto&quot;
+   64  MARCADOR_INCORRECTO = &quot;_incorrecto&quot;
+   65  
+   66  
+   67  def _parse_clase_predicha(nombre_clase):
+   68      if nombre_clase.endswith(SUFIJO_CORRECTO):
+   69          return nombre_clase[: -len(SUFIJO_CORRECTO)], True, None
+   70  
+   71      idx = nombre_clase.find(MARCADOR_INCORRECTO)
+   72      if idx != -1:
+   73          palabra = nombre_clase[:idx]
+   74          resto = nombre_clase[idx + len(MARCADOR_INCORRECTO):]
+   75          subtipo = resto[1:] if resto.startswith(&quot;_&quot;) else None
+   76          return palabra, False, subtipo or None
+   77  
+   78      return nombre_clase, None, None
+   79  
+   80  DEVICE = &quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">normalize_lip_landmarks</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:230</span><span class="loc"><b>en vivo</b>server/main.py:145</span></div><pre class="sig">def normalize_lip_landmarks(landmarks_px)</pre><p class="desc">Toma los 20 puntos de la boca. Centra en la boca, rota con las comisuras y escala por su ancho. Devuelve 40 números.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:84-94 · entrenamiento</summary><pre class="code">  230  def normalize_lip_landmarks(landmarks_px):
+  231      right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+  232      left_corner = landmarks_px[MOUTH_LEFT_CORNER]
+  233  
+  234      mouth_center = (right_corner + left_corner) / 2.0
+  235      mouth_vector = left_corner - right_corner
+  236      scale = np.linalg.norm(mouth_vector)
+  237      if scale &lt; 1e-3:
+  238          return None
+  239      angle = math.atan2(mouth_vector[1], mouth_vector[0])
+  240  
+  241      cos_a, sin_a = math.cos(-angle), math.sin(-angle)
+  242      rotation = np.array([[cos_a, -sin_a], [sin_a, cos_a]], dtype=np.float64)
+  243  
+  244      lip_pts = landmarks_px[LIP_INDICES].astype(np.float64)
+  245      translated = lip_pts - mouth_center
+  246      rotated = translated @ rotation.T
+  247      normalized = rotated / (scale + SCALE_EPSILON)
+  248  
+  249      return normalized.astype(np.float32).flatten()</pre></details><details><summary>Ver código · server/main.py:83-93 · en vivo</summary><pre class="code">   83  MOUTH_RIGHT_CORNER = 48
+   84  MOUTH_LEFT_CORNER = 54
+   85  SCALE_EPSILON = 1e-6
+   86  HRNET_BATCH_CHUNK_SIZE = 4
+   87  
+   88  
+   89  def build_hrnet_detector():
+   90      import face_alignment
+   91      import torch._dynamo
+   92  
+   93      torch._dynamo.config.suppress_errors = True</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">is_outlier</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:255</span><span class="loc"><b>en vivo</b>server/main.py:187</span></div><pre class="sig">def is_outlier(vector, last_valid_vector)</pre><p class="desc">Si algún valor salta más de 0.15 respecto al frame anterior, ese frame se trata como sin detección.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:99-100 · entrenamiento</summary><pre class="code">  255  def is_outlier(vector, last_valid_vector):
+  256      if last_valid_vector is None:
+  257          return False
+  258      return float(np.abs(vector - last_valid_vector).max()) &gt; OUTLIER_MAX_JUMP</pre></details><details><summary>Ver código · server/main.py:109 · en vivo</summary><pre class="code">  109      frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_bgr]</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">5</div><div><div class="head"><span class="name">fill_missing_frames</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:261</span><span class="loc"><b>en vivo</b>server/main.py:192</span></div><pre class="sig">def fill_missing_frames(positions)</pre><p class="desc">Rellena los frames sin cara: copia al inicio, interpolación lineal en el medio y copia al final.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:103-112 · entrenamiento</summary><pre class="code">  261  def fill_missing_frames(positions):
+  262      primeros_validos = [i for i, p in enumerate(positions) if p is not None]
+  263      if not primeros_validos:
+  264          return None
+  265  
+  266      primer_valido = primeros_validos[0]
+  267      ultimo_valido_idx = primeros_validos[-1]
+  268      relleno = list(positions)
+  269  
+  270      for i in range(primer_valido):
+  271          relleno[i] = relleno[primer_valido]
+  272  
+  273      i = primer_valido
+  274      while i &lt; ultimo_valido_idx:
+  275          if relleno[i + 1] is None:
+  276              j = i + 1
+  277              while relleno[j] is None:
+  278                  j += 1
+  279              inicio, fin = relleno[i], relleno[j]
+  280              pasos = j - i
+  281              for k in range(1, pasos):
+  282                  t = k / pasos
+  283                  relleno[i + k] = (1 - t) * inicio + t * fin
+  284              i = j
+  285          else:
+  286              i += 1
+  287  
+  288      for i in range(ultimo_valido_idx + 1, len(relleno)):
+  289          relleno[i] = relleno[ultimo_valido_idx]
+  290  
+  291      return np.stack(relleno, axis=0).astype(np.float32)</pre></details><details><summary>Ver código · server/main.py:113-141 · en vivo</summary><pre class="code">  113      try:
+  114          for start in range(0, len(frames_rgb), chunk_size):
+  115              chunk = frames_rgb[start:start + chunk_size]
+  116              batch = torch.stack([
+  117                  torch.from_numpy(np.ascontiguousarray(f)).permute(2, 0, 1) for f in chunk
+  118              ]).to(device)
+  119              try:
+  120                  chunk_faces = detector.face_detector.detect_from_batch(batch)
+  121              except torch.cuda.OutOfMemoryError:
+  122                  del batch
+  123                  print(f&quot;[AVISO] Sub-lote de {len(chunk)} frames sin memoria, reintentando de a un frame.&quot;)
+  124                  chunk_faces = []
+  125                  for frame in chunk:
+  126                      single = torch.from_numpy(np.ascontiguousarray(frame)).permute(2, 0, 1).unsqueeze(0).to(device)
+  127                      chunk_faces.extend(detector.face_detector.detect_from_batch(single))
+  128                      del single
+  129              detected_faces.extend(chunk_faces)
+  130              del batch
+  131      except Exception as e:
+  132          print(f&quot;[AVISO] Deteccion en batch fallo ({e}), usando frame por frame.&quot;)
+  133          detected_faces = None
+  134  
+  135      resultados = []
+  136      for i, frame_rgb in enumerate(frames_rgb):
+  137          if detected_faces is None:
+  138              preds = detector.get_landmarks_from_image(frame_rgb)
+  139          else:
+  140              faces = detected_faces[i] if i &lt; len(detected_faces) else []
+  141              if not len(faces):</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">6</div><div><div class="head"><span class="name">smooth_positions</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:297</span><span class="loc"><b>en vivo</b>server/main.py:229</span></div><pre class="sig">def smooth_positions(positions, alpha=SMOOTHING_ALPHA)</pre><p class="desc">Media móvil exponencial con alpha 0.4 para quitar el temblor.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:117-121 · entrenamiento</summary><pre class="code">  297  def smooth_positions(positions, alpha=SMOOTHING_ALPHA):
+  298      smoothed = np.empty_like(positions)
+  299      smoothed[0] = positions[0]
+  300      for t in range(1, positions.shape[0]):
+  301          smoothed[t] = alpha * positions[t] + (1 - alpha) * smoothed[t - 1]
+  302      return smoothed.astype(np.float32)</pre></details><details><summary>Ver código · server/main.py:149 · en vivo</summary><pre class="code">  149  def normalize_lip_landmarks(landmarks_px):</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">7</div><div><div class="head"><span class="name">add_dynamics</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:305</span><span class="loc"><b>en vivo</b>server/main.py:236</span></div><pre class="sig">def add_dynamics(positions)</pre><p class="desc">(T, 40) pasa a (T, 120): posición, velocidad y aceleración.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:125-130 · entrenamiento</summary><pre class="code">  305  def add_dynamics(positions):
+  306      velocity = np.zeros_like(positions)
+  307      velocity[1:] = positions[1:] - positions[:-1]
+  308  
+  309      acceleration = np.zeros_like(positions)
+  310      acceleration[1:] = velocity[1:] - velocity[:-1]
+  311  
+  312      return np.concatenate([positions, velocity, acceleration], axis=1).astype(np.float32)</pre></details><details><summary>Ver código · server/main.py:150-155 · en vivo</summary><pre class="code">  150      right_corner = landmarks_px[MOUTH_RIGHT_CORNER]
+  151      left_corner = landmarks_px[MOUTH_LEFT_CORNER]
+  152  
+  153      mouth_center = (right_corner + left_corner) / 2.0
+  154      mouth_vector = left_corner - right_corner
+  155      scale = np.linalg.norm(mouth_vector)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">8</div><div><div class="head"><span class="name">Cierre del recorrido</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>entrenamiento</b>scripts/extraer_landmarks_npy.py:315</span><span class="loc"><b>en vivo</b>server/main.py:549</span></div><pre class="sig">process_clip(landmarker, video_path, start_timestamp_ms)  ·  preprocess_sequence(positions, max_frames)</pre><p class="desc">Entrenamiento: process_clip hace todos los pasos sobre un clip. En vivo: preprocess_sequence suaviza, agrega dinámica, recorta del medio o rellena a 60 frames y arma la máscara.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:133-166 · entrenamiento</summary><pre class="code">  315  def process_clip(landmarker, video_path, start_timestamp_ms):
+  316      cap = cv2.VideoCapture(video_path)
+  317      fps = cap.get(cv2.CAP_PROP_FPS) or 25
+  318      frame_ms = max(int(1000 / fps), 1)
+  319  
+  320      positions = []
+  321      detected, total = 0, 0
+  322      last_valid_vector = None
+  323      timestamp_ms = start_timestamp_ms
+  324  
+  325      while True:
+  326          ok, frame = cap.read()
+  327          if not ok:
+  328              break
+  329          total += 1
+  330  
+  331          landmarks_px, timestamp_ms = detect_frame_landmarks(landmarker, frame, timestamp_ms, frame_ms)
+  332          vector = normalize_lip_landmarks(landmarks_px) if landmarks_px is not None else None
+  333  
+  334          if vector is not None and is_outlier(vector, last_valid_vector):
+  335              vector = None
+  336  
+  337          if vector is not None:
+  338              detected += 1
+  339              last_valid_vector = vector
+  340          positions.append(vector)
+  341  
+  342      cap.release()
+  343      next_timestamp_ms = timestamp_ms + frame_ms * 5
+  344  
+  345      filled = fill_missing_frames(positions)
+  346      if filled is None:
+  347          return None, detected, total, next_timestamp_ms
+  348  
+  349      smoothed = smooth_positions(filled)
+  350      sequence = add_dynamics(smoothed)
+  351      return sequence, detected, total, next_timestamp_ms</pre></details><details><summary>Ver código · server/main.py:444 · en vivo</summary><pre class="code">  444  @app.on_event(&quot;startup&quot;)</pre></details></div></div></div><h2>Solo entrenamiento (extraer_landmarks_npy.py)</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">main</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/extraer_landmarks_npy.py:406</span></div><pre class="sig">def main()</pre><p class="desc">Recorre las clases, procesa cada clip pendiente, guarda el .npy (línea 785) y actualiza label_map.json (línea 740).</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:406-466</summary><pre class="code">  709  def main():
+  710      words = find_words_to_process()
+  711      if not words:
+  712          print(f&quot;No hay ninguna palabra grabada en {RUTA_CLIPS}.&quot;)
+  713          return
+  714  
+  715      print(f&quot;Palabras a procesar ({len(words)}): {words}&quot;)
+  716      print(f&quot;Dimensión de salida por frame: {LANDMARK_DIM} &quot;
+  717            f&quot;(posición {POSITION_DIM} + velocidad {POSITION_DIM} + aceleración {POSITION_DIM})&quot;)
+  718      landmarker = build_landmarker()
+  719      label_map = {}
+  720      if os.path.exists(LABEL_MAP_PATH):
+  721          with open(LABEL_MAP_PATH, &quot;r&quot;, encoding=&quot;utf-8&quot;) as f:
+  722              label_map = json.load(f)
+  723  
+  724      timestamp_ms = 0
+  725      total_ok, total_fail = 0, 0
+  726  
+  727      for word in words:
+  728          clips_dir = os.path.join(RUTA_CLIPS, word, &quot;clips&quot;)
+  729          if not os.path.isdir(clips_dir):
+  730              print(f&quot;[{word}] no encontré {clips_dir}, se omite.&quot;)
+  731              continue
+  732          clip_paths = sorted(
+  733              os.path.join(clips_dir, f) for f in os.listdir(clips_dir) if f.endswith(&quot;.avi&quot;)
+  734          )
+  735          if not clip_paths:
+  736              print(f&quot;[{word}] sin clips, se omite.&quot;)
+  737              continue
+  738  
+  739          if word not in label_map:
+  740              label_map[word] = len(label_map)
+  741              os.makedirs(OUT_DIR, exist_ok=True)
+  742              with open(LABEL_MAP_PATH, &quot;w&quot;, encoding=&quot;utf-8&quot;) as f:
+  743                  json.dump(label_map, f, ensure_ascii=False, indent=2)
+  744  
+  745          out_dir = os.path.join(OUT_DIR, word)
+  746          os.makedirs(out_dir, exist_ok=True)
+  747  
+  748          # Salteamos clips que YA tienen su .npy (de una corrida anterior) --
+  749          # sin esto, cada vez que grabás más datos y volvés a correr este
+  750          # script, reprocesa TODOS los clips viejos de nuevo con HRNet (lento,
+  751          # minutos por clip cuando la GPU anda floja), no solo los nuevos.
+  752          pendientes = [
+  753              cp for cp in clip_paths
+  754              if not os.path.exists(os.path.join(out_dir, os.path.splitext(os.path.basename(cp))[0] + &quot;.npy&quot;))
+  755          ]
+  756          ya_hechos = len(clip_paths) - len(pendientes)
+  757          if ya_hechos:
+  758              print(f&quot;\n[{word}] {ya_hechos} clips ya tenían landmarks (se saltean), &quot;
+  759                    f&quot;{len(pendientes)} nuevos a procesar.&quot;)
+  760          else:
+  761              print(f&quot;\n[{word}] label {label_map[word]}. {len(pendientes)} clips a procesar.&quot;)
+  762  
+  763          for i, clip_path in enumerate(pendientes, 1):
+  764              sequence, detected, total, timestamp_ms = process_clip(landmarker, clip_path, timestamp_ms)
+  765  
+  766              if sequence is None:
+  767                  print(f&quot;  [{word} {i}/{len(pendientes)}] {os.path.basename(clip_path)}: &quot;
+  768                        f&quot;NINGÚN frame detectó cara ({total} frames) -- clip descartado.&quot;)
+  769                  total_fail += 1
+  770                  continue
+  771  
+  772              # Pedido explícito: no descartar NINGÚN clip que tenga al menos
+  773              # un frame con cara detectada -- el umbral del 60%
+  774              # (MIN_DETECTION_RATE_TRAIN) se probó y tiraba la gran mayoría
+  775              # del dataset ya grabado. Se guarda igual, avisando la tasa de
+  776              # detección real, y se rellena por bfill/ffill como siempre.
+  777              detection_rate = detected / total if total else 0
+  778              if detection_rate &lt; MIN_DETECTION_RATE_TRAIN:
+  ...  (recortado)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">find_words_to_process</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/extraer_landmarks_npy.py:397</span></div><pre class="sig">def find_words_to_process()</pre><p class="desc">Si le pasás una clase por argumento procesa solo esa; si no, procesa todas las carpetas.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:397-403</summary><pre class="code">  700  def find_words_to_process():
+  701      if len(sys.argv) &gt;= 2:
+  702          return [sys.argv[1].strip().lower()]
+  703      if not os.path.exists(RUTA_CLIPS):
+  704          return []
+  705      return sorted(d for d in os.listdir(RUTA_CLIPS)
+  706                    if os.path.isdir(os.path.join(RUTA_CLIPS, d)))</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">build_landmarker</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/extraer_landmarks_npy.py:52</span></div><pre class="sig">def build_landmarker()</pre><p class="desc">Elige el detector según DETECTOR_BACKEND (línea 82). Hoy es hrnet.</p><details><summary>Ver código · scripts/extraer_landmarks_npy.py:52-55</summary><pre class="code">  163  def build_landmarker():
+  164      &quot;&quot;&quot;Construye el detector según DETECTOR_BACKEND. Devuelve un objeto
+  165      opaco -- pasarlo tal cual a detect_frame_landmarks().&quot;&quot;&quot;
+  166      if DETECTOR_BACKEND == &quot;hrnet&quot;:
+  167          return _build_hrnet_detector()
+  168      return _build_mediapipe_landmarker()</pre></details></div></div></div><h2>Solo en vivo (validaciones del servidor)</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">Lectura de frames</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:987</span></div><pre class="sig">cap = cv2.VideoCapture(tmp_path)</pre><p class="desc">Lee el video y achica cada frame a un ancho máximo de 640 (MAX_FRAME_WIDTH, línea 84).</p><details><summary>Ver código · server/main.py:970-981</summary><pre class="code"> 1244      cap = cv2.VideoCapture(tmp_path)
+ 1245      if not cap.isOpened():
+ 1246          raise HTTPException(status_code=400, detail=&quot;No se pudo leer el video enviado.&quot;)
+ 1247  
+ 1248      frames = []
+ 1249      while True:
+ 1250          ok, frame = cap.read()
+ 1251          if not ok:
+ 1252              break
+ 1253          # La cámara del navegador graba en Full HD (1920x1080) -- HRNet no
+ 1254          # necesita esa resolución para encontrar la cara, se achica ACÁ,
+ 1255          # antes de meterla al pipeline, preservando el aspecto (igual que</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">Toma muy corta</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:1013</span><span class="loc"><b>constante</b>server/main.py:52</span></div><pre class="sig">if total &lt; MIN_FRAMES_VALID</pre><p class="desc">Con menos de 15 frames se rechaza la toma.</p><details><summary>Ver código · server/main.py:996-998</summary><pre class="code"> 1272      if total &lt; MIN_FRAMES_VALID:
+ 1273          return {
+ 1274              &quot;valid&quot;: False,
+ 1275              &quot;reason&quot;: f&quot;toma muy corta ({total} frames, minimo {MIN_FRAMES_VALID}) &quot;
+ 1276                        &quot;-- probablemente no se dijo la frase completa&quot;,
+ 1277          }
+ 1278  
+ 1279      landmarks_por_frame = detect_landmarks_batch(landmarker, frames)
+ 1280      print(f&quot;[predict] landmarks detectados ({time.time() - t_start:.1f}s)&quot;)
+ 1281  
+ 1282      positions = []
+ 1283      detected = 0</pre></details><details><summary>Ver código · server/main.py:26-31 · constante</summary><pre class="code">   26  from audio_pronunciation import (
+   27      EMBEDDING_DIM,
+   28      TARGET_SAMPLE_RATE,
+   29      extract_embedding,
+   30      load_audio_16k,
+   31      load_model as load_audio_model,</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">Cara no detectada</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">server/main.py:1027</span><span class="loc"><b>constante</b>server/main.py:53</span></div><pre class="sig">detection_rate &lt; MIN_DETECTION_RATE_VALID</pre><p class="desc">Si la cara se detecta en menos del 60% de los frames se rechaza la toma.</p><details><summary>Ver código · server/main.py:1010-1018</summary><pre class="code"> 1296      if filled is None or detection_rate &lt; MIN_DETECTION_RATE_VALID:
+ 1297          return {
+ 1298              &quot;valid&quot;: False,
+ 1299              &quot;reason&quot;: f&quot;cara detectada solo en {detected}/{total} frames &quot;
+ 1300                        f&quot;({detection_rate*100:.0f}%) -- encuadre malo, repetí la toma&quot;,
+ 1301          }
+ 1302  
+ 1303      sequence, mask = preprocess_sequence(filled, max_frames)
+ 1304      sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
+ 1305      with torch.inference_mode():
+ 1306          logits = model(sequence, src_key_padding_mask=mask)
+ 1307          probs = torch.softmax(logits, dim=1)[0]</pre></details><details><summary>Ver código · server/main.py:27-31 · constante</summary><pre class="code">   27      EMBEDDING_DIM,
+   28      TARGET_SAMPLE_RATE,
+   29      extract_embedding,
+   30      load_audio_16k,
+   31      load_model as load_audio_model,</pre></details></div></div></div><div class="note">get_mouth_crop (extraer_landmarks_npy.py:433) existe pero el modelo no lo usa: recibe solo las coordenadas de los 20 puntos, sin píxeles de imagen.</div><nav class="pn"><a href="index.html">← Inicio</a><a href="03_extraccion_audio.html">2B. Extracción de audio →</a></nav></main></body></html>

@@ -1,0 +1,216 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fase 2B · Extracción de audio</title><style>
+:root{--bg:#f6f5fb;--surface:#fff;--text:#1f1d2b;--muted:#6b6880;--border:#e2dff0;--accent:#6c5ce7;
+--mio:#0f6e56;--mio-bg:#e1f5ee;--ext:#534ab7;--ext-bg:#eeedfe;--cod:#5f5e5a;--cod-bg:#f1efe8;--code-bg:#f3f1fa}
+@media (prefers-color-scheme: dark){:root{--bg:#14121f;--surface:#1d1a2c;--text:#ece9f8;--muted:#a29cc0;--border:#322e48;
+--accent:#9d8bff;--mio:#9fe1cb;--mio-bg:#085041;--ext:#cecbf6;--ext-bg:#3c3489;--cod:#d3d1c7;--cod-bg:#444441;--code-bg:#262238}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:17px/1.55 "Segoe UI",system-ui,sans-serif}
+header.top{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;
+display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+header.top a{color:var(--muted);text-decoration:none;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--border)}
+header.top a:hover{color:var(--text)}
+header.top a.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+header.top .brand{font-weight:700;color:var(--accent);margin-right:8px;border:none;padding:0;font-size:16px}
+main{max-width:1000px;margin:0 auto;padding:28px 20px 60px}
+.eyebrow{color:var(--accent);font-weight:700;font-size:14px;letter-spacing:.04em;text-transform:uppercase}
+h1{font-size:34px;line-height:1.2;margin:4px 0 8px}
+.sub{color:var(--muted);font-size:18px;margin:0 0 22px;max-width:760px}
+.io{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
+.io div{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.io small{display:block;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 8px}
+.chip{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:14px}
+.chip b{color:var(--accent)}
+h2{font-size:22px;margin:34px 0 14px}
+.stack{display:flex;flex-direction:column;gap:0;margin:8px 0 6px}
+.layer{background:var(--surface);border:1px solid var(--border);border-left:5px solid var(--mio);border-radius:10px;
+padding:10px 16px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.layer .shape{font-family:Consolas,monospace;color:var(--muted);font-size:14px}
+.layer .ref{font-family:Consolas,monospace;font-size:13px;color:var(--ext)}
+.down{text-align:center;color:var(--muted);line-height:1.2;font-size:18px}
+.fn{display:grid;grid-template-columns:42px 1fr;gap:14px;background:var(--surface);border:1px solid var(--border);
+border-radius:14px;padding:16px 18px}
+.num{width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;background:var(--accent)}
+.fn.mio .num{background:#0f766e}.fn.ext .num{background:#534ab7}.fn.cod .num{background:#6b6880}
+.fn.mio{border-left:5px solid #0f766e}.fn.ext{border-left:5px solid #534ab7}.fn.cod{border-left:5px solid #a29cc0}
+.head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.name{font-weight:700;font-size:19px}
+.tag{font-size:12px;border-radius:999px;padding:2px 10px;font-weight:600}
+.tag.mio{background:var(--mio-bg);color:var(--mio)}.tag.ext{background:var(--ext-bg);color:var(--ext)}.tag.cod{background:var(--cod-bg);color:var(--cod)}
+.locs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+.loc{font-family:Consolas,monospace;font-size:13.5px;background:var(--code-bg);border-radius:8px;padding:3px 9px}
+.loc b{color:var(--accent);font-family:"Segoe UI",sans-serif;font-weight:600;margin-right:6px}
+pre.sig{margin:6px 0;background:var(--code-bg);border-radius:8px;padding:8px 12px;font:13.5px/1.45 Consolas,monospace;
+white-space:pre-wrap;word-break:break-word;color:var(--text)}
+.desc{margin:6px 0 0}
+.note{margin-top:30px;background:var(--surface);border:1px dashed var(--border);border-radius:12px;padding:14px 18px;color:var(--muted)}
+nav.pn{display:flex;justify-content:space-between;gap:10px;margin-top:40px}
+nav.pn a{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 18px;color:var(--text);text-decoration:none}
+nav.pn a:hover{border-color:var(--accent)}
+.legend{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 20px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+a.card{display:block;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 18px;color:var(--text);text-decoration:none}
+a.card:hover{border-color:var(--accent);transform:translateY(-2px)}
+a.card h3{margin:2px 0 6px;font-size:19px}
+a.card p{margin:0;color:var(--muted);font-size:15px}
+.flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 26px}
+.flow span.s{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 14px;font-weight:600}
+.flow span.a{color:var(--muted)}
+details{margin-top:8px}summary{cursor:pointer;color:var(--accent);font-size:14px;font-weight:600}pre.code{margin:6px 0;background:#15131f;color:#e8e6f5;border-radius:10px;padding:12px 14px;font:13px/1.5 Consolas,monospace;overflow:auto;max-height:480px}
+@media (max-width:640px){.io{grid-template-columns:1fr}h1{font-size:27px}.fn{grid-template-columns:34px 1fr}.num{width:34px;height:34px}}
+@media print{header.top,nav.pn{display:none}body{background:#fff;color:#000}}
+</style></head><body><header class="top"><a class="brand" href="index.html">FonoKids · pipeline</a><a class="" href="index.html">Inicio</a><a class="" href="02_extraccion_video.html">2A. Extracción de video</a><a class="on" href="03_extraccion_audio.html">2B. Extracción de audio</a><a class="" href="04_modelo_video.html">3A. Modelo de video</a><a class="" href="05_modelo_audio.html">3B. Modelo de audio</a><a class="" href="06_gop.html">3C. GOP (fonemas)</a><a class="" href="07_cara_completa.html">2C. Cara completa (modelo final)</a><a class="" href="08_donde_se_usan_los_modelos.html">4. Dónde se usan los modelos</a></header><main><div class="eyebrow">Fase 2B</div><h1>Extracción de audio</h1><p class="sub">Del WAV al embedding de 1024 números que alimenta al clasificador.</p><div class="io"><div><small>Entra</small>Audio WAV (cualquier frecuencia)</div><div><small>Sale</small>Vector de 1024 números, normalizado</div></div><div class="chips"><span class="chip">Modelo: <b>wav2vec2-xlsr-53-espeak-cv-ft (aud:45)</b></span><span class="chip">Frecuencia: <b>16000 Hz (aud:46)</b></span><span class="chip">Embedding: <b>1024 (aud:260)</b></span><span class="chip">Vocabulario: <b>392 fonemas</b></span></div><h2>Recorrido</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn ext"><div class="num">1</div><div><div class="head"><span class="name">load_model</span><span class="tag ext">Modelo externo ya entrenado</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:129</span><span class="loc"><b>en el servidor</b>server/main.py:513</span></div><pre class="sig">def load_model(device=None)</pre><p class="desc">Carga wav2vec2 (Wav2Vec2ForCTC, línea 230) con los pesos descargados a mano. Se carga una sola vez al arrancar.</p><details><summary>Ver código · scripts/audio_pronunciation.py:129-152</summary><pre class="code">  208  def load_model(device=None):
+  209      import json
+  210      from huggingface_hub import hf_hub_download
+  211      from transformers import Wav2Vec2Config, Wav2Vec2FeatureExtractor, Wav2Vec2ForCTC
+  212  
+  213      device = device or (&quot;cuda&quot; if torch.cuda.is_available() else &quot;cpu&quot;)
+  214      print(f&quot;Cargando {MODEL_NAME} (primera vez tarda, baja ~1.2GB)...&quot;)
+  215  
+  216      feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(MODEL_NAME)
+  217  
+  218      # OJO: a propósito NO se usa Wav2Vec2ForCTC.from_pretrained(MODEL_NAME)
+  219      # -- ese checkpoint solo existe en el repo como pytorch_model.bin (sin
+  220      # versión safetensors), y transformers &gt;=4.5x bloquea directamente
+  221      # cargar .bin con torch.load si torch &lt; 2.6 (CVE-2025-32434), aunque el
+  222      # torch instalado (2.5.1, el que usa el resto del proyecto para el
+  223      # pipeline visual con GPU) SÍ soporta torch.load(weights_only=True) de
+  224      # forma segura -- es transformers el que lo bloquea igual, no torch. En
+  225      # vez de forzar una actualización de torch que podría romper la
+  226      # compatibilidad de CUDA para el modelo visual, se arma el modelo desde
+  227      # su config y se cargan los pesos a mano, con weights_only=True (evita
+  228      # ejecutar código arbitrario del pickle, que es el riesgo real del CVE).
+  229      config = Wav2Vec2Config.from_pretrained(MODEL_NAME)
+  230      model = Wav2Vec2ForCTC(config)
+  231      weights_path = hf_hub_download(MODEL_NAME, &quot;pytorch_model.bin&quot;)
+  232      state_dict = torch.load(weights_path, map_location=&quot;cpu&quot;, weights_only=True)
+  233      model.load_state_dict(state_dict)
+  234      model.to(device)
+  235      model.eval()
+  236  
+  237      vocab_path = hf_hub_download(MODEL_NAME, &quot;vocab.json&quot;)
+  238      with open(vocab_path, encoding=&quot;utf-8&quot;) as f:
+  239          vocab = json.load(f)
+  240  
+  241      print(f&quot;Listo. Device: {device}. Vocabulario: {len(vocab)} fonemas.&quot;)
+  242      return model, feature_extractor, vocab, device</pre></details><details><summary>Ver código · server/main.py:418-425 · en el servidor</summary><pre class="code">  418      return idx &gt;= lengths.unsqueeze(1)
+  419  
+  420  
+  421  def safe_torch_load(path):
+  422      try:
+  423          return torch.load(path, weights_only=True)
+  424      except Exception:
+  425          return torch.load(path, weights_only=False)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">load_audio_16k</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:155</span></div><pre class="sig">def load_audio_16k(wav_path)</pre><p class="desc">Lee el WAV, lo pasa a mono y lo remuestrea a 16 kHz. Así absorbe la frecuencia del navegador.</p><details><summary>Ver código · scripts/audio_pronunciation.py:155-161</summary><pre class="code">  245  def load_audio_16k(wav_path):
+  246      &quot;&quot;&quot;Devuelve un tensor 1D float32 mono a 16kHz, sea cual sea el
+  247      sample rate/canales originales del .wav grabado.&quot;&quot;&quot;
+  248      waveform, sr = torchaudio.load(wav_path)
+  249      if waveform.shape[0] &gt; 1:
+  250          waveform = waveform.mean(dim=0, keepdim=True)  # a mono
+  251      if sr != TARGET_SAMPLE_RATE:
+  252          waveform = torchaudio.functional.resample(waveform, sr, TARGET_SAMPLE_RATE)
+  253      return waveform.squeeze(0)</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">3</div><div><div class="head"><span class="name">extract_embedding</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/audio_pronunciation.py:167</span></div><pre class="sig">def extract_embedding(wav_path, model, feature_extractor, device)</pre><p class="desc">Pasa el audio por el encoder de wav2vec2 (línea 278) y promedia en el tiempo (línea 279). Da un vector de 1024.</p><details><summary>Ver código · scripts/audio_pronunciation.py:167-173</summary><pre class="code">  263  def extract_embedding(wav_path, model, feature_extractor, device):
+  264      &quot;&quot;&quot;Vector fijo (EMBEDDING_DIM,) que resume el AUDIO completo del clip --
+  265      a diferencia de score_pronunciation() (que da un puntaje por fonema
+  266      esperado), esto es lo que usa el clasificador entrenado con datos reales
+  267      (train_audio_classifier.py) para decidir directamente &quot;correcto&quot; vs
+  268      cada tipo de error, igual que el modelo visual hace con landmarks.
+  269  
+  270      Es el promedio en el tiempo del último estado oculto del encoder wav2vec2
+  271      (antes de la cabeza CTC de fonemas) -- una representación acústica
+  272      general del clip, no atada a ninguna palabra esperada.&quot;&quot;&quot;
+  273      waveform = load_audio_16k(wav_path)
+  274      inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors=&quot;pt&quot;)
+  275      with torch.inference_mode():
+  276          # model.wav2vec2 es el encoder base (sin la cabeza de fonemas) --
+  277          # Wav2Vec2ForCTC lo expone como submódulo con ese nombre.
+  278          hidden = model.wav2vec2(inputs.input_values.to(device)).last_hidden_state  # (1, T, 1024)
+  279          pooled = hidden.mean(dim=1).squeeze(0)  # (1024,)
+  280      return pooled.cpu().numpy()</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">4</div><div><div class="head"><span class="name">Normalización</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc"><b>en vivo</b>server/main.py:902</span><span class="loc"><b>entrenamiento</b>scripts/train_audio_classifier.py:196</span></div><pre class="sig">emb_norm = (emb - audio_clf_mean) / audio_clf_std</pre><p class="desc">Resta la media y divide por el desvío calculados con el set de entrenamiento. Se guardan dentro del modelo.</p><details><summary>Ver código · server/main.py:738-743 · en vivo</summary><pre class="code">  738      cap = cv2.VideoCapture(clip_path)
+  739      if not cap.isOpened():
+  740          cap.release()
+  741          raise HTTPException(status_code=422, detail=&quot;No se pudo leer el clip de referencia.&quot;)
+  742      frames = []
+  743      while True:</pre></details><details><summary>Ver código · scripts/train_audio_classifier.py:143-154 · entrenamiento</summary><pre class="code">  196      mean = X[train_idx].mean(axis=0, keepdims=True)
+  197      std = X[train_idx].std(axis=0, keepdims=True) + 1e-6
+  198  
+  199      def to_tensor(idx):
+  200          xs = (X[idx] - mean) / std
+  201          return torch.from_numpy(xs).float().to(device), torch.from_numpy(y[idx]).long().to(device)
+  202  
+  203      x_train, y_train = to_tensor(train_idx)
+  204      x_val, y_val = to_tensor(val_idx)
+  205  
+  206      head = AudioClassifierHead(EMBEDDING_DIM, HIDDEN_DIM, len(class_names), DROPOUT).to(device)
+  207      optimizer = torch.optim.Adam(head.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)</pre></details></div></div></div><h2>Solo entrenamiento</h2><div style="display:flex;flex-direction:column;gap:8px"><div class="fn cod"><div class="num">1</div><div><div class="head"><span class="name">find_labeled_clips</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:29</span></div><pre class="sig">def find_labeled_clips()</pre><p class="desc">Junta los clips por clase. Si existe la caché de embeddings, manda la caché.</p><details><summary>Ver código · scripts/train_audio_classifier.py:29-52</summary><pre class="code">   59  def find_labeled_clips():
+   60      &quot;&quot;&quot;{clase: [ruta.wav o ruta.npy, ...]} -- el cache de embeddings
+   61      (data/audio_embeddings_cache/, formato &quot;&lt;clase&gt;_NNNN.npy&quot;) es la fuente
+   62      de verdad: ahí está TODO el dataset real ya extraído (miles de clips),
+   63      mientras que data/sesiones_continuas/ puede tener carpetas viejas o
+   64      incompletas (clips sueltos que quedaron sin archivar, carpetas de
+   65      pruebas de otras épocas del proyecto como &quot;puerco&quot;) -- entrenar desde
+   66      ahí sin querer se comería solo esas sobras en vez del dataset completo.
+   67      Por eso el cache manda siempre que exista y tenga algo; sesiones_continuas
+   68      solo se usa como fallback si el cache no existe todavía.&quot;&quot;&quot;
+   69      if os.path.isdir(CACHE_DIR):
+   70          por_clase = {}
+   71          for f in sorted(os.listdir(CACHE_DIR)):
+   72              if not f.endswith(&quot;.npy&quot;):
+   73                  continue
+   74              clase = re.sub(r&quot;_\d+$&quot;, &quot;&quot;, os.path.splitext(f)[0])
+   75              por_clase.setdefault(clase, []).append(os.path.join(CACHE_DIR, f))
+   76          if por_clase:
+   77              return por_clase
+   78  
+   79      clips_por_clase = {}
+   80      if os.path.isdir(SESSIONS_DIR):
+   81          for clase in sorted(os.listdir(SESSIONS_DIR)):
+   82              clips_dir = os.path.join(SESSIONS_DIR, clase, &quot;clips&quot;)
+   83              if not os.path.isdir(clips_dir):
+   84                  continue
+   85              wavs = sorted(
+   86                  os.path.join(clips_dir, f) for f in os.listdir(clips_dir) if f.lower().endswith(&quot;.wav&quot;)
+   87              )
+   88              if wavs:
+   89                  clips_por_clase[clase] = wavs
+   90  
+   91      return clips_por_clase</pre></details></div></div><div class="down">↓</div><div class="fn cod"><div class="num">2</div><div><div class="head"><span class="name">build_embeddings</span><span class="tag cod">Código / procedimiento</span></div><div class="locs"><span class="loc">scripts/train_audio_classifier.py:55</span><span class="loc"><b>caché</b>scripts/train_audio_classifier.py:69 a 119</span></div><pre class="sig">def build_embeddings(clips_por_clase, model, feature_extractor, device)</pre><p class="desc">Calcula el embedding de cada clip y lo guarda en data/audio_embeddings_cache/ para no recalcularlo.</p><details><summary>Ver código · scripts/train_audio_classifier.py:55-78</summary><pre class="code">   94  def build_embeddings(clips_por_clase, model, feature_extractor, device):
+   95      &quot;&quot;&quot;Extrae (o lee de la caché) el embedding de cada clip. Devuelve
+   96      (X, y, class_names) -- X: (N, 1024) float32, y: (N,) int, class_names:
+   97      lista ordenada usada para mapear y -&gt; nombre de clase.
+   98  
+   99      Los items de clips_por_clase pueden ser rutas a .wav (caso normal) o
+  100      directo a un .npy ya cacheado (caso fallback sin sesiones_continuas,
+  101      ver find_labeled_clips) -- en ese caso se carga tal cual, sin necesitar
+  102      el modelo de wav2vec2.&quot;&quot;&quot;
+  103      os.makedirs(CACHE_DIR, exist_ok=True)
+  104      class_names = sorted(clips_por_clase.keys())
+  105      X, y = [], []
+  106      total = sum(len(v) for v in clips_por_clase.values())
+  107      done = 0
+  108      for clase in class_names:
+  109          for item_path in clips_por_clase[clase]:
+  110              if item_path.lower().endswith(&quot;.npy&quot;):
+  111                  emb = np.load(item_path)
+  112              else:
+  113                  cache_name = os.path.splitext(os.path.basename(item_path))[0] + &quot;.npy&quot;
+  114                  cache_path = os.path.join(CACHE_DIR, cache_name)
+  115                  if os.path.exists(cache_path):
+  116                      emb = np.load(cache_path)
+  117                  else:
+  118                      emb = extract_embedding(item_path, model, feature_extractor, device)
+  119                      np.save(cache_path, emb)
+  120              X.append(emb)
+  121              y.append(class_names.index(clase))
+  122              done += 1
+  123              if done % 20 == 0 or done == total:
+  124                  print(f&quot;  embeddings: {done}/{total}&quot;)
+  125      return np.stack(X).astype(np.float32), np.array(y, dtype=np.int64), class_names</pre></details><details><summary>Ver código · scripts/train_audio_classifier.py:30-38 · caché</summary><pre class="code">   69                      emb = np.load(cache_path)
+   70                  else:
+   71                      emb = extract_embedding(item_path, model, feature_extractor, device)
+   72                      np.save(cache_path, emb)
+   73              X.append(emb)
+   74              y.append(class_names.index(clase))
+   75              done += 1
+   76              if done % 20 == 0 or done == total:
+   77                  print(f&quot;  embeddings: {done}/{total}&quot;)
+   78      return np.stack(X).astype(np.float32), np.array(y, dtype=np.int64), class_names</pre></details></div></div></div><nav class="pn"><a href="02_extraccion_video.html">← 2A. Extracción de video</a><a href="04_modelo_video.html">3A. Modelo de video →</a></nav></main></body></html>

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import { getServerUrl, ejercicioVoz } from "../api.js";
+import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { createAudioRecorder } from "../audioRecorder.js";
-import { EJERCICIOS, ETIQUETA_TIPO, HOLD_MS, REPETICIONES } from "../ejercicios.js";
+import {
+  EJERCICIOS, ETIQUETA_TIPO, GESTO_FIRME, HOLD_MS, REPETICIONES, SOPLO_FIRME,
+  esfuerzoPraxia, esfuerzoSoplo,
+} from "../ejercicios.js";
 import { mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
@@ -81,8 +85,8 @@ function PraxiaStage({ ejercicio, onBack }) {
   const calRef = useRef({ t0: 0, vals: [], n: 0 });
   const baseRef = useRef({ base: [], std: [] });
   const gestoRef = useRef({ t0: 0, vals: [] });
-  const persRef = useRef({ i: 0, base: 0, delta: 1 });
-  const holdRef = useRef({ inicio: null, necesitaSoltar: false, reps: 0 });
+  const persRef = useRef({ i: 0, base: 0, delta: 1, ganancia: 1 });
+  const holdRef = useRef({ inicio: null, necesitaSoltar: false, reps: 0, muestras: [], resumen: [] });
 
   const [fase, setFase] = useState("cargando"); // cargando | calibrando | gesto | haciendo | listo | sinsenal | error
   const [error, setError] = useState(null);
@@ -91,6 +95,7 @@ function PraxiaStage({ ejercicio, onBack }) {
   const [reps, setReps] = useState(0);
   const [hayCara, setHayCara] = useState(true);
   const [senal, setSenal] = useState(0); // 0..1: cuánto falta para que cuente el gesto
+  const [esfuerzo, setEsfuerzo] = useState(null); // estrellas de fuerza, aguante y repeticiones parejas
 
   function cambiarFase(f) {
     faseRef.current = f;
@@ -159,7 +164,7 @@ function PraxiaStage({ ejercicio, onBack }) {
         if (ganancia >= Math.max(3 * ruido, piso)) {
           const snr = ganancia / Math.max(ruido, 1e-4);
           if (!mejor || snr > mejor.snr) {
-            mejor = { i, base: base[i], delta: Math.max(0.5 * ganancia, piso), snr };
+            mejor = { i, base: base[i], delta: Math.max(0.5 * ganancia, piso), snr, ganancia };
           }
         }
       });
@@ -228,26 +233,36 @@ function PraxiaStage({ ejercicio, onBack }) {
       // fase "haciendo": señal del gesto con el umbral personal (1 = justo lo necesario)
       const pers = persRef.current;
       const senalActual = (valores[pers.i] - pers.base) / pers.delta;
+      // Intensidad respecto al MÁXIMO de esta persona (1 = lo más fuerte que hizo en el paso 2).
+      const relativa = Math.max(0, (valores[pers.i] - pers.base) / pers.ganancia);
       setSenal(Math.max(0, Math.min(senalActual, 1)));
 
       const h = holdRef.current;
       if (senalActual < 1) {
         h.inicio = null;
         h.necesitaSoltar = false;
+        h.muestras = [];
         setProgreso(0);
         return;
       }
       if (h.necesitaSoltar) return; // ya contó esta repetición: primero tiene que relajar la cara
       if (h.inicio === null) h.inicio = ahora;
+      h.muestras.push(relativa);
       const prog = Math.min((ahora - h.inicio) / HOLD_MS, 1);
       setProgreso(prog);
       if (prog >= 1) {
+        h.resumen.push({
+          fuerza: h.muestras.reduce((a, x) => a + x, 0) / h.muestras.length,
+          firme: h.muestras.filter((x) => x >= GESTO_FIRME).length / h.muestras.length,
+        });
+        h.muestras = [];
         h.reps += 1;
         h.inicio = null;
         h.necesitaSoltar = true;
         setReps(h.reps);
         setProgreso(0);
         if (h.reps >= REPETICIONES) {
+          setEsfuerzo(esfuerzoPraxia(h.resumen));
           cambiarFase("listo");
           darPremio();
         }
@@ -266,10 +281,11 @@ function PraxiaStage({ ejercicio, onBack }) {
   }, [ejercicio.id]);
 
   function repetir() {
-    holdRef.current = { inicio: null, necesitaSoltar: false, reps: 0 };
+    holdRef.current = { inicio: null, necesitaSoltar: false, reps: 0, muestras: [], resumen: [] };
     setReps(0);
     setProgreso(0);
     setSenal(0);
+    setEsfuerzo(null);
     reiniciarCalibracion();
     cambiarFase("calibrando");
   }
@@ -290,6 +306,7 @@ function PraxiaStage({ ejercicio, onBack }) {
           <>
             <div className="result-overlay-emoji" style={{ fontSize: 64 }}>🎉</div>
             <div className="repeat-hint">¡Muy bien! Completaste las {REPETICIONES} repeticiones.</div>
+            <EsfuerzoResumen esfuerzo={esfuerzo} />
             <button className="path-cta" onClick={repetir}>Otra vez 🔁</button>
             <button className="path-cta" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
               Elegir otro ejercicio
@@ -341,12 +358,13 @@ function SoploStage({ ejercicio, onBack }) {
   const ctxRef = useRef(null);
   const faseRef = useRef("cargando");
   const calRef = useRef({ t0: 0, maximo: 0, umbral: 0.05 });
-  const holdRef = useRef({ inicio: null, ultimoFuerte: 0 });
+  const holdRef = useRef({ inicio: null, ultimoFuerte: 0, suma: 0, n: 0, firmes: 0 });
 
   const [fase, setFase] = useState("cargando"); // cargando | calibrando | soplando | listo | error
   const [error, setError] = useState(null);
   const [progreso, setProgreso] = useState(0);
   const [nivel, setNivel] = useState(0);
+  const [esfuerzo, setEsfuerzo] = useState(null);
 
   const SOPLO_MS = 2500;
 
@@ -405,9 +423,16 @@ function SoploStage({ ejercicio, onBack }) {
           } else if (h.inicio !== null && ahora - h.ultimoFuerte > 400) {
             h.inicio = null; // dejó de soplar más de 0,4 s: empieza de nuevo
           }
+          if (h.inicio === null) {
+            h.suma = 0; h.n = 0; h.firmes = 0;
+          } else {
+            h.suma += rms; h.n += 1;
+            if (rms >= calRef.current.umbral * SOPLO_FIRME) h.firmes += 1;
+          }
           const prog = h.inicio === null ? 0 : Math.min((ahora - h.inicio) / SOPLO_MS, 1);
           setProgreso(prog);
           if (prog >= 1) {
+            setEsfuerzo(esfuerzoSoplo(h.suma / h.n, calRef.current.umbral, h.firmes / h.n));
             cambiarFase("listo");
             darPremio();
           }
@@ -435,8 +460,9 @@ function SoploStage({ ejercicio, onBack }) {
   }, [ejercicio.id]);
 
   function repetir() {
-    holdRef.current = { inicio: null, ultimoFuerte: 0 };
+    holdRef.current = { inicio: null, ultimoFuerte: 0, suma: 0, n: 0, firmes: 0 };
     setProgreso(0);
+    setEsfuerzo(null);
     calRef.current = { ...calRef.current, t0: performance.now(), maximo: 0 };
     cambiarFase("calibrando");
   }
@@ -451,6 +477,7 @@ function SoploStage({ ejercicio, onBack }) {
           <>
             <div className="result-overlay-emoji" style={{ fontSize: 64 }}>🎉</div>
             <div className="repeat-hint">¡Apagaste la vela! 💨</div>
+            <EsfuerzoResumen esfuerzo={esfuerzo} />
             <button className="path-cta" onClick={repetir}>Otra vez 🔁</button>
             <button className="path-cta" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
               Elegir otro ejercicio
@@ -484,6 +511,7 @@ function VozStage({ ejercicio, onBack }) {
   const [grabando, setGrabando] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  const [esfuerzo, setEsfuerzo] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -519,6 +547,7 @@ function VozStage({ ejercicio, onBack }) {
     setGrabando(false);
     const blob = recorderRef.current.stop();
     if (!blob) return;
+    setEsfuerzo(recorderRef.current.esfuerzo());
     setProcesando(true);
     try {
       const r = await ejercicioVoz(getServerUrl(), blob, ejercicio.texto, ejercicio.modo);
@@ -582,6 +611,7 @@ function VozStage({ ejercicio, onBack }) {
                       ? `¡Casi! Fíjate en «${resultado.palabras_flojas.join("», «")}» y dilo otra vez`
                       : "¡Casi! Dilo otra vez, despacito y claro"))}
               </span>
+              <EsfuerzoResumen esfuerzo={esfuerzo} />
               {ejercicio.modo === "ritmo" && (
                 <span className="result-overlay-tip-text">
                   Ritmo: {resultado.silabas_por_segundo} sílabas por segundo
