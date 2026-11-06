@@ -48,7 +48,7 @@ function aggregate(recordings) {
 /// Palabras objetivo agrupadas (progreso de pronunciación por palabra: cuántas
 /// veces se dijo bien/mal, quién y cuándo) -- igual que phrases_screen.dart
 /// (PhrasesScreen), reconvertido a seguimiento de pronunciación.
-export default function PhrasesScreen() {
+export default function PhrasesScreen({ active = true }) {
   const [recordings, setRecordings] = useState(null);
   const [usingMock, setUsingMock] = useState(false);
   const [query, setQuery] = useState("");
@@ -80,6 +80,13 @@ export default function PhrasesScreen() {
     load();
   }, []);
 
+  // Mismo motivo que ErrorsScreen.jsx: las pestañas nunca se desmontan, así
+  // que sin esto "Logros" se quedaba con los datos de cuando se abrió la
+  // app y no se enteraba de intentos nuevos hasta refrescar a mano.
+  useEffect(() => {
+    if (active) load();
+  }, [active]);
+
   const filtered = useMemo(() => {
     if (!recordings) return [];
     const all = aggregate(recordings);
@@ -94,7 +101,7 @@ export default function PhrasesScreen() {
 
   return (
     <AppBackground>
-      <ScreenHeader title="Logros" subtitle="Tus estrellas por palabra" icon="🏆" />
+      <ScreenHeader title="Logros" subtitle="Tus estrellas por palabra" icon="🏆" onAction={load} />
 
       <div className="phrases-toolbar">
         <div className="search-field">
@@ -186,7 +193,6 @@ function PhraseCard({ agg, color, onOpen }) {
           ✅ {agg.correctCount} · 🔁 {agg.incorrectCount}
         </div>
         <div className="phrase-card-spacer" />
-        <div className="phrase-card-last">🕓 Última vez: {agg.lastDate}</div>
         <PeopleRow people={agg.people} />
       </AppCard>
     </div>
@@ -229,7 +235,7 @@ function PhraseDetailDialog({ agg, onClose }) {
         </div>
         <div className="phrase-detail-sub">
           Practicada {agg.count} {agg.count === 1 ? "vez" : "veces"} -- {agg.correctCount} bien dichas,{" "}
-          {agg.incorrectCount} para seguir practicando -- última el {agg.lastDate}.
+          {agg.incorrectCount} para seguir practicando.
         </div>
         <SectionLabel>Personas</SectionLabel>
         <div className="phrase-detail-people">

@@ -57,14 +57,25 @@ EARLY_STOPPING_PATIENCE = 15
 
 
 def find_labeled_clips():
-    """{clase: [ruta.wav, ...]} para cada carpeta <palabra>_correcto o
-    <palabra>_incorrecto[_subtipo] que tenga clips con audio.
+    """{clase: [ruta.wav o ruta.npy, ...]} -- el cache de embeddings
+    (data/audio_embeddings_cache/, formato "<clase>_NNNN.npy") es la fuente
+    de verdad: ahí está TODO el dataset real ya extraído (miles de clips),
+    mientras que data/sesiones_continuas/ puede tener carpetas viejas o
+    incompletas (clips sueltos que quedaron sin archivar, carpetas de
+    pruebas de otras épocas del proyecto como "puerco") -- entrenar desde
+    ahí sin querer se comería solo esas sobras en vez del dataset completo.
+    Por eso el cache manda siempre que exista y tenga algo; sesiones_continuas
+    solo se usa como fallback si el cache no existe todavía."""
+    if os.path.isdir(CACHE_DIR):
+        por_clase = {}
+        for f in sorted(os.listdir(CACHE_DIR)):
+            if not f.endswith(".npy"):
+                continue
+            clase = re.sub(r"_\d+$", "", os.path.splitext(f)[0])
+            por_clase.setdefault(clase, []).append(os.path.join(CACHE_DIR, f))
+        if por_clase:
+            return por_clase
 
-    Fallback: si no existe data/sesiones_continuas (ej. se bajaron a esta PC
-    solo los embeddings ya calculados en Colab, sin los .wav originales),
-    reconstruye las clases a partir de los nombres de archivo ya cacheados
-    en data/audio_embeddings_cache/ (formato "<clase>_NNNN.npy") -- en ese
-    caso se entrena directo desde el cache, sin necesitar los .wav."""
     clips_por_clase = {}
     if os.path.isdir(SESSIONS_DIR):
         for clase in sorted(os.listdir(SESSIONS_DIR)):
@@ -76,19 +87,6 @@ def find_labeled_clips():
             )
             if wavs:
                 clips_por_clase[clase] = wavs
-        if clips_por_clase:
-            return clips_por_clase
-
-    if os.path.isdir(CACHE_DIR):
-        print(f"[AVISO] No encontré {SESSIONS_DIR} -- entrenando directo desde "
-              f"los embeddings ya cacheados en {CACHE_DIR}.")
-        por_clase = {}
-        for f in sorted(os.listdir(CACHE_DIR)):
-            if not f.endswith(".npy"):
-                continue
-            clase = re.sub(r"_\d+$", "", os.path.splitext(f)[0])
-            por_clase.setdefault(clase, []).append(os.path.join(CACHE_DIR, f))
-        return por_clase
 
     return clips_por_clase
 
