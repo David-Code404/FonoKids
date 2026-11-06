@@ -432,3 +432,68 @@
     font-size: 18px;
   }
 }
+
+/* Rachas y estrellas (ver rachas.js) */
+.racha-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: 820px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 14px 28px 0;
+}
+
+.racha-chip {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 2px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.racha-hint {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.premio-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: 92vw;
+  text-align: center;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: var(--hero-gradient, linear-gradient(135deg, #8c6bff, #2ecc8f));
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.15), 0 10px 22px rgba(0, 0, 0, 0.2);
+  animation: premio-in 0.35s ease;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+}
+
+.premio-toast-out {
+  opacity: 0;
+}
+
+@keyframes premio-in {
+  from { opacity: 0; transform: translate(-50%, -16px) scale(0.9); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+@media (max-width: 480px) {
+  .racha-bar {
+    padding: 12px 16px 0;
+  }
+}

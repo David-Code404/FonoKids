@@ -1,7 +1,7 @@
 """
 db.py
 -----
-Persistencia en MySQL (XAMPP, base "speakshadow", tabla "practice_attempts")
+Persistencia en MySQL (XAMPP, base "fonokids", tabla "practice_attempts")
 de cada intento de práctica con confianza suficiente -- pedido explícito:
 que Logros y Para practicar no dependan solo de los archivos en
 data/sesiones_continuas/ (que se pueden perder o moverse, como ya pasó una
@@ -23,7 +23,7 @@ DB_HOST = os.environ.get("FONOKIDS_DB_HOST", "127.0.0.1")
 DB_PORT = int(os.environ.get("FONOKIDS_DB_PORT", "3306"))
 DB_USER = os.environ.get("FONOKIDS_DB_USER", "root")
 DB_PASSWORD = os.environ.get("FONOKIDS_DB_PASSWORD", "")
-DB_NAME = os.environ.get("FONOKIDS_DB_NAME", "speakshadow")
+DB_NAME = os.environ.get("FONOKIDS_DB_NAME", "fonokids")
 
 _pool = None
 

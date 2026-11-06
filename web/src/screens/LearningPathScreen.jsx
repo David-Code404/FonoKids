@@ -7,6 +7,7 @@ import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
 import { createAudioRecorder } from "../audioRecorder.js";
 import { tipoErrorInfo } from "../errorTips.js";
 import { getFallosSeguidos, registrarIntento, resetFallos, UMBRAL_DESCANSO } from "../practiceStats.js";
+import { getEstado, mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
 import { getDiagnosticoGuardado } from "./DiagnosticoScreen.jsx";
 import HomeScreen from "./HomeScreen.jsx";
 import "./LearningPathScreen.css";
@@ -120,6 +121,9 @@ export default function LearningPathScreen() {
   // A dónde ir después de la pausa de "descanso" (dificultad que se ajusta
   // sola, ver chooseMode) -- "practicar" o "practicar_frase".
   const [pendingView, setPendingView] = useState(null);
+  // Fuerza re-render de las estrellas/racha después de cada intento (viven
+  // en localStorage, no en estado de React).
+  const [, setRachaTick] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedWord, setSelectedWord] = useState(null);
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
@@ -289,9 +293,18 @@ export default function LearningPathScreen() {
   // FrasePracticeStage (frase completa), ambos terminan en el mismo
   // contador de fallos seguidos por familia.
   function registrarResultadoPaso(correcta) {
+    // Un resultado "no concluyente" llega con correcta null -- no es ni
+    // acierto ni fallo, así que no cuenta para fallos seguidos, estrellas
+    // ni racha.
+    if (correcta !== true && correcta !== false) return;
+
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
     const step = steps[selectedStepIdx];
     registrarIntento(familyForStep(selectedWord, step.key), correcta);
+
+    const premio = textoPremio(registrarIntentoValido(correcta));
+    if (premio) mostrarPremio(premio);
+    setRachaTick((t) => t + 1);
   }
 
   if (modeChoicePending && selectedWord) {
@@ -512,6 +525,8 @@ export default function LearningPathScreen() {
   }
   paraRepasar.sort((a, b) => b.dias - a.dias);
 
+  const estadoRacha = getEstado();
+
   return (
     <div className="path-screen">
       <div className="path-header">
@@ -519,6 +534,20 @@ export default function LearningPathScreen() {
         <span className="path-progress-pill">
           🏆 {unlockedWords.length}/{ALL_WORDS.length} etapas
         </span>
+      </div>
+
+      <div className="racha-bar">
+        <span className="racha-chip" title="Días seguidos practicando">
+          🔥 {estadoRacha.racha} {estadoRacha.racha === 1 ? "día" : "días"}
+        </span>
+        <span className="racha-chip" title="Una estrella por cada palabra bien dicha">
+          ⭐ {estadoRacha.estrellas}
+        </span>
+        {!estadoRacha.practicoHoy && (
+          <span className="racha-hint">
+            {estadoRacha.racha > 0 ? "¡Practicá hoy para no perder tu racha!" : "¡Practicá hoy para empezar tu racha!"}
+          </span>
+        )}
       </div>
 
       {paraRepasar.length > 0 && (

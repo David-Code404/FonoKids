@@ -221,7 +221,7 @@ bash server/watchdog.sh   # lo mata y fuerza reinicio si deja de responder
 
 **2. Base de datos (opcional)**
 
-Si hay un MySQL corriendo en `127.0.0.1:3306` con una base `speakshadow`,
+Si hay un MySQL corriendo en `127.0.0.1:3306` con una base `fonokids`,
 el historial de Logros/Para practicar queda persistido ahí. Sin MySQL, la
 app funciona igual — solo que el historial no sobrevive a un reinicio del
 server más allá de lo que haya en disco.
