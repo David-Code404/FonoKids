@@ -8,7 +8,7 @@ export const FRASES_POR_PALABRA = {
   torre: "La torre es muy alta",
   burro: "El burro come pasto",
   gorra: "Me puse la gorra azul",
-  sandia: "La sandía es dulce y roja",
+  sandia: "La sandía es dulce",
   sapo: "El sapo salta en el charco",
   sopa: "Me gusta comer sopa caliente",
   serpiente: "La serpiente se mueve despacio",
