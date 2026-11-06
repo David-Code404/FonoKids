@@ -1,16 +1,3 @@
-"""
-db.py
------
-Persistencia en MySQL (XAMPP, base "fonokids", tabla "practice_attempts")
-de cada intento de práctica con confianza suficiente -- pedido explícito:
-que Logros y Para practicar no dependan solo de los archivos en
-data/sesiones_continuas/ (que se pueden perder o moverse, como ya pasó una
-vez en esta PC), sino que queden guardados en una base de datos aparte.
-
-Nunca tira si la base no está disponible (XAMPP apagado, etc.) -- la app
-sigue funcionando igual, solo sin persistencia extra, mismo criterio que el
-resto del proyecto (todo lo "extra" se degrada con gracia).
-"""
 import os
 
 try:
@@ -48,8 +35,6 @@ def _get_pool():
 
 
 def init_db():
-    """Crea la tabla si todavía no existe -- se llama una vez al arrancar el
-    servidor. No rompe el arranque si MySQL no está disponible."""
     pool = _get_pool()
     if pool is None:
         return
@@ -81,8 +66,6 @@ def init_db():
 
 
 def save_attempt(class_name, palabra, correcta, tipo_error, prob, persona="web"):
-    """Guarda un intento con confianza suficiente. Nunca tira -- si falla,
-    solo avisa por consola y la predicción sigue devolviéndose normal."""
     pool = _get_pool()
     if pool is None:
         return
@@ -102,10 +85,6 @@ def save_attempt(class_name, palabra, correcta, tipo_error, prob, persona="web")
 
 
 def save_attempt_at(class_name, palabra, correcta, tipo_error, prob, created_at_ts, persona="web"):
-    """Igual que save_attempt(), pero con una fecha/hora explícita (timestamp
-    Unix) en vez de CURRENT_TIMESTAMP -- solo para la migración única de
-    datos viejos (ver migrate_recordings_to_db.py), que reconstruye el
-    historial usando la fecha real de cada archivo."""
     import datetime
 
     pool = _get_pool()
@@ -128,9 +107,6 @@ def save_attempt_at(class_name, palabra, correcta, tipo_error, prob, created_at_
 
 
 def get_recordings_grouped():
-    """Devuelve la práctica agrupada por (fecha, clase, persona), mismo
-    formato que devolvía /dataset/recordings leyendo el filesystem -- para
-    que el frontend (Logros, Para practicar) no necesite cambiar nada."""
     pool = _get_pool()
     if pool is None:
         return None

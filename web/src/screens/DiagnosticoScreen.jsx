@@ -24,6 +24,20 @@ const PALABRAS_DIAGNOSTICO = SOUND_CATEGORIES.map((cat) => ({
 
 const STORAGE_RESULT_KEY = "fonokids_diagnostico";
 const STORAGE_DONE_KEY = "fonokids_diagnostico_done";
+// Resultado por PALABRA del diagnóstico: { palabra: { sabe: true/false, t: ms } }.
+// Se guarda apenas termina cada prueba (no solo al final) y no depende de la
+// base de datos -- así Aprender muestra "Para practicar" en lo que salió mal
+// aunque MySQL esté apagado.
+const STORAGE_PALABRAS_KEY = "fonokids_diagnostico_palabras";
+
+export function getDiagnosticoPalabras() {
+  try {
+    const raw = localStorage.getItem(STORAGE_PALABRAS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
 
 export function getDiagnosticoGuardado() {
   try {
@@ -137,6 +151,20 @@ export default function DiagnosticoScreen({ onFinish }) {
     clearTimeout(timerAvance.current);
     const nuevos = [...resultados, { categoria: actual.categoria, word: actual.word, sabe: saltada ? false : sabe, saltada }];
     setCamResultado(null);
+    if (!saltada) {
+      // Se guarda YA, prueba por prueba: si cierra o recarga a la mitad no se
+      // pierde lo que ya dijo.
+      try {
+        const palabras = getDiagnosticoPalabras();
+        palabras[actual.word] = { sabe, t: Date.now() };
+        localStorage.setItem(STORAGE_PALABRAS_KEY, JSON.stringify(palabras));
+        const porCategoria = getDiagnosticoGuardado() || {};
+        porCategoria[actual.categoria] = sabe;
+        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(porCategoria));
+      } catch {
+        // sin persistencia, el resumen final se muestra igual
+      }
+    }
     if (idx + 1 < PALABRAS_DIAGNOSTICO.length) {
       setResultados(nuevos);
       setIdx(idx + 1);
@@ -217,11 +245,12 @@ export default function DiagnosticoScreen({ onFinish }) {
           onResult={(result) => {
             if (result.valid && (result.correcta === true || result.correcta === false)) {
               setCamResultado(result.correcta);
-              // Si lo dijo bien, pasa solo a la siguiente prueba.
+              // Igual que en voz: salga bien O mal, pasa solo a la siguiente
+              // prueba (la categoría queda como "sabe" o "para practicar" en
+              // el resumen final). Un resultado no concluyente no cuenta.
               clearTimeout(timerAvance.current);
-              if (result.correcta === true) {
-                timerAvance.current = setTimeout(() => avanzar(true), 2000);
-              }
+              const sabe = result.correcta;
+              timerAvance.current = setTimeout(() => avanzar(sabe), 2000);
             }
           }}
         />

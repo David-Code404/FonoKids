@@ -4,6 +4,8 @@
 // no el webm/opus que da MediaRecorder por defecto -- por eso se arma el
 // header RIFF/WAVE a mano en vez de usar MediaRecorder para el audio.
 
+import { esfuerzoVoz } from "./ejercicios.js";
+
 function encodeWav(chunks, sampleRate) {
   let totalLength = 0;
   for (const c of chunks) totalLength += c.length;
@@ -48,6 +50,7 @@ export function createAudioRecorder() {
   let source = null;
   let processor = null;
   let chunks = [];
+  let ultimoEsfuerzo = null;
 
   function start(stream) {
     const audioTrack = stream?.getAudioTracks?.()[0];
@@ -85,9 +88,16 @@ export function createAudioRecorder() {
     source = null;
     processor = null;
     chunks = [];
+    ultimoEsfuerzo = esfuerzoVoz(finalChunks);
     if (finalChunks.length === 0) return null;
     return encodeWav(finalChunks, sampleRate);
   }
 
-  return { start, stop };
+  /// Estimación de qué tan fuerte y clara se oyó la voz en la última grabación
+  /// (o null si fue muy corta); ver esfuerzoVoz en ejercicios.js.
+  function esfuerzo() {
+    return ultimoEsfuerzo;
+  }
+
+  return { start, stop, esfuerzo };
 }

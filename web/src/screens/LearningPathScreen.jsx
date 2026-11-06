@@ -5,10 +5,11 @@ import { SOUND_CATEGORIES } from "../soundCategories.js";
 import { speakWord, playWordReference } from "../speak.js";
 import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
 import { createAudioRecorder } from "../audioRecorder.js";
+import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { tipoErrorInfo } from "../errorTips.js";
 import { getFallosSeguidos, registrarIntento, resetFallos, UMBRAL_DESCANSO } from "../practiceStats.js";
 import { getEstado, mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
-import { getDiagnosticoGuardado } from "./DiagnosticoScreen.jsx";
+import { getDiagnosticoGuardado, getDiagnosticoPalabras } from "./DiagnosticoScreen.jsx";
 import HomeScreen from "./HomeScreen.jsx";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
@@ -154,6 +155,11 @@ export default function LearningPathScreen() {
   // Avance automatico: al decir algo bien, a los ~2 segundos (para que el
   // chico alcance a ver el festejo) pasa solo a lo que sigue.
   const timerAvance = useRef(null);
+  // Practica con camara del paso final: 2 pasos en la misma pantalla --
+  // 1) la palabra con camara + voz (la califica el modelo de video) y
+  // 2) la frase completa con voz (la califica el modelo de audio). El
+  // modelo de video solo conoce palabras sueltas, por eso la frase va aparte.
+  const [faseCam, setFaseCam] = useState({ word: null, idx: -1, fase: "palabra" });
 
   // Pedido explícito: que Aprender también muestre lo que el chico NO sabe,
   // actualizado por cada sesión de práctica que hace -- no solo el
@@ -226,7 +232,17 @@ export default function LearningPathScreen() {
   // todavía no hay ningún intento de esa palabra.
   function estadoPalabra(word) {
     const fila = recordings.find((r) => r.word === word);
-    return fila ? fila.correcta : undefined;
+    // Lo que salió en el diagnóstico (se guarda por palabra en el navegador,
+    // sirve aunque la base de datos esté apagada). Gana lo MÁS RECIENTE entre
+    // el diagnóstico y el último intento guardado.
+    const diag = getDiagnosticoPalabras()[word];
+    if (fila && diag) {
+      const tFila = new Date(`${fila.date}T${fila.time || "00:00"}`).getTime();
+      return diag.t > tFila ? diag.sabe : fila.correcta;
+    }
+    if (fila) return fila.correcta;
+    if (diag) return diag.sabe;
+    return undefined;
   }
 
   // Estado de una categoría entera: prioriza la sesión más reciente de
@@ -427,7 +443,7 @@ export default function LearningPathScreen() {
   // llamado tanto desde HomeScreen (cámara/voz, palabra sola) como desde
   // FrasePracticeStage (frase completa), ambos terminan en el mismo
   // contador de fallos seguidos por familia.
-  function registrarResultadoPaso(correcta) {
+  function registrarResultadoPaso(correcta, avanzar = true) {
     // Un resultado "no concluyente" llega con correcta null -- no es ni
     // acierto ni fallo, así que no cuenta para fallos seguidos, estrellas
     // ni racha.
@@ -444,7 +460,7 @@ export default function LearningPathScreen() {
     if (premio) mostrarPremio(premio);
     setRachaTick((t) => t + 1);
 
-    if (correcta === true) programarAvance(irASiguiente);
+    if (correcta === true && avanzar) programarAvance(irASiguiente);
   }
 
   if (modeChoicePending && selectedWord) {
@@ -552,7 +568,28 @@ export default function LearningPathScreen() {
   if (view === "practicar" && selectedWord) {
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
     const step = steps[selectedStepIdx];
-    return (
+    // Con camara, el paso final de cada palabra tiene 2 pasos: palabra y frase.
+    const dosPasos = step.key === "completa" && !audioOnlyChosen;
+    const faseCamara = faseCam.word === selectedWord && faseCam.idx === selectedStepIdx ? faseCam.fase : "palabra";
+
+    if (dosPasos && faseCamara === "frase") {
+      return (
+        <div className="prueba-wrap">
+          <div className="prueba-banner">
+            <span>✅ Palabra lista. Paso 2 de 2: decí la frase completa con la voz.</span>
+          </div>
+          <FrasePracticeStage
+            key={`cam-frase-${selectedWord}`}
+            word={selectedWord}
+            category={selectedCategory}
+            onBack={volverDePractica}
+            onResultado={registrarResultadoPaso}
+          />
+        </div>
+      );
+    }
+
+    const pantalla = (
       <HomeScreen
         key={familyForStep(selectedWord, step.key)}
         initialWord={familyForStep(selectedWord, step.key)}
@@ -560,8 +597,31 @@ export default function LearningPathScreen() {
         promptIcon={selectedWord}
         onBack={volverDePractica}
         forceAudioOnly={audioOnlyChosen}
-        onResult={(result) => { if (result.valid) registrarResultadoPaso(result.correcta); }}
+        onResult={(result) => {
+          if (!result.valid) return;
+          if (!dosPasos) {
+            registrarResultadoPaso(result.correcta);
+            return;
+          }
+          // Paso 1 de 2: si falla cuenta como fallo; si sale bien, pasa solo a
+          // la frase (la estrella se da con la frase, no se duplica).
+          if (result.correcta === false) registrarResultadoPaso(false, false);
+          if (result.correcta === true) {
+            const w = selectedWord;
+            const idx = selectedStepIdx;
+            programarAvance(() => setFaseCam({ word: w, idx, fase: "frase" }));
+          }
+        }}
       />
+    );
+    if (!dosPasos) return pantalla;
+    return (
+      <div className="prueba-wrap">
+        <div className="prueba-banner">
+          <span>🎥 Paso 1 de 2: decí la palabra con la cámara. Después, una frase.</span>
+        </div>
+        {pantalla}
+      </div>
     );
   }
 
@@ -800,6 +860,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
   const [grabando, setGrabando] = useState(false);
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  const [esfuerzo, setEsfuerzo] = useState(null);
 
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
@@ -845,6 +906,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
     setGrabando(false);
     const blob = recorderRef.current.stop();
     if (!blob) return;
+    setEsfuerzo(recorderRef.current.esfuerzo());
     setProcesando(true);
     try {
       const r = await predictFrase(getServerUrl(), blob, frase, word);
@@ -908,6 +970,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
               <span className="result-overlay-tip-label">
                 {resultado.correcta ? "¡Muy bien dicho!" : (errorInfo?.label || "¡Casi! Practiquemos de nuevo")}
               </span>
+              <EsfuerzoResumen esfuerzo={esfuerzo} />
               {!resultado.correcta && (
                 <>
                   <span className="result-overlay-tip-text">
