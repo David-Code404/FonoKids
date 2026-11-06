@@ -375,3 +375,60 @@
   transform: translateY(4px);
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.18);
 }
+
+/* Responsive -- pedido explícito: que no se rompa en pantallas angostas.
+   Sin esto, el header podía desbordar (título largo + píldora de
+   progreso lado a lado sin wrap) y los dos botones de "¿Cómo querés
+   practicar?" quedaban demasiado anchos para entrar juntos en un celu. */
+@media (max-width: 480px) {
+  .path-header {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .path-title {
+    font-size: 16px;
+  }
+
+  .mode-choice-buttons {
+    flex-direction: column;
+    width: 100%;
+    gap: 14px;
+  }
+
+  .mode-choice-button {
+    width: 100%;
+    padding: 22px 20px;
+  }
+
+  .etapa-list,
+  .paso-list,
+  .sounds-category {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .etapa-card {
+    padding: 20px 18px;
+  }
+
+  .etapa-card-word {
+    font-size: 19px;
+  }
+
+  .etapa-card-icon {
+    font-size: 34px;
+  }
+
+  .paso-card {
+    padding: 16px 18px;
+    gap: 14px;
+  }
+
+  .paso-card-badge {
+    width: 52px;
+    height: 52px;
+    font-size: 18px;
+  }
+}

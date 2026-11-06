@@ -116,3 +116,18 @@
   color: var(--text-secondary);
   text-transform: capitalize;
 }
+
+/* Responsive -- mismo criterio que LearningPathScreen.css: menos padding
+   lateral en celus angostos, la grilla ya es fluida (auto-fill) así que
+   el resto se acomoda solo. */
+@media (max-width: 480px) {
+  .sounds-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    padding: 18px 16px 90px;
+  }
+
+  .sounds-category {
+    padding: 0 16px;
+  }
+}

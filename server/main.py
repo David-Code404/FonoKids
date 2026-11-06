@@ -23,6 +23,7 @@ Uso:
 """
 import math
 import os
+import random
 import shutil
 import sys
 import tempfile
@@ -30,10 +31,12 @@ import time
 from collections import defaultdict
 from datetime import datetime
 
+import av
 import cv2
 import numpy as np
 import torch
 import torch.nn as nn
+import torchaudio
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,7 +51,9 @@ if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 from audio_pronunciation import (  # noqa: E402
     EMBEDDING_DIM,
+    TARGET_SAMPLE_RATE,
     extract_embedding,
+    load_audio_16k,
     load_model as load_audio_model,
     score_pronunciation,
     score_word_in_sentence,
@@ -61,6 +66,12 @@ import db  # noqa: E402
 AUDIO_CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "audio_classifier.pth")
 
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
+# Dataset viejo archivado (ver .gitignore) -- la mayoría de las palabras ya
+# no tienen sus clips crudos en SESSIONS_DIR (solo quedó el embedding
+# precalculado, ver data/audio_embeddings_cache/), pero "perro" sigue
+# teniendo cientos de .wav reales acá -- se usan como referencia de audio
+# real cuando existen (ver /reference_audio/<palabra>).
+ARCHIVADO_SESSIONS_DIR = os.path.join(BASE_DIR, "dataARCHIVADO", "sesiones_continuas")
 MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")  # igual que probar_modelo.py
 GOAL_PER_WORD = 500
 
@@ -908,6 +919,84 @@ def reference_landmarks(palabra: str):
     return response
 
 
+# Formatos que puede traer un clip real de "<palabra>_correcto/clips/" --
+# .wav (grabado por grabar_video_continuo.py) se sirve directo, los de
+# video (.avi/.webm) traen el audio adentro y hay que extraerlo con PyAV.
+_AUDIO_DIRECTO = (".wav",)
+
+
+def _buscar_clips_de_audio(palabra):
+    """Todos los clips de "<palabra>_correcto/clips/" que tengan audio
+    aprovechable -- busca primero en el dataset en uso (SESSIONS_DIR) y
+    también en el archivado (ARCHIVADO_SESSIONS_DIR, donde quedó la mayoría
+    de los clips viejos, ver comentario de esa constante). Devuelve una
+    lista de rutas completas, vacía si no hay ninguna."""
+    encontrados = []
+    for base_dir in (SESSIONS_DIR, ARCHIVADO_SESSIONS_DIR):
+        clips_dir = os.path.join(base_dir, f"{palabra}_correcto", "clips")
+        if not os.path.isdir(clips_dir):
+            continue
+        for f in os.listdir(clips_dir):
+            if f.lower().endswith(_AUDIO_DIRECTO + VIDEO_EXTENSIONS):
+                encontrados.append(os.path.join(clips_dir, f))
+    return encontrados
+
+
+def _extraer_audio_de_video(ruta_video):
+    """Pista de audio de un .avi/.webm como tensor 1D float32 mono a 16kHz
+    -- misma lógica que se usa para armar el dataset de audio a partir de
+    clips de video grabados con cámara (el audio viene mezclado en el
+    contenedor, no como archivo aparte)."""
+    contenedor = av.open(ruta_video)
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=TARGET_SAMPLE_RATE)
+    bloques = []
+    for frame in contenedor.decode(audio=0):
+        for frame_resampleado in resampler.resample(frame):
+            bloques.append(frame_resampleado.to_ndarray())
+    contenedor.close()
+    audio = np.concatenate(bloques, axis=1).flatten().astype(np.float32) / 32768.0
+    return torch.from_numpy(audio)
+
+
+@app.get("/reference_audio/{palabra}")
+def reference_audio(palabra: str):
+    """Un clip de AUDIO real (no sintetizado) de alguien diciendo
+    "<palabra>" correctamente -- pedido explícito: mejor que el chico
+    escuche cómo suena de verdad dicho bien, no solo una voz de
+    texto-a-voz genérica, cuando hay un clip real disponible para esa
+    palabra. La mayoría de las palabras hoy NO tienen clips crudos
+    guardados (se archivaron para no pesar el repo, ver
+    ARCHIVADO_SESSIONS_DIR) -- el frontend tiene que caer a TTS si esto
+    devuelve 404, no todas las palabras van a tener audio real."""
+    safe_palabra = os.path.basename(palabra)
+    candidatos = _buscar_clips_de_audio(safe_palabra)
+    if not candidatos:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay clips de audio real guardados para '{safe_palabra}'.",
+        )
+
+    elegido = random.choice(candidatos)
+    try:
+        if elegido.lower().endswith(_AUDIO_DIRECTO):
+            waveform = load_audio_16k(elegido)
+        else:
+            waveform = _extraer_audio_de_video(elegido)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"No se pudo leer el clip de referencia ({e}).")
+
+    buffer_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    buffer_wav.close()
+    try:
+        torchaudio.save(buffer_wav.name, waveform.unsqueeze(0), TARGET_SAMPLE_RATE)
+        with open(buffer_wav.name, "rb") as f:
+            contenido = f.read()
+    finally:
+        os.remove(buffer_wav.name)
+
+    return Response(content=contenido, media_type="audio/wav")
+
+
 def _save_practice_clip(class_name, tmp_path, suffix):
     """Guarda una copia del clip grabado desde la app web (pestaña
     "Practicar") -- queda registrado en el historial de práctica (GET
@@ -996,7 +1085,20 @@ def _classify_audio(audio_path, palabra):
     # Solo tiene sentido clasificar si HAY clases de esta palabra entre las
     # que el clasificador aprendió -- si pedís "perro" pero solo entrenaste
     # con "carro", no hay nada que comparar.
-    indices_de_la_palabra = [i for i, c in enumerate(class_names) if c.startswith(f"{palabra}_")]
+    #
+    # BUG real detectado (caso "perro"): un simple startswith(f"{palabra}_")
+    # también agarraba las sub-familias de RR ("perro_medias_correcto",
+    # "perro_doble_correcto") cuando se pedía la palabra COMPLETA ("perro"),
+    # porque esos nombres también empiezan con "perro_". Eso contaminaba la
+    # familia: decir "perro" mal podía terminar comparado contra clips de
+    # "perro a medias" (un pedacito, acústicamente muy distinto), no contra
+    # un "perro" completo mal dicho. Ahora matchea SOLO "<palabra>_correcto"
+    # o "<palabra>_incorrecto*" -- las sub-familias piden su propio prefijo
+    # exacto (ej. "perro_medias"), así que no se cuelan acá.
+    indices_de_la_palabra = [
+        i for i, c in enumerate(class_names)
+        if c == f"{palabra}_correcto" or c.startswith(f"{palabra}_incorrecto")
+    ]
     if not indices_de_la_palabra:
         return None
     try:
@@ -1474,11 +1576,11 @@ async def predict_frase(
     palabra objetivo, y devuelve ESE pedacito de audio ya recortado
     (audio_recortado_path) -- recién ahí se le pasa al clasificador
     entrenado (_classify_audio), exactamente como si fuera un clip de la
-    palabra sola. El clasificador manda SIEMPRE que haya podido correr
-    (distinto al resto del proyecto, que exige AUDIO_MIN_CONFIDENCE) --
-    acá el GOP genérico demostró dejar pasar errores reales (ver "sherpiente"
-    contado como "serpiente" bien dicha), así que el GOP queda solo de
-    respaldo para cuando el recorte de audio falla."""
+    palabra sola. Misma prioridad que el resto del proyecto: el clasificador
+    manda cuando supera AUDIO_MIN_CONFIDENCE (señal de que el audio
+    recortado sí se parece a algo que entrenó), el GOP decide cuando el
+    clasificador no está seguro (audio recortado raro/fuera de lo
+    entrenado) o directamente no pudo correr."""
     if _state["audio_model"] is None:
         raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo de audio.")
 
@@ -1522,16 +1624,20 @@ async def predict_frase(
 
         gop_ok = len(resultado["sospechosos"]) == 0 and resultado["palabra_reconocida"]
 
-        # Pedido explícito: que el clasificador ENTRENADO (99% accuracy real,
-        # ver val_acc al arrancar el server) decida siempre que haya podido
-        # correr, para TODAS las palabras -- antes solo mandaba si superaba
-        # AUDIO_MIN_CONFIDENCE, y si no, caía al GOP genérico (~80%, sin
-        # entrenar). Eso dejaba pasar errores reales: "sherpiente" (en vez
-        # de "serpiente") contó como bien dicho porque el clasificador no
-        # llegó al umbral de confianza y el GOP no lo detectó. El GOP ahora
-        # queda solo como respaldo para cuando el recorte de audio falló y
-        # no hay clasificador disponible.
-        if clf_resultado is not None:
+        # BUG real detectado (caso "gorra" -> "goda"): sacar el umbral de
+        # confianza del todo (commit anterior, por el caso "sherpiente") fue
+        # un arreglo mal calibrado -- "sherpiente" en realidad tenía 80% de
+        # confianza real (muy por encima del umbral), así que nunca hacía
+        # falta sacarlo. Sin el umbral, el clasificador también "decidía"
+        # con 0-2% de confianza (el audio recortado no se parece a NADA
+        # entrenado -- típico cuando el recorte de la frase sale raro) y
+        # igual contaba "bien" solo porque esa clase ganó por aunque sea un
+        # pelo entre las dos opciones de la familia. Se restaura el mismo
+        # umbral (AUDIO_MIN_CONFIDENCE) que usa el resto del proyecto: el
+        # clasificador manda cuando está genuinamente seguro, el GOP decide
+        # cuando no.
+        clf_confiable = clf_resultado is not None and clf_resultado["prob"] >= AUDIO_MIN_CONFIDENCE
+        if clf_confiable:
             veredicto_final = "bien" if clf_resultado["es_correcto"] else "a_practicar"
             fuente = "clasificador"
         else:

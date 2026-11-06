@@ -405,6 +405,8 @@ _SUSTITUCIONES_CONOCIDAS = {
     "k": {"t": "anteriorizacion", "x": "debilitamiento", "h": "debilitamiento"},
     "ɡ": {"d": "anteriorizacion", "x": "debilitamiento", "h": "debilitamiento"},
     "s": {"θ": "interdental", "t": "oclusion", "d": "oclusion"},
+    "ʝ": {"l": "distorsion", "i": "debilitamiento"},
+    "tʃ": {"ʃ": "distorsion", "t": "debilitamiento", "s": "debilitamiento"},
 }
 _SINFONES = {"bl", "kl", "fl", "ɡl", "pl"}  # cl -> "k"+"l" en fonemas (texto_a_fonemas usa "k")
 

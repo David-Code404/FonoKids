@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SOUND_CATEGORIES } from "../soundCategories.js";
-import { speakWord } from "../speak.js";
+import { playWordReference } from "../speak.js";
+import { getServerUrl } from "../api.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 
@@ -18,7 +19,7 @@ export default function SoundsScreen() {
         <div className="repeat-stage">
           <div className="repeat-word">{selected.sound}</div>
           <div className="repeat-hint">Así empezás a practicar &quot;{displayWord}&quot;</div>
-          <button className="sound-listen-button" onClick={() => speakWord(displayWord)}>
+          <button className="sound-listen-button" onClick={() => playWordReference(getServerUrl(), selected.word, displayWord)}>
             🔊 Escuchar
           </button>
           <div className="repeat-note">
@@ -37,7 +38,7 @@ export default function SoundsScreen() {
             key={item.word}
             className={`sound-card etapa-color-${i % 4}`}
             onClick={() => {
-              speakWord(item.label || item.word);
+              playWordReference(getServerUrl(), item.word, item.label || item.word);
               setSelected(item);
             }}
             style={{ animationDelay: `${i * 0.05}s` }}

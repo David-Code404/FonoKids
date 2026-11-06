@@ -1,6 +1,7 @@
 .tab-shell {
   position: relative;
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   overflow: hidden;
   background: var(--background);
@@ -12,6 +13,8 @@
   height: 100%;
   flex: 1;
   min-width: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .tab-pane {
@@ -116,4 +119,76 @@
 .bottom-nav-item.selected .bottom-nav-label {
   font-weight: 800;
   color: var(--accent);
+}
+
+/* Responsive -- pedido explícito: que ande bien en cualquier tamaño de
+   pantalla (celu, tablet, desktop), sin tocar lógica, solo layout. Abajo
+   de 820px la columna lateral deja de entrar cómoda (tapa casi la mitad
+   de una tablet chica) -- pasa a ser una barra ABAJO, mismo patrón que
+   cualquier app para celular. Estos bloques van AL FINAL del archivo a
+   propósito: misma especificidad que las reglas base de arriba, así que
+   el orden en la cascada es lo único que decide quién gana -- si quedan
+   antes, la regla base (que viene después en el archivo) les gana aunque
+   el media query matchee. */
+@media (max-width: 820px) {
+  .tab-shell {
+    flex-direction: column;
+  }
+
+  .bottom-nav-wrap {
+    order: 2;
+    height: auto;
+    width: 100%;
+  }
+
+  .bottom-nav {
+    flex-direction: row;
+    width: 100%;
+    height: auto;
+    padding: 6px 4px;
+    padding-bottom: calc(6px + env(safe-area-inset-bottom));
+    border-right: none;
+    border-top: 2px solid var(--border);
+    box-shadow: 0 -4px 24px rgba(140, 107, 255, 0.1);
+    gap: 2px;
+    overflow-x: auto;
+  }
+
+  .sidebar-logo {
+    display: none;
+  }
+
+  .bottom-nav-item {
+    flex: 1;
+    padding: 8px 0;
+    margin: 0 2px;
+    min-width: 0;
+  }
+
+  .bottom-nav-icon {
+    font-size: 24px;
+  }
+
+  .bottom-nav-label {
+    font-size: 10px;
+  }
+
+  .tab-content {
+    order: 1;
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* Pantallas muy chicas (celus angostos) -- las etiquetas de texto abajo de
+   cada ícono ya no entran cómodas junto a 4-5 pestañas, se esconden y
+   queda solo el ícono (sigue siendo clickeable igual). */
+@media (max-width: 420px) {
+  .bottom-nav-label {
+    display: none;
+  }
+
+  .bottom-nav-icon {
+    font-size: 26px;
+  }
 }
