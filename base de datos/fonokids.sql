@@ -46,6 +46,32 @@ CREATE TABLE `practice_attempts` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `ejercicio_intentos`
+--
+
+DROP TABLE IF EXISTS `ejercicio_intentos`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `ejercicio_intentos` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `ejercicio_id` varchar(40) NOT NULL,
+  `tipo` varchar(20) NOT NULL,
+  `correcto` tinyint(1) NOT NULL,
+  `fuerza` tinyint(4) DEFAULT NULL,
+  `aguante` tinyint(4) DEFAULT NULL,
+  `parejo` tinyint(4) DEFAULT NULL,
+  `voz` tinyint(4) DEFAULT NULL,
+  `porcentaje_ok` float DEFAULT NULL,
+  `tipo_error` varchar(50) DEFAULT NULL,
+  `persona` varchar(100) NOT NULL DEFAULT 'web',
+  `created_at` datetime NOT NULL DEFAULT current_timestamp(),
+  PRIMARY KEY (`id`),
+  KEY `idx_ejercicio` (`ejercicio_id`),
+  KEY `idx_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Dumping data for table `practice_attempts`
 --
 

@@ -16,45 +16,57 @@
 export const HOLD_MS = 3000; // cuánto se mantiene el gesto para contar 1 repetición
 export const REPETICIONES = 3;
 
+// Orden de dificultad (campo `orden`): praxias de cara, soplo, pa-ta-ka y trabalenguas de lo más fácil a lo más difícil.
 export const EJERCICIOS = [
   {
-    id: "sonrisa", tipo: "praxia", icono: "😁", titulo: "Sonrisa grande",
+    id: "sonrisa", orden: 1, tipo: "praxia", icono: "😁", titulo: "Sonrisa grande",
     instruccion: "¡Sonríe lo más grande que puedas y mantenlo!", medida: "sonrisa", deltas: [0.3],
   },
   {
-    id: "beso", tipo: "praxia", icono: "😗", titulo: "Beso",
+    id: "beso", orden: 3, tipo: "praxia", icono: "😗", titulo: "Beso",
     instruccion: "¡Haz un besito con los labios hacia adelante y mantenlo!", medida: "beso", deltas: [0.3],
   },
   {
-    id: "boca", tipo: "praxia", icono: "😮", titulo: "Boca abierta",
+    id: "boca", orden: 2, tipo: "praxia", icono: "😮", titulo: "Boca abierta",
     instruccion: "¡Abre la boca bien grande, como un bostezo, y mantenlo!", medida: "boca", deltas: [0.35],
   },
   {
-    id: "mejillas", tipo: "praxia", icono: "🐡", titulo: "Mejillas infladas",
+    id: "mejillas", orden: 4, tipo: "praxia", icono: "🐡", titulo: "Mejillas infladas",
     instruccion: "¡Infla las mejillas como un globo y mantenlo!", medida: "mejillas", deltas: [0.08, 0.04],
   },
   {
-    id: "vela", tipo: "soplo", icono: "🕯️", titulo: "Soplar la vela",
+    id: "vela", orden: 5, tipo: "soplo", icono: "🕯️", titulo: "Soplar la vela",
     instruccion: "Toma aire y sopla suave y largo para apagar la vela.",
   },
   {
-    id: "pataka", tipo: "voz", modo: "ritmo", icono: "🥁", titulo: "Pa-ta-ka rápido",
+    id: "pataka", orden: 6, tipo: "voz", modo: "ritmo", icono: "🥁", titulo: "Pa-ta-ka rápido",
     instruccion: "Repite «pa-ta-ka» seguido y rápido, ¡3 veces o más!",
-    texto: "pa ta ka pa ta ka pa ta ka", mostrar: "PA-TA-KA  PA-TA-KA  PA-TA-KA",
+    texto: "pa ta ka pa ta ka pa ta ka", mostrar: "⚪ PA   🔺 TA   ⬛ KA    ⚪ PA   🔺 TA   ⬛ KA    ⚪ PA   🔺 TA   ⬛ KA",
+    nota: "PA es el círculo, TA el triángulo y KA el cuadrado. ¡Señálalos con el dedo mientras los dices!",
   },
   {
-    id: "tigres", tipo: "voz", modo: "trabalenguas", icono: "🐯", titulo: "Los tres tigres",
+    id: "pataña", orden: 7, tipo: "voz", modo: "trabalenguas", icono: "🌞", titulo: "Pa-ta-ña (mañana)", nivel: 1,
+    instruccion: "Dilo despacito: pa-ta-ña, ¡para decir mañana!",
+    texto: "pataña mañana", mostrar: "Pataña... mañana",
+  },
+  {
+    id: "mama", orden: 8, tipo: "voz", modo: "trabalenguas", icono: "👩", titulo: "Mi mamá me mima", nivel: 1,
+    instruccion: "Dilo despacito y claro.",
+    texto: "mi mamá me mima", mostrar: "Mi mamá me mima",
+  },
+  {
+    id: "tigres", orden: 10, tipo: "voz", modo: "trabalenguas", nivel: 3, icono: "🐯", titulo: "Los tres tigres",
     instruccion: "Dilo despacito y claro.",
     texto: "tres tristes tigres tragaban trigo en un trigal",
     mostrar: "Tres tristes tigres tragaban trigo en un trigal",
   },
   {
-    id: "clavito", tipo: "voz", modo: "trabalenguas", icono: "🔨", titulo: "Pablito y el clavito",
+    id: "clavito", orden: 9, tipo: "voz", modo: "trabalenguas", icono: "🔨", titulo: "Pablito y el clavito", nivel: 2,
     instruccion: "Dilo despacito y claro.",
     texto: "pablito clavó un clavito", mostrar: "Pablito clavó un clavito",
   },
   {
-    id: "erre", tipo: "voz", modo: "trabalenguas", icono: "🚂", titulo: "Los carros del ferrocarril",
+    id: "erre", orden: 11, tipo: "voz", modo: "trabalenguas", icono: "🚂", titulo: "Los carros del ferrocarril", nivel: 4,
     instruccion: "Dilo despacito y claro.",
     texto: "rápido ruedan los carros del ferrocarril", mostrar: "Rápido ruedan los carros del ferrocarril",
   },

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { getRecordings, getServerUrl } from "../api.js";
 import { mockRecordings } from "../mockData.js";
-import { iconFor } from "../wordIcons.js";
+import { iconoDePalabra as iconFor } from "../progresoSonidos.js";
+import { agruparPorSonido, getResumenEjercicios, unirConPalabrasNuevas } from "../progresoSonidos.js";
 import { AppCard, AppBackground, EmptyState, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
 import "./Screens.css";
@@ -36,6 +37,7 @@ function aggregate(recordings) {
     const incorrectCount = items.filter((r) => !r.correcta).reduce((sum, r) => sum + r.count, 0);
     return {
       word,
+      sonido: items[0].sonido,
       count: correctCount + incorrectCount,
       correctCount,
       incorrectCount,
@@ -60,7 +62,8 @@ export default function PhrasesScreen({ active = true }) {
     try {
       const serverUrl = getServerUrl();
       const data = await getRecordings(serverUrl);
-      const real = data.recordings || [];
+      const resumen = await getResumenEjercicios();
+      const real = unirConPalabrasNuevas(data.recordings || [], resumen);
       // Ver el mismo comentario en CapturesScreen.jsx -- mientras no haya
       // dataset real, se muestran datos de EJEMPLO marcados como tales.
       setUsingMock(real.length === 0);
@@ -98,6 +101,8 @@ export default function PhrasesScreen({ active = true }) {
     if (!query) return sorted;
     return sorted.filter((w) => w.word.replaceAll("_", " ").toLowerCase().includes(query));
   }, [recordings, sortMode, query]);
+
+  const grupos = useMemo(() => agruparPorSonido(filtered), [filtered]);
 
   return (
     <AppBackground>
@@ -145,18 +150,21 @@ export default function PhrasesScreen({ active = true }) {
         {recordings !== null && aggregate(recordings).length > 0 && filtered.length === 0 && (
           <EmptyState icon="🔍✕" message="Ninguna palabra coincide con la búsqueda." />
         )}
-        {filtered.length > 0 && (
-          <div className="phrase-grid">
-            {filtered.map((agg, i) => (
-              <PhraseCard
-                key={agg.word}
-                agg={agg}
-                color={chartPalette[i % chartPalette.length]}
-                onOpen={() => setDetail(agg)}
-              />
-            ))}
+        {grupos.map((gr) => (
+          <div key={gr.clave}>
+            <SectionLabel>{gr.icono} {gr.titulo}</SectionLabel>
+            <div className="phrase-grid">
+              {gr.items.map((agg, i) => (
+                <PhraseCard
+                  key={`${gr.clave}-${agg.word}`}
+                  agg={agg}
+                  color={chartPalette[i % chartPalette.length]}
+                  onOpen={() => setDetail(agg)}
+                />
+              ))}
+            </div>
           </div>
-        )}
+        ))}
       </div>
 
       {detail && <PhraseDetailDialog agg={detail} onClose={() => setDetail(null)} />}

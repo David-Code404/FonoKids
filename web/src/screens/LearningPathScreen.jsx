@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { getHealth, getRecordings, getServerUrl, predictFrase, wordsFromClasses } from "../api.js";
+import { getHealth, getRecordings, getServerUrl, guardarEjercicio, predict, wordsFromClasses } from "../api.js";
 import { iconFor } from "../wordIcons.js";
 import { SOUND_CATEGORIES } from "../soundCategories.js";
-import { speakWord, playWordReference } from "../speak.js";
-import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
+import { regexPalabraEnFrase } from "../frases.js";
+import { sonidoBien, sonidoFalta } from "../sonidos.js";
+import SonidosScreen from "./SonidosScreen.jsx";
+import { PANELES, SONIDOS_EXTRA, ORDEN_SONIDOS } from "../palabras.js";
 import { createAudioRecorder } from "../audioRecorder.js";
 import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { tipoErrorInfo } from "../errorTips.js";
@@ -55,6 +57,10 @@ function diasDesde(fechaStr) {
 // simplificado (no es un análisis fonético fino, es un andamiaje
 // pedagógico visual: practicar el sonido difícil suelto, reforzarlo, y
 // después ir agrandando hasta la palabra entera).
+// Palabras sin modelo de cara que el servidor evalúa solo con el audio (perro):
+// también cuentan como evaluables para mostrar la práctica.
+const PALABRAS_SOLO_AUDIO = ["perro"];
+
 function buildSteps(word, audioOnly = false) {
   const hasDoubleR = word.includes("rr");
   const partial = word.length > 4 ? word.slice(0, -2) : word.slice(0, -1);
@@ -74,7 +80,7 @@ function buildSteps(word, audioOnly = false) {
     {
       key: "completa", label: word.toUpperCase(), hint: "¡La palabra completa!",
       desc: audioOnly
-        ? `Decí una frase completa con "${word}" -- acá sí se evalúa de verdad.`
+        ? `Decí "${word}" en voz alta -- acá sí se evalúa de verdad.`
         : `Decí "${word}" completa, con cámara -- acá sí se evalúa de verdad.`,
     },
   ];
@@ -92,7 +98,7 @@ function getSteps(word, category, audioOnly = false) {
     {
       key: "completa", label: displayWord.toUpperCase(), hint: "¡Decilo completo!",
       desc: audioOnly
-        ? `Decí una frase completa con "${displayWord}" -- acá sí se evalúa de verdad.`
+        ? `Decí "${displayWord}" en voz alta -- acá sí se evalúa de verdad.`
         : `Decí "${displayWord}" completa, con cámara -- acá sí se evalúa de verdad.`,
     },
   ];
@@ -140,6 +146,7 @@ export default function LearningPathScreen() {
   const [, setRachaTick] = useState(0);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedWord, setSelectedWord] = useState(null);
+  const [extraSonido, setExtraSonido] = useState(null);
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
   // Al abrir un paso que SÍ evalúa de verdad, primero se pregunta cómo
   // quiere practicar (cámara o solo voz) -- pedido explícito: la pregunta
@@ -147,8 +154,9 @@ export default function LearningPathScreen() {
   const [modeChoicePending, setModeChoicePending] = useState(false);
   const [audioOnlyChosen, setAudioOnlyChosen] = useState(false);
   // Prueba para adelantar una etapa bloqueada (ver etapasAbiertasSesion).
-  // La prueba tiene 2 pasos, los dos con la FRASE completa de la palabra y la
-  // voz: "frase1" -> "frase2" -> "lista" (al pasar los dos se abre la etapa).
+  // Cada paso de la prueba es la FRASE completa de la palabra con la voz:
+  // "frase1" -> "frase2" -> ... -> "lista" (al pasar todos se abre la etapa).
+  // Cuanto más lejos está la etapa, más pasos pide (ver pasosDePrueba).
   const [pruebaWord, setPruebaWord] = useState(null);
   const [pruebaFase, setPruebaFase] = useState("frase1");
   const [pasoOk, setPasoOk] = useState(false);
@@ -213,7 +221,7 @@ export default function LearningPathScreen() {
       const health = await getHealth(getServerUrl());
       if (cancelled) return;
       if (health) {
-        setUnlockedWords(wordsFromClasses(health.classes));
+        setUnlockedWords([...new Set([...wordsFromClasses(health.classes), ...PALABRAS_SOLO_AUDIO])]);
         timer = setTimeout(fetchHealth, 20000);
       } else {
         timer = setTimeout(fetchHealth, 3000);
@@ -262,7 +270,20 @@ export default function LearningPathScreen() {
     if (i === 0) return false;
     const word = cat.words[i].word;
     if (!unlockedWords.includes(word)) return false;
+    // Al terminar bien una etapa se abre la siguiente (y queda abierta aunque
+    // se recargue la página, porque sale de los intentos guardados), y una
+    // etapa que ya salió bien tampoco vuelve a pedir la prueba.
+    const anterior = cat.words[i - 1].word;
+    if (estadoPalabra(anterior) === true || estadoPalabra(word) === true) return false;
     return !etapasAbiertasSesion.has(word);
+  }
+
+  // Para adelantarse hay que decir bien la frase varias veces seguidas, y cuanto
+  // más lejos queda la etapa más veces: la 2ª pide 2, la 3ª pide 3... y la
+  // última de la categoría pide hasta 5. Así llegar a la última cuesta de verdad.
+  function pasosDePrueba(cat, word) {
+    const i = cat?.words.findIndex((w) => w.word === word) ?? 1;
+    return Math.min(Math.max(i + 1, 2), 5);
   }
 
   function abrirPrueba(word) {
@@ -285,14 +306,16 @@ export default function LearningPathScreen() {
   // decirla bien en el paso 1 se habilita seguir al paso 2; al decirla bien
   // en el paso 2 se abre la etapa.
   function onResultadoPrueba(correcta) {
-    if (correcta !== true) return;
-    if (pruebaFase === "frase1") {
+    if (correcta !== true || pruebaFase === "lista") return;
+    const paso = Number(pruebaFase.replace("frase", ""));
+    const total = pasosDePrueba(selectedCategory, pruebaWord);
+    if (paso < total) {
       setPasoOk(true);
       programarAvance(() => {
-        setPruebaFase("frase2");
+        setPruebaFase(`frase${paso + 1}`);
         setPasoOk(false);
       });
-    } else if (pruebaFase === "frase2") {
+    } else {
       etapasAbiertasSesion.add(pruebaWord);
       setPruebaFase("lista");
       mostrarPremio("🔓 ¡Etapa abierta!");
@@ -346,7 +369,7 @@ export default function LearningPathScreen() {
   function openPaso(idx) {
     setSelectedStepIdx(idx);
     const steps = buildSteps(selectedWord);
-    const familia = familyForStep(selectedWord, steps[idx].key);
+    const familia = familyForStep(selectedWord, steps[Math.min(idx, steps.length - 1)].key);
     if (unlockedWords.includes(familia)) {
       // Este paso SÍ evalúa de verdad -- antes de entrar, preguntamos cómo
       // quiere practicar (cámara o solo voz).
@@ -360,11 +383,11 @@ export default function LearningPathScreen() {
     setAudioOnlyChosen(audioOnly);
     setModeChoicePending(false);
     const steps = getSteps(selectedWord, selectedCategory, audioOnly);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     // Frase completa solo tiene sentido en el paso final ("la palabra
     // entera") y solo en modo voz -- con cámara seguimos pidiendo la
     // palabra sola (frase es audio-only, ver predictFrase).
-    const destino = audioOnly && step.key === "completa" ? "practicar_frase" : "practicar";
+    const destino = "practicar";
     // Dificultad que se ajusta sola -- pedido explícito: si viene fallando
     // seguido en esto mismo, no lo mandamos derecho a intentar de nuevo,
     // primero una pausa de repetición libre (sin evaluar), para cualquier
@@ -380,7 +403,7 @@ export default function LearningPathScreen() {
 
   function continuarDespuesDeDescanso() {
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     resetFallos(familyForStep(selectedWord, step.key));
     setView(pendingView || "practicar");
     setPendingView(null);
@@ -402,7 +425,7 @@ export default function LearningPathScreen() {
         setView(selectedCategory?.key === "rr" ? "repetir" : "detalle");
         return;
       }
-      const destino = audioOnlyChosen && step.key === "completa" ? "practicar_frase" : "practicar";
+      const destino = "practicar";
       if (getFallosSeguidos(familia) >= UMBRAL_DESCANSO) {
         setPendingView(destino);
         setView("descanso");
@@ -450,7 +473,7 @@ export default function LearningPathScreen() {
     if (correcta !== true && correcta !== false) return;
 
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     registrarIntento(familyForStep(selectedWord, step.key), correcta);
     if (correcta === true && step.key === "completa") {
       abrirSiguienteEtapa(selectedCategory, selectedWord);
@@ -465,7 +488,7 @@ export default function LearningPathScreen() {
 
   if (modeChoicePending && selectedWord) {
     const steps = getSteps(selectedWord, selectedCategory);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     return (
       <div className="path-screen">
         <div className="path-header">
@@ -489,9 +512,19 @@ export default function LearningPathScreen() {
     );
   }
 
+  if (view === "extra" && extraSonido) {
+    return (
+      <SonidosScreen
+        categoria={`x_${extraSonido.key.slice(3)}`}
+        titulo={`Sonido ${extraSonido.titulo}`}
+        onBack={() => setView("categorias")}
+      />
+    );
+  }
+
   if (view === "descanso" && selectedWord) {
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     return (
       <div className="path-screen">
         <div className="path-header">
@@ -501,12 +534,9 @@ export default function LearningPathScreen() {
         <div className="repeat-stage">
           <div className="result-overlay-emoji" style={{ fontSize: 48 }}>🌟</div>
           <div className="repeat-hint">
-            Viniste practicando mucho esto -- ¡vamos a escuchar y repetir un ratito sin apuro antes de intentar de nuevo!
+            Viniste practicando mucho esto -- ¡vamos a repetir un ratito sin apuro antes de intentar de nuevo!
           </div>
           <div className="repeat-word">{step.label}</div>
-          <button className="sound-listen-button" onClick={() => speakWord(pendingView === "practicar_frase" ? fraseParaPalabra(selectedWord) : step.label)}>
-            🔊 Escuchar
-          </button>
           <div className="repeat-note">
             Repetí las veces que quieras, con calma. ¡Vos podés! 🌟
           </div>
@@ -519,6 +549,8 @@ export default function LearningPathScreen() {
   }
 
   if (view === "prueba" && pruebaWord) {
+    const totalPrueba = pasosDePrueba(selectedCategory, pruebaWord);
+    const pasoPrueba = pruebaFase === "lista" ? totalPrueba : Number(pruebaFase.replace("frase", ""));
     return (
       <div className="prueba-wrap">
         <div className="prueba-banner">
@@ -529,16 +561,16 @@ export default function LearningPathScreen() {
                 Ir a la etapa →
               </button>
             </>
-          ) : pruebaFase === "frase1" && pasoOk ? (
+          ) : pasoOk ? (
             <>
-              <span>✅ Paso 1 de 2 listo. ¡Una vez más!</span>
-              <button className="path-cta" onClick={() => { setPruebaFase("frase2"); setPasoOk(false); }}>
-                Seguir con el paso 2 →
+              <span>✅ Paso {pasoPrueba} de {totalPrueba} listo. ¡Una vez más!</span>
+              <button className="path-cta" onClick={() => { setPruebaFase(`frase${pasoPrueba + 1}`); setPasoOk(false); }}>
+                Seguir con el paso {pasoPrueba + 1} →
               </button>
             </>
           ) : (
             <span>
-              🚀 Prueba para adelantar, paso {pruebaFase === "frase1" ? 1 : 2} de 2: decí la frase completa con la voz.
+              🚀 Prueba para adelantar, paso {pasoPrueba} de {totalPrueba}: di la palabra con la voz.
             </span>
           )}
         </div>
@@ -567,16 +599,16 @@ export default function LearningPathScreen() {
 
   if (view === "practicar" && selectedWord) {
     const steps = getSteps(selectedWord, selectedCategory, audioOnlyChosen);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     // Con camara, el paso final de cada palabra tiene 2 pasos: palabra y frase.
-    const dosPasos = step.key === "completa" && !audioOnlyChosen;
+    const dosPasos = false; // solo palabras, no oraciones
     const faseCamara = faseCam.word === selectedWord && faseCam.idx === selectedStepIdx ? faseCam.fase : "palabra";
 
     if (dosPasos && faseCamara === "frase") {
       return (
         <div className="prueba-wrap">
           <div className="prueba-banner">
-            <span>✅ Palabra lista. Paso 2 de 2: decí la frase completa con la voz.</span>
+            <span>✅ Palabra lista. Paso 2 de 2: di la palabra con la voz.</span>
           </div>
           <FrasePracticeStage
             key={`cam-frase-${selectedWord}`}
@@ -637,11 +669,8 @@ export default function LearningPathScreen() {
         <div className="repeat-stage">
           <div className="repeat-word">{wordInfo?.sound}</div>
           <div className="repeat-hint">Así empezás a practicar &quot;{displayWord}&quot;</div>
-          <button className="sound-listen-button" onClick={() => playWordReference(getServerUrl(), selectedWord, displayWord)}>
-            🔊 Escuchar
-          </button>
           <div className="repeat-note">
-            Escuchá y repetí las veces que quieras. ¡Vos podés! 🌟
+            Repetí las veces que quieras. ¡Vos podés! 🌟
           </div>
         </div>
       </div>
@@ -650,7 +679,7 @@ export default function LearningPathScreen() {
 
   if (view === "repetir" && selectedWord) {
     const steps = buildSteps(selectedWord);
-    const step = steps[selectedStepIdx];
+    const step = steps[Math.min(selectedStepIdx, steps.length - 1)];
     return (
       <div className="path-screen">
         <div className="path-header">
@@ -663,8 +692,11 @@ export default function LearningPathScreen() {
           <div className="repeat-note">
             Practicá en voz alta las veces que quieras antes de pasar al siguiente paso.
           </div>
-          <button className="path-cta" onClick={() => openPaso(selectedStepIdx + 1)}>
-            Listo, seguir →
+          <button
+            className="path-cta"
+            onClick={() => (selectedStepIdx + 1 >= steps.length ? setView("pasos") : openPaso(selectedStepIdx + 1))}
+          >
+            {selectedStepIdx + 1 >= steps.length ? "Listo, volver ✓" : "Listo, seguir →"}
           </button>
         </div>
       </div>
@@ -700,16 +732,8 @@ export default function LearningPathScreen() {
     // Progreso = palabras de esta categoria que ya dijo bien (su ultimo intento
     // salio correcto), no las que el modelo "conoce".
     const sabidasAqui = words.filter((w) => estadoPalabra(w.word) === true).length;
-    return (
-      <div className="path-screen">
-        <div className="path-header">
-          <button className="icon-button" onClick={() => setView("categorias")}>←</button>
-          <span className="path-title">{selectedCategory.title}</span>
-          <span className="path-progress-pill">
-            🏆 {sabidasAqui}/{words.length}
-          </span>
-        </div>
-        <div className="etapa-list">
+    const tarjetasPalabras = (
+      <>
           {words.map((w, i) => {
             const unlocked = unlockedWords.includes(w.word);
             const resultado = estadoPalabra(w.word);
@@ -733,6 +757,34 @@ export default function LearningPathScreen() {
               </button>
             );
           })}
+      </>
+    );
+    // Categorías con test y práctica por sonido: UNA sola pantalla, con el camino
+    // (test previo, al principio, en medio, prueba intermedia, al final, prueba final)
+    // y abajo las palabras de siempre.
+    if (PANELES[selectedCategory.key]) {
+      return (
+        <SonidosScreen
+          categoria={selectedCategory.key}
+          titulo={selectedCategory.title}
+          progreso={`🏆 ${sabidasAqui}/${words.length}`}
+          onBack={() => setView("categorias")}
+          palabrasModelo={words}
+          onAbrirModelo={(w) => (etapaBloqueada(selectedCategory, words.findIndex((x) => x.word === w)) ? abrirPrueba(w) : openEtapa(w))}
+        />
+      );
+    }
+    return (
+      <div className="path-screen">
+        <div className="path-header">
+          <button className="icon-button" onClick={() => setView("categorias")}>←</button>
+          <span className="path-title">{selectedCategory.title}</span>
+          <span className="path-progress-pill">
+            🏆 {sabidasAqui}/{words.length}
+          </span>
+        </div>
+        <div className="etapa-list">
+          {tarjetasPalabras}
         </div>
       </div>
     );
@@ -765,6 +817,12 @@ export default function LearningPathScreen() {
   }
   paraRepasar.sort((a, b) => b.dias - a.dias);
 
+  // Una sola lista, de lo más fácil a lo más difícil (ver ORDEN_SONIDOS).
+  const listaOrdenada = [
+    ...SOUND_CATEGORIES.filter((c) => ORDEN_SONIDOS.includes(c.key)).map((cat) => ({ tipo: "cat", cat, clave: cat.key })),
+    ...SONIDOS_EXTRA.map((g) => ({ tipo: "extra", g, clave: g.key.slice(3) })),
+  ].sort((a, b) => ORDEN_SONIDOS.indexOf(a.clave) - ORDEN_SONIDOS.indexOf(b.clave));
+
   const estadoRacha = getEstado();
 
   return (
@@ -790,56 +848,43 @@ export default function LearningPathScreen() {
         )}
       </div>
 
-      {paraRepasar.length > 0 && (
-        <div className="sounds-category">
-          <span className="sounds-category-title">🔄 Para repasar</span>
-          <span className="sounds-category-hint">
-            Ya las sabías -- practiquemos de nuevo para que no se te olviden
-          </span>
-        </div>
-      )}
-      {paraRepasar.length > 0 && (
-        <div className="etapa-list">
-          {paraRepasar.map(({ word, dias }, i) => {
-            const cat = CATEGORIA_DE_PALABRA[word];
-            const wordInfo = cat?.words.find((w) => w.word === word);
+      <div className="etapa-list lista-sonidos">
+        {listaOrdenada.map((it, i) => {
+          if (it.tipo === "cat") {
+            const cat = it.cat;
+            const resultado = estadoCategoria(cat);
             return (
               <button
-                key={word}
+                key={cat.key}
                 className={`etapa-card etapa-color-${i % 4}`}
-                onClick={() => repasarPalabra(word)}
-                style={{ animationDelay: `${i * 0.06}s` }}
+                onClick={() => openCategory(cat)}
+                style={{ animationDelay: `${i * 0.04}s` }}
               >
+                <span className="orden-num">{i + 1}</span>
                 <span className="etapa-card-word">
-                  <span className="etapa-card-icon">{wordInfo?.icon || iconFor(word)}</span> {(wordInfo?.label || word).replaceAll("_", " ")}
+                  <span className="etapa-card-icon">{cat.words[0]?.icon}</span> {cat.title}
+                  {resultado === false && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>Para practicar</span>}
+                  {resultado === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Ya lo sabés!</span>}
                 </span>
-                <span className="etapa-card-action">
-                  Hace {dias} {dias === 1 ? "día" : "días"} →
-                </span>
+                <span className="etapa-card-action">{cat.hint}</span>
               </button>
             );
-          })}
-        </div>
-      )}
-
-      <div className="etapa-list">
-        {categoriasOrdenadas.map((cat, i) => {
-          const resultado = estadoCategoria(cat);
+          }
+          const g = it.g;
           return (
             <button
-              key={cat.key}
+              key={g.key}
               className={`etapa-card etapa-color-${i % 4}`}
-              onClick={() => openCategory(cat)}
-              style={{ animationDelay: `${i * 0.06}s` }}
+              onClick={() => { setExtraSonido(g); setView("extra"); }}
+              style={{ animationDelay: `${i * 0.04}s` }}
             >
+              <span className="orden-num">{i + 1}</span>
               <span className="etapa-card-word">
-                <span className="etapa-card-icon">{cat.words[0]?.icon}</span> {cat.title}
-                {resultado === false && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>Para practicar</span>}
-                {resultado === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Ya lo sabés!</span>}
+                <span className="etapa-card-icon">{g.icono}</span> Sonido {g.titulo}
+                {getDiagnosticoGuardado()?.[g.key.slice(3)] === false && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>Para practicar</span>}
+                {getDiagnosticoGuardado()?.[g.key.slice(3)] === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Bien!</span>}
               </span>
-              <span className="etapa-card-action">
-                {cat.hint}
-              </span>
+              <span className="etapa-card-action">Al principio, en medio y al final →</span>
             </button>
           );
         })}
@@ -854,7 +899,7 @@ export default function LearningPathScreen() {
 // una sola pantalla en vez de dos). Misma lógica que server/main.py
 // POST /predict_frase (GOP + clasificador entrenado sobre el audio
 // recortado).
-function FrasePracticeStage({ word, category, onBack, onResultado }) {
+function FrasePracticeStage({ word, category, onBack, onResultado, conCamara = false }) {
   const [micListo, setMicListo] = useState(false);
   const [micError, setMicError] = useState(null);
   const [grabando, setGrabando] = useState(false);
@@ -864,23 +909,25 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
 
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
+  const videoRef = useRef(null);
 
   const wordInfo = category?.words.find((w) => w.word === word);
   const displayWord = wordInfo?.label || word;
-  const frase = fraseParaPalabra(word);
+  const frase = word; // solo palabras, no oraciones
 
   useEffect(() => {
     let cancelled = false;
     setMicError(null);
     setMicListo(false);
     navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
+      ?.getUserMedia(conCamara ? { audio: true, video: { facingMode: "user" } } : { audio: true })
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
         streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
         setMicListo(true);
       })
       .catch((e) => {
@@ -891,7 +938,12 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [word]);
+  }, [word, conCamara]);
+
+  // El <video> aparece recién cuando el stream está listo: se le conecta ahí.
+  useEffect(() => {
+    if (micListo && videoRef.current && streamRef.current) videoRef.current.srcObject = streamRef.current;
+  }, [micListo]);
 
   function empezarGrabar() {
     if (!streamRef.current) return;
@@ -906,11 +958,21 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
     setGrabando(false);
     const blob = recorderRef.current.stop();
     if (!blob) return;
-    setEsfuerzo(recorderRef.current.esfuerzo());
+    const esf = recorderRef.current.esfuerzo();
+    setEsfuerzo(esf);
     setProcesando(true);
     try {
-      const r = await predictFrase(getServerUrl(), blob, frase, word);
+      const r = await predict(getServerUrl(), null, "clip.wav", null, blob, word);
+      if (r.valid && r.correcta !== true && r.correcta !== false) {
+        setResultado({ valid: false, reason: "No te escuché del todo claro -- ¡dila otra vez!" });
+        return;
+      }
       setResultado(r);
+      if (r.valid && r.correcta === true) sonidoBien();
+      else if (r.valid && r.correcta === false) sonidoFalta();
+      if (r.valid && (r.correcta === true || r.correcta === false)) {
+        guardarEjercicio(getServerUrl(), { ejercicio_id: word, tipo: "practica", correcto: r.correcta, voz: esf?.voz });
+      }
       if (r.valid && onResultado) onResultado(r.correcta);
     } catch (e) {
       setResultado({ valid: false, reason: e.message || "Error al analizar el audio." });
@@ -928,7 +990,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
         <span className="path-title">{wordInfo?.icon || iconFor(word)} {displayWord}</span>
       </div>
       <div className="repeat-stage">
-        <div className="repeat-hint">Decí esta frase completa:</div>
+        <div className="repeat-hint">Di esta palabra:</div>
         <div className="repeat-word" style={{ fontSize: 22, lineHeight: 1.3 }}>
           {frase.split(regexPalabraEnFrase(word)).map((parte, i) =>
             i % 2 === 1
@@ -940,6 +1002,10 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
           <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
         ) : !micListo ? (
           <div className="audio-only-label">Activando el micrófono...</div>
+        ) : conCamara ? (
+          <div className={`camera-frame frase-camera ${grabando ? "is-recording" : ""}`}>
+            <video ref={videoRef} className="camera-preview" autoPlay muted playsInline />
+          </div>
         ) : (
           <div className="audio-only-stage" style={{ marginTop: 8 }}>
             <div className={`audio-only-orb ${grabando ? "is-recording" : ""}`}>
@@ -986,7 +1052,7 @@ function FrasePracticeStage({ word, category, onBack, onResultado }) {
             <div className="result-overlay-tip" style={{ marginTop: 8 }}>
               <div className="result-overlay-emoji">😅</div>
               <span className="result-overlay-tip-text">
-                Decí toda la frase, despacito -- ¡vos podés!
+                Dila completa, despacito -- ¡tú puedes!
               </span>
               <button className="path-cta" style={{ marginTop: 10 }} onClick={empezarGrabar}>
                 🎤 Intentar de nuevo

@@ -1,3 +1,4 @@
+import { registrarEjercicioHecho } from "./progreso.js";
 // Cliente HTTP para server/main.py -- equivalente web de api_client.dart.
 const STORAGE_KEY = "speakshadow_server_url";
 // server/main.py corre en la MISMA máquina que sirve esta página ("npm run
@@ -89,15 +90,6 @@ export async function getReferenceLandmarks(baseUrl, palabra) {
   } catch {
     return null;
   }
-}
-
-/// URL del clip de audio REAL (no sintetizado) de alguien diciendo
-/// "palabra" correctamente -- GET /reference_audio/<palabra> en
-/// server/main.py. Puede devolver 404 (la mayoría de las palabras no
-/// tienen un clip crudo guardado todavía) -- quien la use tiene que caer a
-/// TTS (ver speak.js) si el <audio> tira error.
-export function referenceAudioUrl(baseUrl, palabra) {
-  return `${normalize(baseUrl)}/reference_audio/${encodeURIComponent(palabra)}`;
 }
 
 /// De la lista de clases del modelo ("perro_correcto", "perro_incorrecto_
@@ -314,4 +306,24 @@ export async function ejercicioVoz(baseUrl, audioBlob, texto, tipo) {
   }
 
   return response.json();
+}
+
+/// Guarda en la base (tabla ejercicio_intentos) cómo le fue al niño en un ejercicio.
+/// No molesta al niño si falla: devuelve false y listo.
+export async function guardarEjercicio(baseUrl, datos) {
+  if (datos.tipo !== "evaluacion" && datos.tipo !== "diagnostico") registrarEjercicioHecho();
+  const form = new FormData();
+  for (const [k, v] of Object.entries(datos)) {
+    if (v !== null && v !== undefined) form.append(k, String(v));
+  }
+  try {
+    const res = await withTimeout(
+      (signal) => fetch(`${normalize(baseUrl)}/ejercicio_resultado`, { method: "POST", body: form, signal }),
+      8000,
+      "timeout"
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }

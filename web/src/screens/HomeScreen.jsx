@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 import {
-  checkHealth, getHealth, getServerUrl, predict,
-  setServerUrl as saveServerUrl, wordsFromClasses,
+  checkHealth, getHealth, getServerUrl, guardarEjercicio, predict, wordsFromClasses,
 } from "../api.js";
 import { iconFor } from "../wordIcons.js";
 import { tipoErrorInfo } from "../errorTips.js";
-import SettingsDialog from "../components/SettingsDialog.jsx";
 import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { esfuerzoVoz } from "../ejercicios.js";
+import { sonidoBien, sonidoFalta } from "../sonidos.js";
 import "./HomeScreen.css";
 
 // Tope de duración de una toma -- coincide con MAX_FRAMES_BUFFER de
@@ -157,6 +156,7 @@ export default function HomeScreen({
   const audioSourceRef = useRef(null);
   const audioChunksRef = useRef([]);
   const [esfuerzoDeVoz, setEsfuerzoDeVoz] = useState(null);
+  const esfuerzoRef = useRef(null); // el último esfuerzo medido, para guardarlo junto con el resultado
   // Stream de SOLO MICRÓFONO -- para cuando el chico elige practicar sin
   // cámara (ver acceptAudioOnly más abajo). Separado de streamRef (que es
   // el de cámara+mic juntos) porque son dos pedidos de permiso distintos.
@@ -183,7 +183,7 @@ export default function HomeScreen({
   // booleano "predicting", esto permite que el usuario grabe la siguiente
   // toma sin esperar a que el servidor termine de analizar la anterior.
   const [processingCount, setProcessingCount] = useState(0);
-  const [serverUrl, setServerUrlState] = useState(getServerUrl());
+  const [serverUrl] = useState(getServerUrl());
   const [connState, setConnState] = useState("unknown"); // unknown | ok | fail
   const [lastResult, setLastResult] = useState(null);
   const [lastError, setLastError] = useState(null);
@@ -191,7 +191,6 @@ export default function HomeScreen({
   const [attempts, setAttempts] = useState([]);
   const [fadingOutIds, setFadingOutIds] = useState(new Set());
   const [unclearCount, setUnclearCount] = useState(0);
-  const [showSettings, setShowSettings] = useState(false);
 
   const refreshConnection = useCallback(async (url) => {
     const ok = await checkHealth(url ?? serverUrl);
@@ -470,7 +469,12 @@ export default function HomeScreen({
           setLastResult(result);
           setLastError(null);
           setConnState("ok");
+          if (result.valid && result.correcta === true) sonidoBien();
+          else if (result.valid && result.correcta === false) sonidoFalta();
           if (result.valid && onResult) onResult(result);
+          if (result.valid && result.palabra && result.correcta !== null) {
+            guardarEjercicio(serverUrl, { ejercicio_id: result.palabra, tipo: "practica", correcto: result.correcta === true, voz: esfuerzoRef.current?.voz });
+          }
           if (result.valid && result.palabra) {
             // Mismo criterio que en ResultOverlay: la racha tiene que
             // mostrar lo que se le pidió decir en ESTE paso (ej. "PER"),
@@ -554,7 +558,9 @@ export default function HomeScreen({
     audioChunksRef.current = [];
 
     if (!ctx) return null;
-    setEsfuerzoDeVoz(esfuerzoVoz(chunks));
+    const esf = esfuerzoVoz(chunks);
+    esfuerzoRef.current = esf;
+    setEsfuerzoDeVoz(esf);
     const sampleRate = ctx.sampleRate;
     try {
       processor?.disconnect();
@@ -663,17 +669,6 @@ export default function HomeScreen({
     }
   }
 
-  function handleSaveSettings(url) {
-    const trimmed = url.trim();
-    if (trimmed) {
-      saveServerUrl(trimmed);
-      setServerUrlState(trimmed);
-      setConnState("unknown");
-      refreshConnection(trimmed);
-    }
-    setShowSettings(false);
-  }
-
   return (
     <div className="practice-screen">
       <div className="practice-main">
@@ -686,11 +681,6 @@ export default function HomeScreen({
             )}
             <span className="brand-mascot">🗣️</span>
             <span>FonoKids</span>
-          </div>
-          <div className="header-actions">
-            <button className="icon-button" onClick={() => setShowSettings(true)} title="Configuración servidor">
-              ⚙
-            </button>
           </div>
         </div>
 
@@ -814,13 +804,6 @@ export default function HomeScreen({
         />
       )}
 
-      {showSettings && (
-        <SettingsDialog
-          currentUrl={serverUrl}
-          onSave={handleSaveSettings}
-          onClose={() => setShowSettings(false)}
-        />
-      )}
     </div>
   );
 }

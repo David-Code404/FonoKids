@@ -731,3 +731,29 @@
   background: rgba(255, 92, 122, 0.15);
   color: var(--danger);
 }
+
+/* Que la cámara y los botones entren completos en la pantalla, sin deslizar:
+   el ancho de la cámara se limita por el alto disponible (4:3). */
+.practice-stage {
+  padding: clamp(8px, 1.6vh, 24px);
+  padding-bottom: clamp(8px, 1.6vh, 24px);
+  gap: clamp(6px, 1.6vh, 18px);
+  overflow-y: auto;
+}
+.camera-frame {
+  width: min(clamp(200px, 38vw, 460px), calc((100dvh - 520px) * 1.3333));
+  min-width: 180px;
+}
+@media (max-width: 820px) {
+  .camera-frame {
+    width: min(92vw, calc((100dvh - 470px) * 1.3333));
+    min-width: 170px;
+  }
+}
+
+/* Cámara en la práctica de frases: más baja para que entre con la frase y el botón. */
+.frase-camera {
+  width: min(clamp(200px, 30vw, 380px), calc((100dvh - 480px) * 1.3333));
+  min-width: 170px;
+  margin: 4px 0;
+}

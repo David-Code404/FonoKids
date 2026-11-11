@@ -4,6 +4,7 @@ import ErrorsScreen from "./screens/ErrorsScreen.jsx";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
 import DiagnosticoScreen from "./screens/DiagnosticoScreen.jsx";
 import EjerciciosScreen from "./screens/EjerciciosScreen.jsx";
+import FonemasScreen from "./screens/FonemasScreen.jsx";
 import "./App.css";
 
 // Pedido explícito: Aprender (camino de etapas, termina en la práctica real
@@ -14,7 +15,8 @@ const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
   { key: "logros", label: "Logros", icon: "🏆" },
   { key: "errores", label: "Para practicar", icon: "🔁" },
-  { key: "ejercicios", label: "Ejercicios", icon: "🤸" },
+  { key: "ejercicios", label: "Ejercicios", icon: "🔤" },
+  { key: "praxias", label: "Praxias", icon: "🤸" },
 ];
 
 /// Navegación por pestañas: Aprender / Logros / Para practicar -- igual que
@@ -84,7 +86,10 @@ export default function App() {
           {visited.has(2) && <ErrorsScreen active={index === 2} />}
         </div>
         <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
-          {visited.has(3) && index === 3 && <EjerciciosScreen />}
+          {visited.has(3) && index === 3 && <FonemasScreen />}
+        </div>
+        <div className="tab-pane" style={{ display: index === 4 ? "flex" : "none" }}>
+          {visited.has(4) && index === 4 && <EjerciciosScreen />}
         </div>
       </div>
     </div>

@@ -43,6 +43,9 @@ export default class ErrorBoundary extends Component {
           <div style={{ fontSize: 13, color: "#6b6580", maxWidth: 340 }}>
             {this.state.error.message || String(this.state.error)}
           </div>
+          <div style={{ fontSize: 11, color: "#9a95ad", maxWidth: 420, whiteSpace: "pre-wrap" }}>
+            {(this.state.error.stack || "").split("\n").slice(1, 4).join("\n")}
+          </div>
           <button
             onClick={() => window.location.reload()}
             style={{

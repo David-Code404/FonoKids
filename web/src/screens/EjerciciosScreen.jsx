@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState } from "react";
 import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
-import { getServerUrl, ejercicioVoz } from "../api.js";
+import { getServerUrl, ejercicioVoz, guardarEjercicio } from "../api.js";
 import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import { createAudioRecorder } from "../audioRecorder.js";
 import {
   EJERCICIOS, ETIQUETA_TIPO, GESTO_FIRME, HOLD_MS, REPETICIONES, SOPLO_FIRME,
   esfuerzoPraxia, esfuerzoSoplo,
 } from "../ejercicios.js";
+import { sonidoBien, sonidoFalta, mensajeBien } from "../sonidos.js";
+import { marcarLograda, palabrasLogradas } from "../progreso.js";
 import { mostrarPremio, registrarIntentoValido, textoPremio } from "../rachas.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 import "./HomeScreen.css";
 import "./EjerciciosScreen.css";
+
+// Guarda el intento en la base (tabla ejercicio_intentos). `esf` son las estrellas (1 a 3) de
+// fuerza, aguante, parejo o voz; `extra` agrega porcentaje_ok y tipo_error en los de voz.
+function guardarIntento(ejercicio, correcto, esf, extra) {
+  guardarEjercicio(getServerUrl(), {
+    ejercicio_id: ejercicio.id, tipo: ejercicio.tipo, correcto,
+    fuerza: esf?.fuerza, aguante: esf?.aguante, parejo: esf?.parejo, voz: esf?.voz, ...extra,
+  });
+}
 
 // Mismo modelo y mismo origen que usa HomeScreen para el overlay de puntos.
 const MEDIAPIPE_MODEL_URL =
@@ -262,7 +273,9 @@ function PraxiaStage({ ejercicio, onBack }) {
         setReps(h.reps);
         setProgreso(0);
         if (h.reps >= REPETICIONES) {
-          setEsfuerzo(esfuerzoPraxia(h.resumen));
+          const esf = esfuerzoPraxia(h.resumen);
+          setEsfuerzo(esf);
+          guardarIntento(ejercicio, true, esf);
           cambiarFase("listo");
           darPremio();
         }
@@ -432,7 +445,9 @@ function SoploStage({ ejercicio, onBack }) {
           const prog = h.inicio === null ? 0 : Math.min((ahora - h.inicio) / SOPLO_MS, 1);
           setProgreso(prog);
           if (prog >= 1) {
-            setEsfuerzo(esfuerzoSoplo(h.suma / h.n, calRef.current.umbral, h.firmes / h.n));
+            const esf = esfuerzoSoplo(h.suma / h.n, calRef.current.umbral, h.firmes / h.n);
+            setEsfuerzo(esf);
+            guardarIntento(ejercicio, true, esf);
             cambiarFase("listo");
             darPremio();
           }
@@ -547,12 +562,15 @@ function VozStage({ ejercicio, onBack }) {
     setGrabando(false);
     const blob = recorderRef.current.stop();
     if (!blob) return;
-    setEsfuerzo(recorderRef.current.esfuerzo());
+    const esf = recorderRef.current.esfuerzo();
+    setEsfuerzo(esf);
     setProcesando(true);
     try {
       const r = await ejercicioVoz(getServerUrl(), blob, ejercicio.texto, ejercicio.modo);
       setResultado(r);
-      if (r.valid && r.correcta) darPremio();
+      if (r.valid) guardarIntento(ejercicio, !!r.correcta, esf, { porcentaje_ok: r.porcentaje_ok, tipo_error: r.tipo_error });
+      if (r.valid) (r.correcta ? sonidoBien : sonidoFalta)();
+      if (r.valid && r.correcta) { darPremio(); marcarLograda(ejercicio.id); }
     } catch (e) {
       setResultado({ valid: false, reason: e.message || "Error al analizar el audio." });
     } finally {
@@ -565,7 +583,8 @@ function VozStage({ ejercicio, onBack }) {
       <Encabezado icono={ejercicio.icono} titulo={ejercicio.titulo} onBack={onBack} />
       <div className="repeat-stage ejercicio-stage">
         <div className="repeat-hint">{ejercicio.instruccion}</div>
-        <div className="repeat-word" style={{ fontSize: ejercicio.modo === "ritmo" ? 34 : 24, lineHeight: 1.3 }}>
+        {ejercicio.nota && <div className="repeat-hint">{ejercicio.nota}</div>}
+        <div className="repeat-word" style={{ fontSize: ejercicio.modo === "ritmo" ? 26 : 24, lineHeight: 1.3 }}>
           {ejercicio.mostrar}
         </div>
 
@@ -604,7 +623,7 @@ function VozStage({ ejercicio, onBack }) {
                 {resultado.correcta
                   ? (ejercicio.modo === "ritmo"
                     ? `¡Muy bien! Hiciste ${resultado.ciclos} vueltas de pa-ta-ka`
-                    : "¡Lo lograste!")
+                    : mensajeBien())
                   : (ejercicio.modo === "ritmo"
                     ? `¡Casi! Hiciste ${resultado.ciclos} ${resultado.ciclos === 1 ? "vuelta" : "vueltas"} -- necesito 3`
                     : (resultado.palabras_flojas?.length
@@ -647,26 +666,33 @@ export default function EjerciciosScreen() {
   return (
     <div className="path-screen">
       <div className="path-header">
-        <span className="path-title"><span className="path-mascot">🤸</span> Ejercicios</span>
+        <span className="path-title"><span className="path-mascot">🤸</span> Praxias</span>
       </div>
       <div className="racha-bar">
         <span className="racha-hint">Calienta la carita y la boca antes de practicar 💪</span>
       </div>
       <div className="etapa-list">
-        {EJERCICIOS.map((e, i) => (
+        {EJERCICIOS.slice().sort((a, b) => a.orden - b.orden).map((e, i) => {
+          const logradas = palabrasLogradas();
+          // Los trabalenguas se abren por niveles: hay que lograr uno del nivel anterior.
+          const bloqueado = !!e.nivel && e.nivel > 1 &&
+            !EJERCICIOS.some((o) => o.nivel === e.nivel - 1 && logradas[o.id]);
+          return (
           <button
             key={e.id}
+            disabled={bloqueado}
             className={`etapa-card etapa-color-${i % 4}`}
             onClick={() => setAbierto(e.id)}
-            style={{ animationDelay: `${i * 0.06}s` }}
+            style={{ opacity: bloqueado ? 0.45 : 1, animationDelay: `${i * 0.06}s` }}
           >
-            <span className="etapa-card-tag">{ETIQUETA_TIPO[e.tipo]}</span>
+            <span className="etapa-card-tag">{`Paso ${e.orden} · ${ETIQUETA_TIPO[e.tipo]}`}</span>
             <span className="etapa-card-word">
               <span className="etapa-card-icon">{e.icono}</span> {e.titulo}
             </span>
-            <span className="etapa-card-action">Probar →</span>
+            <span className="etapa-card-action">{bloqueado ? "🔒 Logra el nivel anterior" : logradas[e.id] ? "Logrado ✅" : "Probar →"}</span>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

@@ -1,33 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { SOUND_CATEGORIES } from "../soundCategories.js";
-import { fraseParaPalabra, regexPalabraEnFrase } from "../frases.js";
-import { iconFor } from "../wordIcons.js";
-import { getServerUrl, predictFrase } from "../api.js";
-import { createAudioRecorder } from "../audioRecorder.js";
+import { useMemo, useState } from "react";
+import { PRACTICA_SECCIONES, ORDEN_SONIDOS, SONIDOS_EXTRA } from "../palabras.js";
+import { TITULO_SONIDO } from "../progresoSonidos.js";
+import { PalabraStage } from "./SonidosScreen.jsx";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 import "./HomeScreen.css";
-import HomeScreen from "./HomeScreen.jsx";
-
-// Una palabra representativa por categoría -- la primera de cada una en
-// soundCategories.js (mismo orden de menos a más difícil ya definido ahí).
-// Con esto alcanza para el diagnóstico: no hace falta probar las 24
-// palabras, con 5 (una por sonido) ya se sabe en qué categoría falla.
-const PALABRAS_DIAGNOSTICO = SOUND_CATEGORIES.map((cat) => ({
-  categoria: cat.key,
-  titulo: cat.title,
-  hint: cat.hint,
-  word: cat.words[0].word,
-  label: cat.words[0].label || cat.words[0].word,
-  icon: cat.words[0].icon,
-}));
 
 const STORAGE_RESULT_KEY = "fonokids_diagnostico";
 const STORAGE_DONE_KEY = "fonokids_diagnostico_done";
 // Resultado por PALABRA del diagnóstico: { palabra: { sabe: true/false, t: ms } }.
-// Se guarda apenas termina cada prueba (no solo al final) y no depende de la
-// base de datos -- así Aprender muestra "Para practicar" en lo que salió mal
-// aunque MySQL esté apagado.
+// Se guarda apenas termina cada prueba y no depende de la base de datos.
 const STORAGE_PALABRAS_KEY = "fonokids_diagnostico_palabras";
 
 export function getDiagnosticoPalabras() {
@@ -56,130 +38,67 @@ export function yaHizoDiagnostico() {
   }
 }
 
-/// Prueba inicial: le hace decir al chico una FRASE completa por cada
-/// sonido difícil (C/K, G, Sinfones, S, RR) -- no la palabra sola, pedido
-/// explícito, así se acostumbra desde el principio a hablar en contexto
-/// natural, igual que en la pestaña Frases. Evalúa con la misma lógica
-/// combinada (GOP + clasificador entrenado sobre el audio recortado, ver
-/// server/main.py POST /predict_frase) y al final arma un resumen de qué
-/// sabe y qué le cuesta, para mandarlo directo a practicar con frases esas
-/// palabras puntuales.
+// Prueba inicial AL AZAR: palabras fáciles de los sonidos fáciles (las primeras de cada lista
+// "al principio"), una por sonido, para ver cuánto puede decir el chico. Cada vez sale otra.
+const CUANTAS = 8;
+const SONIDOS_FACILES = ORDEN_SONIDOS.slice(0, 11); // m, p, n, t, b, d, f, c-k, g, ch, ll
+
+function faciles() {
+  const grupos = PRACTICA_SECCIONES.flatMap((s) => s.grupos);
+  const porSonido = {};
+  for (const clave of SONIDOS_FACILES) {
+    const key = clave === "c-k" ? "pr_k" : `pr_${clave}`;
+    const g = grupos.find((x) => x.key === key) || SONIDOS_EXTRA.find((x) => x.key === key);
+    const nivel = g?.niveles?.[0]; // "al principio"
+    if (!nivel) continue;
+    porSonido[clave] = [...nivel.palabras]
+      .sort((a, b) => a.palabra.length - b.palabra.length)
+      .slice(0, 3); // las más cortas = las más fáciles
+  }
+  return porSonido;
+}
+
+function elegirAlAzar() {
+  const pool = faciles();
+  const claves = Object.keys(pool).sort(() => Math.random() - 0.5).slice(0, CUANTAS);
+  return claves.map((clave) => {
+    const lista = pool[clave];
+    const p = lista[Math.floor(Math.random() * lista.length)];
+    return { sonido: clave, ...p };
+  });
+}
+
+/// Prueba inicial: palabras fáciles al azar. Dice cuántas pudo y de qué sonidos.
 export default function DiagnosticoScreen({ onFinish }) {
-  const [fase, setFase] = useState("intro"); // intro | practicando | resultado
-  const [idx, setIdx] = useState(0);
-  const [resultados, setResultados] = useState([]); // [{categoria, word, sabe}]
-  const [micListo, setMicListo] = useState(false);
-  const [micError, setMicError] = useState(null);
-  const [grabando, setGrabando] = useState(false);
-  const [procesando, setProcesando] = useState(false);
-  const [ultimoResultado, setUltimoResultado] = useState(null);
-  // Como hace la prueba: "camara" (la palabra sola con camara + voz, igual
-  // que en Aprender -- la camara no evalua frases) o "voz" (la frase
-  // completa solo con la voz). Se elige una vez al empezar.
+  const [fase, setFase] = useState("intro"); // intro | prueba | resultado
   const [modo, setModo] = useState(null);
-  // Ultimo resultado concluyente de la prueba con camara (true/false); se
-  // usa recien al tocar "Siguiente", para que no se tape el resultado.
-  const [camResultado, setCamResultado] = useState(null);
-  const timerAvance = useRef(null);
-  useEffect(() => () => clearTimeout(timerAvance.current), []);
+  const [idx, setIdx] = useState(0);
+  const [resultados, setResultados] = useState([]);
+  const palabras = useMemo(() => elegirAlAzar(), []);
 
-  const streamRef = useRef(null);
-  const recorderRef = useRef(createAudioRecorder());
-
-  const actual = PALABRAS_DIAGNOSTICO[idx];
-
-  useEffect(() => {
-    if (fase !== "practicando" || modo !== "voz") return;
-    let cancelled = false;
-    setMicError(null);
-    setMicListo(false);
-    navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
-      .then((stream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
-        streamRef.current = stream;
-        setMicListo(true);
-      })
-      .catch((e) => {
-        if (!cancelled) setMicError(e.message || "No se pudo prender el micrófono.");
-      });
-    return () => {
-      cancelled = true;
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    };
-  }, [fase, idx, modo]);
-
-  function empezar(modoElegido) {
-    setModo(modoElegido);
-    setFase("practicando");
+  function empezar(m) {
+    setModo(m);
+    setFase("prueba");
   }
 
-  function empezarGrabar() {
-    if (!streamRef.current) return;
-    const ok = recorderRef.current.start(streamRef.current);
-    if (ok) {
-      setGrabando(true);
-      setUltimoResultado(null);
-    }
-  }
-
-  async function cortarYEvaluar() {
-    setGrabando(false);
-    const blob = recorderRef.current.stop();
-    if (!blob) return;
-    setProcesando(true);
-    try {
-      const frase = fraseParaPalabra(actual.word);
-      const r = await predictFrase(getServerUrl(), blob, frase, actual.word);
-      setUltimoResultado(r);
-      if (!r.valid) return; // se queda en la misma palabra, puede reintentar
-      avanzar(r.veredicto_final === "bien");
-    } catch (e) {
-      setUltimoResultado({ valid: false, reason: e.message });
-    } finally {
-      setProcesando(false);
-    }
-  }
-
-  // saltada: no pudo/quiso hacer esta prueba -- sigue contando en el total
-  // (siempre son 6) pero no se marca ni como sabida ni como a practicar.
   function avanzar(sabe, saltada = false) {
-    clearTimeout(timerAvance.current);
-    const nuevos = [...resultados, { categoria: actual.categoria, word: actual.word, sabe: saltada ? false : sabe, saltada }];
-    setCamResultado(null);
+    const actual = palabras[idx];
+    const nuevos = [...resultados, { sonido: actual.sonido, palabra: actual.palabra, emoji: actual.emoji, sabe: saltada ? false : sabe, saltada }];
     if (!saltada) {
-      // Se guarda YA, prueba por prueba: si cierra o recarga a la mitad no se
-      // pierde lo que ya dijo.
       try {
-        const palabras = getDiagnosticoPalabras();
-        palabras[actual.word] = { sabe, t: Date.now() };
-        localStorage.setItem(STORAGE_PALABRAS_KEY, JSON.stringify(palabras));
-        const porCategoria = getDiagnosticoGuardado() || {};
-        porCategoria[actual.categoria] = sabe;
-        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(porCategoria));
-      } catch {
-        // sin persistencia, el resumen final se muestra igual
-      }
+        const pal = getDiagnosticoPalabras();
+        pal[actual.palabra] = { sabe, t: Date.now() };
+        localStorage.setItem(STORAGE_PALABRAS_KEY, JSON.stringify(pal));
+        const porSonido = getDiagnosticoGuardado() || {};
+        porSonido[actual.sonido] = sabe;
+        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(porSonido));
+      } catch { /* sin almacenamiento: igual se ve el resumen */ }
     }
-    if (idx + 1 < PALABRAS_DIAGNOSTICO.length) {
-      setResultados(nuevos);
+    setResultados(nuevos);
+    if (idx + 1 < palabras.length) {
       setIdx(idx + 1);
-      setUltimoResultado(null);
     } else {
-      const resumen = {};
-      for (const r of nuevos) if (!r.saltada) resumen[r.categoria] = r.sabe;
-      try {
-        localStorage.setItem(STORAGE_RESULT_KEY, JSON.stringify(resumen));
-        localStorage.setItem(STORAGE_DONE_KEY, "1");
-      } catch {
-        // localStorage puede fallar (modo privado, cuota) -- no bloquea
-        // ver el resultado igual, solo no queda guardado para la próxima.
-      }
-      setResultados(nuevos);
+      try { localStorage.setItem(STORAGE_DONE_KEY, "1"); } catch { /* nada */ }
       setFase("resultado");
     }
   }
@@ -193,10 +112,10 @@ export default function DiagnosticoScreen({ onFinish }) {
         <div className="mode-choice-stage">
           <div className="mode-choice-title">¡Hola! Vamos a hacer una pequeña prueba</div>
           <div className="repeat-hint" style={{ maxWidth: 420, textAlign: "center" }}>
-            Son {PALABRAS_DIAGNOSTICO.length} pruebas -- así sé en cuáles necesitás practicar más, y te
-            armo un camino hecho a tu medida. Si alguna no te sale, la podés saltar.
+            Son {CUANTAS} palabras fáciles, elegidas al azar, para ver cuántas puedes decir. Si alguna no te sale,
+            la puedes saltar.
           </div>
-          <div className="mode-choice-title">¿Cómo querés hacerla?</div>
+          <div className="mode-choice-title">¿Cómo quieres hacerla?</div>
           <div className="mode-choice-buttons">
             <button className="mode-choice-button" onClick={() => empezar("camara")}>
               <span className="mode-choice-icon">📷</span>
@@ -207,171 +126,75 @@ export default function DiagnosticoScreen({ onFinish }) {
               Solo con la voz
             </button>
           </div>
-          {onFinish && (
-            <button className="sound-listen-button" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={() => onFinish(null)}>
-              Prefiero saltear esto
-            </button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (fase === "practicando" && modo === "camara") {
-    return (
-      <div className="prueba-wrap">
-        <div className="prueba-banner">
-          <span>
-            Prueba {idx + 1}/{PALABRAS_DIAGNOSTICO.length} -- {actual.titulo}: decí &quot;{actual.label}&quot;
-          </span>
-          {camResultado !== null && (
-            <button className="path-cta" onClick={() => avanzar(camResultado)}>
-              Siguiente →
-            </button>
-          )}
-          <button className="path-cta" style={{ background: "rgba(255,255,255,0.25)", boxShadow: "none" }} onClick={() => avanzar(false, true)}>
-            Saltar esta prueba ⏭️
-          </button>
-          <button className="path-cta" style={{ background: "rgba(255,255,255,0.25)", boxShadow: "none" }} onClick={() => setModo("voz")}>
-            Mejor solo con la voz 🎤
+          <button
+            className="repeat-hint"
+            style={{ background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}
+            onClick={() => {
+              try { localStorage.setItem(STORAGE_DONE_KEY, "1"); } catch { /* nada */ }
+              onFinish && onFinish(getDiagnosticoGuardado());
+            }}
+          >
+            Prefiero saltear esto
           </button>
         </div>
-        <HomeScreen
-          key={idx}
-          initialWord={actual.word}
-          promptText={actual.label}
-          promptIcon={actual.word}
-          forceAudioOnly={false}
-          onResult={(result) => {
-            if (result.valid && (result.correcta === true || result.correcta === false)) {
-              setCamResultado(result.correcta);
-              // Igual que en voz: salga bien O mal, pasa solo a la siguiente
-              // prueba (la categoría queda como "sabe" o "para practicar" en
-              // el resumen final). Un resultado no concluyente no cuenta.
-              clearTimeout(timerAvance.current);
-              const sabe = result.correcta;
-              timerAvance.current = setTimeout(() => avanzar(sabe), 2000);
-            }
-          }}
-        />
       </div>
     );
   }
 
-  if (fase === "practicando") {
-    const frase = fraseParaPalabra(actual.word);
+  if (fase === "prueba") {
+    const actual = palabras[idx];
     return (
-      <div className="path-screen">
-        <div className="path-header">
-          <span className="path-title">
-            Prueba {idx + 1}/{PALABRAS_DIAGNOSTICO.length} -- {actual.titulo}
-          </span>
-        </div>
-        <div className="repeat-stage">
-          <div className="repeat-hint">Decí esta frase completa:</div>
-          <div className="repeat-word" style={{ fontSize: 22, lineHeight: 1.3 }}>
-            {frase.split(regexPalabraEnFrase(actual.word)).map((parte, i) =>
-              i % 2 === 1
-                ? <span key={i} style={{ color: "var(--accent, #6C5CE7)", textDecoration: "underline" }}>{parte}</span>
-                : <span key={i}>{parte}</span>
-            )}
-          </div>
-          {micError ? (
-            <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
-          ) : !micListo ? (
-            <div className="audio-only-label">Activando el micrófono...</div>
-          ) : (
-            <div className="audio-only-stage" style={{ marginTop: 8 }}>
-              <div className={`audio-only-orb ${grabando ? "is-recording" : ""}`}>
-                {grabando && (
-                  <>
-                    <span className="audio-only-pulse audio-only-pulse-1" />
-                    <span className="audio-only-pulse audio-only-pulse-2" />
-                  </>
-                )}
-                <span className="audio-only-icon">🎤</span>
-              </div>
-              <span className="audio-only-label">
-                {procesando ? "Analizando..." : grabando ? "Escuchando..." : "Tocá para grabar"}
-              </span>
-            </div>
-          )}
-
-          {micListo && !procesando && (
-            <button className="path-cta" onClick={grabando ? cortarYEvaluar : empezarGrabar}>
-              {grabando ? "Listo, evaluar →" : "🎤 Grabar"}
-            </button>
-          )}
-
-          {!procesando && !grabando && (
-            <button
-              className="sound-listen-button"
-              style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none", marginTop: 8 }}
-              onClick={() => avanzar(false, true)}
-            >
-              Saltar esta prueba ⏭️
-            </button>
-          )}
-
-          {ultimoResultado && !ultimoResultado.valid && (
-            ultimoResultado.frase_incompleta || ultimoResultado.frase_distinta ? (
-              <div className="result-overlay-tip" style={{ marginTop: 8 }}>
-                <div className="result-overlay-emoji">😢</div>
-                <span className="result-overlay-tip-text">{ultimoResultado.reason}</span>
-              </div>
-            ) : (
-              <div className="audio-only-error">
-                {ultimoResultado.reason || "No se pudo analizar -- probá de nuevo."}
-              </div>
-            )
-          )}
-        </div>
-      </div>
+      <PalabraStage
+        key={`${idx}-${actual.palabra}`}
+        item={actual}
+        claveGuardado={`test_${actual.sonido}_${actual.palabra}`}
+        tipo="diagnostico"
+        modoEvaluacion
+        modoInicial={modo}
+        indice={idx}
+        total={palabras.length}
+        onTerminar={(bien) => avanzar(bien)}
+        onBack={() => avanzar(false, true)}
+      />
     );
   }
 
-  // fase === "resultado"
   const evaluados = resultados.filter((r) => !r.saltada);
+  const bien = evaluados.filter((r) => r.sabe).length;
   const saltadas = resultados.length - evaluados.length;
-  const sabeCount = evaluados.filter((r) => r.sabe).length;
   return (
     <div className="path-screen">
       <div className="path-header">
         <span className="path-title"><span className="path-mascot">🗣️</span> ¡Terminamos!</span>
       </div>
-      <div className="mode-choice-stage">
+      <div className="mode-choice-stage resultado-stage">
         <div className="mode-choice-title">
           {evaluados.length === 0
             ? "¡Sin problema! Después las hacemos 😊"
-            : sabeCount === evaluados.length
-              ? "¡Genial, ya sabés estos sonidos! 🌟"
-              : "Así te fue -- esto es normal, para eso practicamos"}
+            : `Dijiste bien ${bien} de ${evaluados.length} palabras ${bien === evaluados.length ? "🌟" : "👏"}`}
         </div>
         <div className="repeat-hint" style={{ textAlign: "center" }}>
-          Hiciste {evaluados.length} de {resultados.length}
-          {saltadas > 0 ? ` -- saltaste ${saltadas}, las podés hacer más adelante` : ""}
+          {saltadas > 0 ? `Saltaste ${saltadas}. ` : ""}Así armo tu camino; los sonidos que costaron salen para practicar.
         </div>
-        <div className="etapa-list" style={{ width: "100%", maxWidth: 480 }}>
-          {resultados.map((r) => {
-            const cat = PALABRAS_DIAGNOSTICO.find((p) => p.categoria === r.categoria);
-            return (
-              <div
-                key={r.categoria}
-                className={`etapa-card etapa-color-${r.saltada ? 0 : r.sabe ? 1 : 3}`}
-                style={{ cursor: "default" }}
-              >
-                <span className="etapa-card-word">
-                  <span className="etapa-card-icon">{iconFor(cat.word)}</span> {cat.titulo}
-                </span>
-                <span className="etapa-card-action">
-                  {r.saltada ? "Saltada ⏭️" : r.sabe ? "¡Ya lo sabés! ✅" : "Para practicar 🔁"}
-                </span>
-              </div>
-            );
-          })}
+        <div className="etapa-list resultado-lista" style={{ width: "100%", maxWidth: 480 }}>
+          {resultados.map((r) => (
+            <div
+              key={r.sonido}
+              className={`etapa-card etapa-color-${r.saltada ? 0 : r.sabe ? 1 : 3}`}
+              style={{ cursor: "default" }}
+            >
+              <span className="etapa-card-word">
+                <span className="etapa-card-icon">{r.emoji}</span> {r.palabra}
+                <span className="etapa-card-tag" style={{ marginLeft: 8 }}>{TITULO_SONIDO[r.sonido] || r.sonido}</span>
+              </span>
+              <span className="etapa-card-action">
+                {r.saltada ? "Saltada ⏭️" : r.sabe ? "¡Bien! ✅" : "Para practicar 🔁"}
+              </span>
+            </div>
+          ))}
         </div>
         <button className="path-cta" onClick={() => onFinish && onFinish(getDiagnosticoGuardado())}>
-          Vamos a practicar con frases →
+          Vamos a practicar →
         </button>
       </div>
     </div>

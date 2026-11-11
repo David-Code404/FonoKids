@@ -68,8 +68,8 @@ const TODAS_LAS_CATEGORIAS = [
   },
   {
     key: "rr",
-    title: "RR fuerte",
-    hint: "lengua vibrando, sonido bien marcado",
+    title: "R y RR",
+    hint: "primero la R (al principio, en medio y al final) y después la RR fuerte",
     words: [
       { word: "perro", icon: "🐶", sound: "rr" },
       { word: "carro", icon: "🚗", sound: "rr" },

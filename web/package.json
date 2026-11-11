@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test tests/esfuerzo.test.mjs"
+    "test": "node --test tests/esfuerzo.test.mjs tests/progreso.test.mjs tests/fonemas.test.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",

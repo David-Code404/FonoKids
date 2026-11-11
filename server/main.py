@@ -8,7 +8,6 @@ except Exception:
 
 import math
 import os
-import random
 import shutil
 import sys
 import tempfile
@@ -16,12 +15,10 @@ import time
 from collections import defaultdict
 from datetime import datetime
 
-import av
 import cv2
 import numpy as np
 import torch
 import torch.nn as nn
-import torchaudio
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,7 +29,6 @@ SCRIPTS_DIR = os.path.join(BASE_DIR, "scripts")
 if SCRIPTS_DIR not in sys.path:
     sys.path.insert(0, SCRIPTS_DIR)
 from audio_pronunciation import (
-    EMBEDDING_DIM,
     TARGET_SAMPLE_RATE,
     extract_embedding,
     load_audio_16k,
@@ -127,7 +123,6 @@ def detect_landmarks_batch(detector, frames_bgr):
             try:
                 chunk_faces = detector.face_detector.detect_from_batch(batch)
             except torch.cuda.OutOfMemoryError:
-                del batch
                 print(f"[AVISO] Sub-lote de {len(chunk)} frames sin memoria, reintentando de a un frame.")
                 chunk_faces = []
                 for frame in chunk:
@@ -781,70 +776,6 @@ def reference_landmarks(palabra: str):
     return response
 
 
-_AUDIO_DIRECTO = (".wav",)
-
-
-def _buscar_clips_de_audio(palabra):
-    encontrados = []
-    for base_dir in (SESSIONS_DIR, ARCHIVADO_SESSIONS_DIR):
-        clips_dir = os.path.join(base_dir, f"{palabra}_correcto", "clips")
-        if not os.path.isdir(clips_dir):
-            continue
-        for f in os.listdir(clips_dir):
-            if f.lower().endswith(_AUDIO_DIRECTO + VIDEO_EXTENSIONS):
-                encontrados.append(os.path.join(clips_dir, f))
-    return encontrados
-
-
-def _extraer_audio_de_video(ruta_video):
-    contenedor = av.open(ruta_video)
-    resampler = av.AudioResampler(format="s16", layout="mono", rate=TARGET_SAMPLE_RATE)
-    bloques = []
-    for frame in contenedor.decode(audio=0):
-        for frame_resampleado in resampler.resample(frame):
-            bloques.append(frame_resampleado.to_ndarray())
-    contenedor.close()
-    audio = np.concatenate(bloques, axis=1).flatten().astype(np.float32) / 32768.0
-    return torch.from_numpy(audio)
-
-
-@app.get("/reference_audio/{palabra}")
-def reference_audio(palabra: str):
-    safe_palabra = os.path.basename(palabra)
-    candidatos = _buscar_clips_de_audio(safe_palabra)
-    if not candidatos:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No hay clips de audio real guardados para '{safe_palabra}'.",
-        )
-
-    random.shuffle(candidatos)
-    waveform = None
-    ultimo_error = None
-    for elegido in candidatos:
-        try:
-            if elegido.lower().endswith(_AUDIO_DIRECTO):
-                waveform = load_audio_16k(elegido)
-            else:
-                waveform = _extraer_audio_de_video(elegido)
-            break
-        except Exception as e:
-            ultimo_error = e
-    if waveform is None:
-        raise HTTPException(status_code=422, detail=f"No se pudo leer ningún clip de referencia ({ultimo_error}).")
-
-    buffer_wav = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-    buffer_wav.close()
-    try:
-        torchaudio.save(buffer_wav.name, waveform.unsqueeze(0), TARGET_SAMPLE_RATE)
-        with open(buffer_wav.name, "rb") as f:
-            contenido = f.read()
-    finally:
-        os.remove(buffer_wav.name)
-
-    return Response(content=contenido, media_type="audio/wav")
-
-
 DEBUG_FRASES_DIR = os.path.join(BASE_DIR, "data", "debug_frases")
 DEBUG_FRASES_MAX_ARCHIVOS = 80
 
@@ -1474,6 +1405,36 @@ def _palabras_flojas(texto, resultado):
         return None
 
 
+@app.post("/ejercicio_resultado")
+def ejercicio_resultado(
+    ejercicio_id: str = Form(...),
+    tipo: str = Form(...),
+    correcto: bool = Form(...),
+    fuerza: int = Form(None),
+    aguante: int = Form(None),
+    parejo: int = Form(None),
+    voz: int = Form(None),
+    porcentaje_ok: float = Form(None),
+    tipo_error: str = Form(None),
+):
+    if tipo not in ("praxia", "soplo", "voz", "practica", "diagnostico", "evaluacion", "palabra"):
+        raise HTTPException(status_code=400, detail="tipo tiene que ser praxia, soplo, voz, practica, diagnostico, evaluacion o palabra.")
+    for nombre, valor in (("fuerza", fuerza), ("aguante", aguante), ("parejo", parejo), ("voz", voz)):
+        if valor is not None and not 1 <= valor <= 3:
+            raise HTTPException(status_code=400, detail=f"{nombre} va de 1 a 3 estrellas.")
+    guardado = db.save_ejercicio(
+        ejercicio_id=ejercicio_id[:40], tipo=tipo, correcto=correcto, fuerza=fuerza, aguante=aguante,
+        parejo=parejo, voz=voz, porcentaje_ok=porcentaje_ok, tipo_error=tipo_error,
+    )
+    return {"guardado": guardado}
+
+
+@app.get("/ejercicios/resumen")
+def ejercicios_resumen():
+    filas = db.get_ejercicios_resumen()
+    return {"ejercicios": filas if filas is not None else [], "base_de_datos": filas is not None}
+
+
 @app.post("/ejercicio_voz")
 async def ejercicio_voz(
     audio: UploadFile = File(...),
@@ -1511,6 +1472,9 @@ async def ejercicio_voz(
             "palabra_reconocida": resultado["palabra_reconocida"],
             "segundos_de_habla": round(seg_habla, 1),
             "tipo_error": resultado.get("tipo_error_audio"),
+            "fonemas": resultado["fonemas"],
+            "scores": [None if s is None else round(float(s), 2) for s in resultado["scores"]],
+            "reconocido_libre": resultado.get("reconocido_libre"),
         }
         tokens = resultado["reconocido_libre"].split()
         if tipo == "ritmo":
@@ -1525,12 +1489,46 @@ async def ejercicio_voz(
         else:
             malas = _palabras_flojas(texto, resultado)
             salida["palabras_flojas"] = malas if malas is not None else []
-            salida["correcta"] = (
-                pct_ok >= 0.75
-                and bool(resultado["palabra_reconocida"])
-                and not malas
-            )
-        _guardar_debug_frase(audio_path, None, f"ej_{tipo}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
+            # Palabras sueltas cortas (3-4 sonidos): un solo sonido dudoso baja a 67 %, así que
+            # el corte es más flexible que en frases y trabalenguas.
+            corte = 0.7 if tipo == "palabra" else 0.75
+            if tipo == "palabra":
+                # Palabra suelta: además del porcentaje, un sonido muy mal dicho tiene que fallar la palabra.
+                #  - el PRIMER sonido (el que casi siempre se cambia: "tan" por "pan") no puede bajar de -3.5,
+                #    salvo en las palabras que empiezan con n, ñ, y, ll o ch, que este modelo puntúa raro aunque
+                #    estén bien dichas (en ellas el primer sonido no se evalúa);
+                #  - ningún otro sonido puede bajar de -7 ("dato" por "gato", "supete" por "chupete").
+                # Se endureció (antes -4.5 y -9) porque palabras mal dichas con voz real se aceptaban como bien;
+                # falta calibrar con niños. Cada intento se anota en data/intentos_voz.csv para ajustar los umbrales.
+                inicio_inestable = texto.strip().lower().startswith(("ñ", "y", "ll", "ch"))
+                # La N inicial sí se mide bien (bien dicha ~0; si la omiten, "ido" por "nido", baja a -6 o menos).
+                inicio_n = texto.strip().lower().startswith("n")
+                evaluados = scores[1:] if inicio_inestable else scores
+                validos = [s for s in evaluados if s is not None]
+                primero = scores[0] if scores else None
+                primer_sonido_mal = (primero is not None and primero < -3.5 and not inicio_inestable)
+                algun_sonido_muy_mal = (bool(validos) and min(validos) < -7.0) or (
+                    inicio_inestable and primero is not None and primero < -9.0) or (
+                    inicio_n and primero is not None and primero < -5.0)
+                salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal
+            else:
+                salida["correcta"] = (
+                    pct_ok >= corte
+                    and bool(resultado["palabra_reconocida"])
+                    and not malas
+                )
+        palabra_corta = "".join(ch for ch in texto.lower() if ch.isalnum())[:14]
+        _guardar_debug_frase(audio_path, None, f"ej_{tipo}_{palabra_corta}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
+        try:
+            ruta_log = os.path.join(BASE_DIR, "data", "intentos_voz.csv")
+            nuevo_log = not os.path.exists(ruta_log)
+            with open(ruta_log, "a", encoding="utf-8") as fh:
+                if nuevo_log:
+                    fh.write("fecha;palabra;tipo;porcentaje_ok;scores;veredicto\n")
+                fh.write(f"{datetime.now().isoformat(timespec='seconds')};{texto};{tipo};{salida['porcentaje_ok']};"
+                         f"{salida.get('scores')};{'bien' if salida['correcta'] else 'mal'}\n")
+        except Exception:
+            pass
 
         print(f"[ejercicio-voz] tipo={tipo} texto={texto!r} | ok={salida['porcentaje_ok']}% "
               f"reconocida={salida['palabra_reconocida']} | correcta={salida['correcta']}"

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getRecordings, getServerUrl } from "../api.js";
-import { iconFor } from "../wordIcons.js";
+import { iconoDePalabra as iconFor } from "../progresoSonidos.js";
+import { agruparPorSonido, getResumenEjercicios, unirConPalabrasNuevas } from "../progresoSonidos.js";
 import { tipoErrorInfo } from "../errorTips.js";
 import { AppCard, AppBackground, EmptyState, ScreenHeader, SectionLabel } from "../components/Shared.jsx";
 import { chartPalette } from "../theme.js";
@@ -10,7 +11,7 @@ function aggregate(recordings) {
   const fallas = recordings.filter((r) => r.correcta === false);
   const grouped = {};
   for (const r of fallas) {
-    const g = (grouped[r.word] ??= { word: r.word, total: 0, lastDate: r.date, tipos: {} });
+    const g = (grouped[r.word] ??= { word: r.word, sonido: r.sonido, total: 0, lastDate: r.date, tipos: {} });
     g.total += r.count || 1;
     if (r.date > g.lastDate) g.lastDate = r.date;
     if (r.tipo_error) {
@@ -30,7 +31,8 @@ export default function ErrorsScreen({ active = true }) {
   async function load() {
     try {
       const data = await getRecordings(getServerUrl());
-      setRecordings(data.recordings || []);
+      const resumen = await getResumenEjercicios();
+      setRecordings(unirConPalabrasNuevas(data.recordings || [], resumen));
     } catch {
       setRecordings((prev) => prev ?? []);
     }
@@ -69,12 +71,16 @@ export default function ErrorsScreen({ active = true }) {
           <EmptyState icon="🎉" message="¡Ninguna falla registrada todavía! Seguí practicando así." />
         ) : (
           <>
-            <SectionLabel>Palabras a reforzar</SectionLabel>
-            <div className="phrase-grid">
-              {fallas.map((f, i) => (
-                <FallaCard key={f.word} falla={f} color={chartPalette[i % chartPalette.length]} onOpen={() => setDetail(f)} />
-              ))}
-            </div>
+            {agruparPorSonido(fallas).map((gr) => (
+              <div key={gr.clave}>
+                <SectionLabel>{gr.icono} {gr.titulo}</SectionLabel>
+                <div className="phrase-grid">
+                  {gr.items.map((f, i) => (
+                    <FallaCard key={`${gr.clave}-${f.word}`} falla={f} color={chartPalette[i % chartPalette.length]} onOpen={() => setDetail(f)} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </>
         )}
       </div>
