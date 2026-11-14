@@ -42,10 +42,24 @@ export const guardarSoloImagen = (v) => escribir(K_SOLO_IMAGEN, !!v);
 
 // evaluaciones: { r: { previa: {bien, total, t, hechos}, intermedia: {...}, final: {...} } }
 export const evaluaciones = () => leer(K_EVALS, {});
-export function guardarEvaluacion(sonido, etapa, bien, total) {
+export function guardarEvaluacion(sonido, etapa, bien, total, logradas = 0) {
   const e = evaluaciones();
-  e[sonido] = { ...(e[sonido] || {}), [etapa]: { bien, total, t: Date.now(), hechos: ejerciciosHechos() } };
+  e[sonido] = { ...(e[sonido] || {}), [etapa]: { bien, total, t: Date.now(), hechos: ejerciciosHechos(), logradas } };
   escribir(K_EVALS, e);
+}
+
+/// Empezar de nuevo un sonido: se borran las palabras logradas y las pruebas intermedia y final
+/// (se conserva la previa, que es el punto de partida del niño).
+export function reiniciarSonido(sonido, palabras) {
+  const l = leer(K_LOGRADAS, {});
+  palabras.forEach((p) => { delete l[p]; });
+  escribir(K_LOGRADAS, l);
+  const e = evaluaciones();
+  if (e[sonido]) {
+    const { previa } = e[sonido];
+    e[sonido] = previa ? { previa } : {};
+    escribir(K_EVALS, e);
+  }
 }
 
 /// Qué evaluación toca para un sonido: "previa" si nunca se hizo; "intermedia"
@@ -69,3 +83,45 @@ export function ejerciciosParaSiguiente(sonido, cada) {
 const K_CAMARA = "fk_usar_camara";
 export const usarCamara = () => leer(K_CAMARA, true);
 export const guardarUsarCamara = (v) => escribir(K_CAMARA, !!v);
+
+// ---- Evaluaciones por PALABRAS logradas (como pidió la fonoaudióloga) ----
+/// Cuántas de las palabras de la lista ya se lograron.
+export const contarLogradas = (lista) => {
+  const l = palabrasLogradas();
+  return lista.filter((p) => l[p]).length;
+};
+
+/// Estado de las tres evaluaciones de un sonido:
+///  - previa: siempre disponible hasta hacerla;
+///  - intermedia: se abre al lograr `cada` palabras más desde la previa;
+///  - final: se abre al lograr TODAS las palabras del sonido (y haber hecho la intermedia).
+// Sonidos con TODO habilitado para la presentación (pruebas y palabras abiertas sin condiciones).
+export const SONIDOS_DESBLOQUEADOS = new Set(["m"]);
+
+export function estadoEvaluacion(sonido, palabras, cada = 5) {
+  const e = evaluaciones()[sonido] || {};
+  if (SONIDOS_DESBLOQUEADOS.has(sonido)) {
+    const logradas = contarLogradas(palabras);
+    return {
+      e: { ...e, previa: e.previa || true, intermedia: e.intermedia || true }, logradas, total: palabras.length,
+      previa: { hecha: e.previa || null, toca: true },
+      intermedia: { hecha: e.intermedia || null, toca: true, faltan: 0 },
+      final: { hecha: e.final || null, toca: true, faltan: 0 },
+    };
+  }
+  // Una prueba del medio o final con menos de 2 estrellas no cuenta: se empieza de nuevo el sonido
+  // (también limpia lo que se guardó antes de existir esta regla).
+  if ((e.intermedia && e.intermedia.bien < 2) || (e.final && e.final.bien < 2)) {
+    reiniciarSonido(sonido, palabras);
+    return estadoEvaluacion(sonido, palabras, cada);
+  }
+  const logradas = contarLogradas(palabras);
+  const total = palabras.length;
+  const desdePrevia = logradas - (e.previa?.logradas ?? 0);
+  return {
+    e, logradas, total,
+    previa: { hecha: e.previa || null, toca: !e.previa },
+    intermedia: { hecha: e.intermedia || null, toca: !e.intermedia && desdePrevia >= cada, faltan: Math.max(cada - desdePrevia, 0) },
+    final: { hecha: e.final || null, toca: !e.final && logradas >= total, faltan: Math.max(total - logradas, 0) },
+  };
+}

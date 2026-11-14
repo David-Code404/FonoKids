@@ -68,22 +68,61 @@ export function decirSonido(sonido) {
   decirEnVoz(DICE[sonido] || sonido);
 }
 
-// Cómo se escribe el sonido en pantalla (la N se dice "nnn", no "ene").
-const SE_VE = { m: "MMM", n: "NNN", f: "FFF", s: "SSS", z: "SSS", l: "LLL", r: "RRR", rr: "RRRR", j: "JJJ", ch: "CHHH", ll: "LL", y: "Y", "ñ": "ÑÑÑ" };
-export const comoSeVe = (u) => SE_VE[u.sonido] || u.letras;
+// En las cartas se muestra la letra tal como está en la palabra (una N es "N", no "NNN"): así el niño no confunde cuántas letras tiene.
+export const comoSeVe = (u) => u.letras;
 
 // Videos de referencia (cara de quien lo dice) por sonido; los que faltan no muestran botón.
 const VIDEOS = {
   m: ["m1", "m2"], p: ["p1", "p2"], n: ["n1", "n2"], t: ["t1", "t2"], b: ["b1", "b2"], d: ["d1", "d2"],
   f: ["f1", "f2"], k: ["c1"], g: ["g1", "g2"], ch: ["ch1", "ch2"], ll: ["ll1", "ll2"], y: ["y1", "y2"],
-  "ñ": ["ni1", "ni2"], l: ["l1", "l2"], s: ["s1", "s2"], r: ["r"], a: ["a1", "a2"], e: ["e1", "e2"], i: ["i1", "i2"], o: ["o1", "o2"], u: ["u1", "u2"], z: ["z1", "z2"], j: ["j1", "j2"], rr: ["rr", "rrb1", "rrb2"],
+  "ñ": ["ni1", "ni2"], v: ["b1", "b2"], l: ["l1", "l2"], s: ["s1", "s2"], r: ["r"], a: ["a1", "a2"], e: ["e1", "e2"], i: ["i1", "i2"], o: ["o1", "o2"], u: ["u1", "u2"], z: ["z1", "z2"], j: ["j1", "j2"], rr: ["rr", "rrb1", "rrb2"],
 };
 export const videosDe = (sonido) => (VIDEOS[sonido] || []).map((v) => `/referencia/${v}.mp4`);
 
 // Forma de la carta de cada sonido, para acordarse de qué tipo es:
-// círculo = vocal, triángulo = suena largo (mmm, sss...), cuadrado = suena cortito (p, t, k...).
+// círculo = vocal, triángulo = suena largo (mmm, sss...), cuadrado = suena cortito (p, t, k...),
+// rectángulo = dos letras que suenan como un solo sonido (ch, ll, rr, qu, gu).
 const CORTOS = new Set(["p", "t", "k", "b", "d", "g", "ch"]);
 export function formaDe(u) {
+  if (u.letras.length > 1) return "rectangulo"; // dos letras que suenan como un solo sonido (CH, LL, RR, QU, GU)
   if (esVocal(u.letras)) return "circulo";
   return CORTOS.has(u.sonido) ? "cuadrado" : "triangulo";
+}
+
+/// Qué sonido(s) de la palabra salieron mal, según el puntaje de cada sonido que devuelve el servidor.
+/// Devuelve hasta 2 sonidos (los peores) como [{ letras, indice, score }] o null si no se puede ubicar.
+/// Las palabras que empiezan con ñ, y, ll o ch no cuentan su primer sonido: el modelo lo puntúa raro aunque esté bien.
+export function sonidosAMejorar(palabra, scores) {
+  const unidades = fonemasDe(palabra);
+  if (!unidades.length || !Array.isArray(scores) || unidades.length !== scores.length) return null;
+  const inestable = /^(ñ|y|ll|ch)/i.test(palabra.trim());
+  const malos = [];
+  scores.forEach((sc, i) => {
+    if (sc == null || sc >= -3.0) return;
+    if (i === 0 && inestable) return;
+    malos.push({ letras: unidades[i].letras, indice: i, score: sc });
+  });
+  malos.sort((a, b) => a.score - b.score);
+  const vistos = new Set();
+  return malos.filter((m) => !vistos.has(m.letras) && vistos.add(m.letras)).slice(0, 2);
+}
+
+/// Qué sonido(s) de la palabra salieron BIEN (para elogiar con nombre propio: "¡Muy bien la M!").
+/// Prefiere consonantes (las vocales casi siempre salen bien y no dicen nada), con puntaje alto, y devuelve hasta 2 letras.
+/// Si la palabra no tiene consonantes buenas, usa las vocales. null si no se puede ubicar.
+export function sonidosBienDichos(palabra, scores) {
+  const unidades = fonemasDe(palabra);
+  if (!unidades.length || !Array.isArray(scores) || unidades.length !== scores.length) return null;
+  const inestable = /^(ñ|y|ll|ch)/i.test(palabra.trim());
+  const buenos = [];
+  scores.forEach((sc, i) => {
+    if (sc == null || sc < -1.5) return;
+    if (i === 0 && inestable) return;
+    buenos.push({ letras: unidades[i].letras, indice: i, score: sc, vocal: esVocal(unidades[i].letras) });
+  });
+  buenos.sort((a, b) => (a.vocal - b.vocal) || (b.score - a.score));
+  const vistos = new Set();
+  const unicos = buenos.filter((m) => !vistos.has(m.letras) && vistos.add(m.letras));
+  const consonantes = unicos.filter((m) => !m.vocal);
+  return (consonantes.length ? consonantes : unicos).slice(0, 2);
 }

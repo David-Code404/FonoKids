@@ -33,8 +33,11 @@ export function parsearIdPalabra(id) {
   const t = /^test_([a-z-]+)_(.+)$/.exec(id || "");
   if (t) return { sonido: ALIAS[t[1]] || t[1], palabra: t[2] };
   // "r_rana", "sinfonesL_plato" (evaluaciones previa, intermedia y final)
-  const e = /^(r|s|l|k|g|sinfonesL|sinfonesR)_(.+)$/.exec(id || "");
-  if (e) return { sonido: SONIDO_EVAL[e[1]], palabra: e[2] };
+  const e = /^([A-Za-z]+)_(.+)$/.exec(id || "");
+  if (e) {
+    const sonido = SONIDO_EVAL[e[1]] || ALIAS[e[1]] || e[1];
+    if (ORDEN_SONIDOS.includes(sonido)) return { sonido, palabra: e[2] };
+  }
   return null;
 }
 

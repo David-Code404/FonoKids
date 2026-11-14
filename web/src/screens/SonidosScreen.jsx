@@ -4,11 +4,12 @@ import { createAudioRecorder } from "../audioRecorder.js";
 import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import {
   EVALUACIONES, NIVELES_SILABAS, PRACTICA_SECCIONES, PANELES, ETIQUETA_POS,
+  evaluacionDeGrupo, grupoDeEval, palabrasDeGrupo,
   EJERCICIOS_POR_EVALUACION, SESIONES_LEVE, SESIONES_NORMAL,
 } from "../palabras.js";
 import {
-  diasDeUso, ejerciciosHechos, ejerciciosParaSiguiente, evaluacionQueToca, evaluaciones,
-  guardarEvaluacion, guardarSoloImagen, marcarLograda, palabrasLogradas, soloImagen,
+  contarLogradas, reiniciarSonido, diasDeUso, ejerciciosHechos, estadoEvaluacion, evaluaciones,
+  guardarEvaluacion, guardarSoloImagen, marcarLograda, SONIDOS_DESBLOQUEADOS, palabrasLogradas, soloImagen,
 } from "../progreso.js";
 import { mensajeBien, mensajeFalta, sonidoBien, sonidoFalta } from "../sonidos.js";
 import { useLandmarks } from "../components/useLandmarks.js";
@@ -17,6 +18,8 @@ import "./HomeScreen.css";
 import "./EjerciciosScreen.css";
 import "./SonidosScreen2.css";
 import FonemasScreen from "./FonemasScreen.jsx";
+import { fonemasDe, sonidosAMejorar, sonidosBienDichos, videosDe, decirSonido } from "../fonemas.js";
+import { GrabarSonido } from "./FonemasScreen.jsx";
 
 // Los tests (previo, intermedio y final) están apagados por ahora: ponerlo en true para volver a mostrarlos.
 const TESTS_ACTIVOS = true;
@@ -53,6 +56,89 @@ function Encabezado({ icono, titulo, onBack }) {
     <div className="path-header">
       {onBack && <button className="icon-button" onClick={onBack}>←</button>}
       <span className="path-title">{icono} {titulo}</span>
+    </div>
+  );
+}
+
+
+// Cuando la palabra sale mal, dice EXACTAMENTE qué sonido hay que mejorar y lo marca en la palabra.
+function ElogioEspecifico({ palabra, resultado, bien }) {
+  const buenos = sonidosBienDichos(palabra, resultado.scores);
+  if (!buenos || !buenos.length) return null;
+  const nombres = buenos.map((m) => m.letras).join(" y ");
+  const texto = bien
+    ? `¡Muy bien ${buenos.length > 1 ? "los sonidos" : "el sonido"} ${nombres}! 🌟`
+    : `${buenos.length > 1 ? "Te salieron bien" : "Te salió bien"} ${buenos.length > 1 ? "los sonidos" : "el sonido"} ${nombres} 👏`;
+  return <div className="repeat-hint" style={{ marginTop: 4, fontWeight: 700, color: "#2fa56c" }}>{texto}</div>;
+}
+
+// Sonidos a mejorar de una palabra mal dicha (hasta 2). Si ninguno bajó del corte (p. ej. N/LL/Y inicial por
+// el reconocimiento libre) se señala el de menor puntaje, o el primero si no hay puntajes.
+function sonidosParaPracticar(palabra, resultado) {
+  const letras = fonemasDe(palabra);
+  let mal = sonidosAMejorar(palabra, resultado.scores);
+  if (mal && !mal.length && letras.length) {
+    const sc = Array.isArray(resultado.scores) && resultado.scores.length === letras.length ? resultado.scores : null;
+    let i = 0;
+    if (sc) sc.forEach((v, k) => { if (v != null && (sc[i] == null || v < sc[i])) i = k; });
+    mal = [{ letras: letras[i].letras, indice: i, score: sc ? sc[i] : null }];
+  }
+  return { letras, mal: mal || [] };
+}
+
+// "Mira y repite": al fallar, el video de cómo se hace el sonido que falló y un botón para decirlo suelto.
+function MiraYRepite({ palabra, resultado }) {
+  const { letras, mal } = sonidosParaPracticar(palabra, resultado);
+  const [paso, setPaso] = useState("ver"); // ver -> decir -> listo
+  const videoRef = useRef(null);
+  if (!mal.length) return null;
+  const u = letras[mal[0].indice];
+  const videos = videosDe(u.sonido);
+  const nombre = mal[0].letras;
+  return (
+    <div style={{ marginTop: 10, textAlign: "center" }}>
+      <div className="repeat-hint" style={{ fontWeight: 800 }}>👀 Mira cómo se hace la {nombre} y repite</div>
+      {videos.length > 0 && (
+        <video
+          key={videos[0]} ref={videoRef} className="como-video" src={videos[0]} autoPlay playsInline disablePictureInPicture
+          controlsList="nodownload noremoteplayback" onContextMenu={(e) => e.preventDefault()}
+        />
+      )}
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", margin: "6px 0" }}>
+        <button className="ver-video" onClick={() => { const v = videoRef.current; if (v) { v.currentTime = 0; v.play(); } else decirSonido(u.sonido); }}>🔁 Ver otra vez</button>
+        <button className="ver-video" onClick={() => decirSonido(u.sonido)}>🔊 Escuchar la {nombre}</button>
+      </div>
+      {paso === "ver" && (
+        <button className="path-cta" onClick={() => setPaso("decir")}>Ahora tú →</button>
+      )}
+      {paso === "decir" && <GrabarSonido sonido={{ sonido: u.sonido, letras: u.letras }} onBien={() => setPaso("listo")} />}
+      {paso === "listo" && <div className="repeat-hint" style={{ fontWeight: 800, color: "#2fa56c" }}>¡Muy bien la {nombre}! 🌟 Ahora intenta la palabra otra vez</div>}
+    </div>
+  );
+}
+
+function SonidoAPracticar({ palabra, resultado }) {
+  const { letras, mal } = sonidosParaPracticar(palabra, resultado);
+  if (!mal || !mal.length) return null;
+  const marcados = new Set(mal.map((m) => m.indice));
+  return (
+    <div style={{ marginTop: 6, textAlign: "center" }}>
+      <div className="repeat-hint" style={{ marginBottom: 6 }}>
+        Practica este sonido: <b>{mal.map((m) => m.letras).join(" y ")}</b>
+      </div>
+      <div style={{ display: "flex", gap: 6, justifyContent: "center", flexWrap: "wrap" }}>
+        {letras.map((u, k) => (
+          <span
+            key={k}
+            style={{
+              padding: "4px 11px", borderRadius: 10, fontWeight: 800, fontSize: 20,
+              background: marcados.has(k) ? "#ff7a8a" : "#e4ece8", color: marcados.has(k) ? "#fff" : "#4a5560",
+            }}
+          >
+            {u.letras}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
@@ -247,6 +333,9 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
             <div className="result-overlay-tip" style={{ marginTop: 6 }}>
               <div className="result-overlay-emoji">{bien ? "😄" : "🤔"}</div>
               <span className="result-overlay-tip-label">{mensaje}</span>
+              <ElogioEspecifico palabra={item.palabra} resultado={resultado} bien={bien} />
+              {!bien && <SonidoAPracticar palabra={item.palabra} resultado={resultado} />}
+              {!bien && !modoEvaluacion && <MiraYRepite palabra={item.palabra} resultado={resultado} />}
               <EsfuerzoResumen esfuerzo={esfuerzo} />
               {modoEvaluacion ? (
                 <span className="result-overlay-tip-text">Siguiente en un momento...</span>
@@ -272,10 +361,11 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
 // ------------------------------------------------------------ EVALUACIÓN
 const NOMBRE_ETAPA = { previa: "Previa", intermedia: "Intermedia", final: "Final" };
 
-function EvaluacionRun({ evalDef, etapa, onSalir }) {
+export function EvaluacionRun({ evalDef, etapa, onSalir }) {
   const [i, setI] = useState(0);
   const [bien, setBien] = useState(0);
   const [fin, setFin] = useState(false);
+  const [reinicio, setReinicio] = useState(false);
   const total = evalDef.palabras.length;
 
   function siguiente(ok) {
@@ -284,7 +374,12 @@ function EvaluacionRun({ evalDef, etapa, onSalir }) {
     if (i + 1 < total) {
       setI(i + 1);
     } else {
-      guardarEvaluacion(evalDef.key, etapa, b, total);
+      guardarEvaluacion(evalDef.key, etapa, b, total, contarLogradas(palabrasDeGrupo(grupoDeEval(evalDef.key))));
+      // Menos de 2 estrellas en la prueba del medio o en el reto final: se empieza de nuevo el sonido.
+      if (etapa !== "previa" && b < 2) {
+        reiniciarSonido(evalDef.key, palabrasDeGrupo(grupoDeEval(evalDef.key)));
+        setReinicio(true);
+      }
       setFin(true);
     }
   }
@@ -297,8 +392,13 @@ function EvaluacionRun({ evalDef, etapa, onSalir }) {
         <div className="repeat-stage ejercicio-stage">
           <div className="result-overlay-emoji">{bien === total ? "🌟" : "👏"}</div>
           <div className="repeat-word" style={{ fontSize: 26 }}>
-            {bien} de {total} palabras bien
+            {"⭐".repeat(bien)}{"☆".repeat(total - bien)} · {bien} de {total} palabras bien
           </div>
+          {reinicio && (
+            <div className="repeat-hint" style={{ margin: "8px 0" }}>
+              Hoy no alcanzaron las estrellas (hacen falta 2). ¡Vamos a practicar las palabras de nuevo desde el principio! 💪
+            </div>
+          )}
           <Comparacion e={e} />
           <button className="path-cta" onClick={onSalir}>Listo</button>
         </div>
@@ -341,7 +441,7 @@ function Comparacion({ e }) {
           {ultimo.bien > primero.bien
             ? "¡Mejoraste desde la evaluación previa! 🎉"
             : e.final
-              ? "No hubo mejora en la prueba final. Te recomendamos consultar con un fonoaudiólogo 🩺"
+              ? "No hubo mejora en el reto final. Te recomendamos consultar con un fonoaudiólogo 🩺"
               : ultimo.bien === primero.bien
                 ? "Igual que al principio. Sigue practicando poco a poco 💪"
                 : "Hoy salió más difícil. Sigue practicando 💪"}
@@ -522,16 +622,35 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
   }
 
   // Camino de un sonido, de lo más simple a lo más difícil:
-  //   test previo -> al principio -> en medio -> prueba intermedia -> al final -> prueba final
+  //   test previo -> 5 ejercicios -> prueba intermedia -> ejercicios más difíciles -> prueba final
   function camino(b) {
-    const ev = TESTS_ACTIVOS ? EVALUACIONES.find((e) => e.key === b.ev) : null;
+    const ev = TESTS_ACTIVOS ? (EVALUACIONES.find((e) => e.key === b.ev) || evaluacionDeGrupo(b.grupo)) : null;
     const g = grupoDe(b.grupo);
     const niveles = nivelesDe(b, g);
     const pasos = [];
     if (ev) pasos.push({ tipo: "eval", etapa: "previa", ev });
+    const total = niveles.reduce((s, nv) => s + nv.palabras.length, 0);
+    if (ev && !b.sinfon && total > EJERCICIOS_POR_EVALUACION) {
+      // test previo -> primeros 5 ejercicios -> prueba intermedia -> ejercicios más difíciles -> prueba final
+      let quedan = EJERCICIOS_POR_EVALUACION;
+      const antes = [], despues = [];
+      niveles.forEach((nv) => {
+        const a = nv.palabras.slice(0, Math.max(quedan, 0));
+        const d = nv.palabras.slice(a.length);
+        quedan -= a.length;
+        if (a.length) antes.push({ ...nv, palabras: a });
+        if (d.length) despues.push({ ...nv, palabras: d, titulo: a.length ? `${nv.titulo} ⭐ más difíciles` : nv.titulo });
+      });
+      antes.forEach((nv, idx) => pasos.push({ tipo: "palabras", nivel: nv, grupoKey: g.key, idx }));
+      pasos.push({ tipo: "eval", etapa: "intermedia", ev });
+      const requiere = SONIDOS_DESBLOQUEADOS.has(ev.key) ? null : antes.flatMap((nv) => nv.palabras.map((p) => p.palabra));
+      despues.forEach((nv, idx) => pasos.push({ tipo: "palabras", nivel: nv, grupoKey: g.key, idx: antes.length + idx, requiere }));
+      pasos.push({ tipo: "eval", etapa: "final", ev });
+      return pasos;
+    }
     niveles.forEach((nv, idx) => {
       pasos.push({ tipo: "palabras", nivel: nv, grupoKey: g.key, idx });
-      if (ev && !b.sinfon && idx === 1) pasos.push({ tipo: "eval", etapa: "intermedia", ev });
+      if (ev && !b.sinfon && idx === Math.min(1, niveles.length - 1)) pasos.push({ tipo: "eval", etapa: "intermedia", ev });
     });
     if (ev) {
       if (b.sinfon) pasos.push({ tipo: "eval", etapa: "intermedia", ev });
@@ -543,9 +662,10 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
   function PasoEval({ paso, n }) {
     const e = evs[paso.ev.key] || {};
     const hecha = e[paso.etapa];
-    const toca = evaluacionQueToca(paso.ev.key, EJERCICIOS_POR_EVALUACION) === paso.etapa;
-    const faltan = ejerciciosParaSiguiente(paso.ev.key, EJERCICIOS_POR_EVALUACION);
-    const nombre = { previa: "Test previo", intermedia: "Prueba intermedia", final: "Prueba final" }[paso.etapa];
+    const est = estadoEvaluacion(paso.ev.key, palabrasDeGrupo(grupoDeEval(paso.ev.key)), EJERCICIOS_POR_EVALUACION);
+    const toca = est[paso.etapa].toca;
+    const faltan = est[paso.etapa].faltan;
+    const nombre = { previa: "Para empezar: ¿cómo te sale?", intermedia: "¿Cómo vas? Mira cuánto mejoraste", final: "¡Gran reto final!" }[paso.etapa];
     return (
       <button
         className={`paso-camino paso-eval ${hecha ? "paso-hecho" : ""}`}
@@ -556,9 +676,10 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
         <span className="paso-texto">
           <strong>📋 {nombre}</strong>
           <small>
-            {hecha ? `Hecha: ${hecha.bien} de ${hecha.total} bien ✅`
+            {hecha ? `${"⭐".repeat(hecha.bien)}${"☆".repeat(Math.max(hecha.total - hecha.bien, 0))}  ${hecha.bien} de ${hecha.total}`
               : toca ? "Toca hacerla ahora →"
-              : !e.previa ? "Primero haz el test previo" : faltan > 0 ? `Se abre después de ${faltan} ejercicio${faltan === 1 ? "" : "s"} más` : paso.etapa === "final" && !e.intermedia ? "Primero haz la prueba intermedia" : ""}
+              : paso.etapa === "intermedia" ? `Se abre al lograr ${faltan} palabra${faltan === 1 ? "" : "s"} más`
+              : `Se abre al lograr todas las palabras (faltan ${faltan})`}
           </small>
         </span>
       </button>
@@ -567,6 +688,7 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
 
   function PasoPalabras({ paso }) {
     const logradas = palabrasLogradas();
+    const bloqueado = !!paso.requiere && !paso.requiere.every((w) => logradas[w]);
     return (
       <div className="posicion-bloque">
         <div className="posicion-titulo">{paso.nivel.titulo}</div>
@@ -577,11 +699,13 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
             <VideoReferencia src="/referencia/rrb2.mp4" etiqueta="Ver cómo se dice la RR (video 3)" />
           </>
         )}
+        {bloqueado && <div className="eval-nota" style={{ textAlign: "left" }}>🔒 Se abren al lograr las primeras {paso.requiere.length} palabras</div>}
         <div className="nivel-palabras">
           {paso.nivel.palabras.map((p) => (
             <button
               key={p.palabra}
-              className={`nivel-palabra ${logradas[p.palabra] ? "lograda" : ""}`}
+              disabled={bloqueado}
+              className={`nivel-palabra ${logradas[p.palabra] ? "lograda" : ""} ${bloqueado ? "nivel-cerrado" : ""}`}
               onClick={() => (p.modelo && onAbrirModelo
                 ? onAbrirModelo(p.modelo)
                 : setVista({ tipo: "palabra", item: p, clave: `${paso.grupoKey}_${p.palabra}` }))}
@@ -735,7 +859,7 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
             )}
             {camino(b).map((paso, i) =>
               paso.tipo === "eval"
-                ? <PasoEval key={`${paso.ev.key}-${paso.etapa}`} paso={paso} n={i + 1} />
+                ? <PasoEval key={`${paso.ev.key}-${paso.etapa}`} paso={paso} n={{ previa: 1, intermedia: 2, final: 3 }[paso.etapa]} />
                 : <PasoPalabras key={paso.nivel.titulo} paso={paso} />
             )}
           </div>

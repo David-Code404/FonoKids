@@ -1477,7 +1477,49 @@ async def ejercicio_voz(
             "reconocido_libre": resultado.get("reconocido_libre"),
         }
         tokens = resultado["reconocido_libre"].split()
-        if tipo == "ritmo":
+        if tipo == "sonido":
+            # Sonido suelto ("nnn", "a"): el puntaje por fonema casi no distingue N de M ni D de R, así que
+            # se exige que el sonido pedido aparezca en el reconocimiento libre; si no aparece, solo se acepta
+            # con un puntaje casi perfecto (>= -0.5).
+            objetivo = (resultado["fonemas"] or [""])[0]
+            equivalentes = {"ɾ": {"ɾ", "r"}, "r": {"ɾ", "r"}, "ɡ": {"ɡ", "g"}, "g": {"ɡ", "g"}, "ʝ": {"ʝ", "j", "ɟ"}, "θ": {"θ", "s"}, "s": {"s", "θ"},
+                           "b": {"b", "β", "v"}, "β": {"b", "β", "v"}, "d": {"d", "ð"}, "ð": {"d", "ð"},
+                           # La CH suelta ("chhh") el modelo la oye partida en t / s / ts / sh
+                           "tʃ": {"tʃ", "ʃ", "t", "s", "ts", "ʧ"}}
+            buscados = equivalentes.get(objetivo, {objetivo})
+            presentes = [t.replace("ː", "") for t in tokens]
+            primero_sc = scores[0] if scores else None
+            vocales_fon = set("aeiouɑɛɪɔʊəʌɨɐɜæœøyɯ")
+            def _es_consonante(t):
+                c = t[:1]
+                return bool(c) and c.isalpha() and c not in vocales_fon and c != "h"
+            n_pedido = sum(1 for t in presentes if (t in buscados) or (t[:1] in buscados))
+            otras = [t for t in presentes if _es_consonante(t) and not ((t in buscados) or (t[:1] in buscados))]
+            if objetivo in vocales_fon:
+                # Vocal: aparece o puntaje casi perfecto.
+                ok_sonido = bool(n_pedido > 0 or (primero_sc is not None and primero_sc >= -0.5))
+            elif n_pedido > 0:
+                # El sonido pedido tiene que pesar al menos tanto como las demás consonantes que oye el modelo
+                # (decir RRRR en vez de NNNN deja una N suelta entre muchas R: no cuenta).
+                ok_sonido = n_pedido >= len(otras)
+            else:
+                # Sonidos que se dicen "zumbando" (nnnn, mmmm, ssss...): el modelo casi no los reconoce. Si no oye
+                # ninguna otra consonante clara ni una parecida (m en vez de n) y el puntaje no es malo, se acepta.
+                grupos_conf = [{"m", "n", "ɲ", "ŋ", "l"}, {"l", "ɾ", "r", "d"}, {"s", "θ", "f", "x", "ʃ", "z"}]
+                ok_sonido = False
+                if primero_sc is not None and primero_sc >= -6.0 and len(otras) <= 2:
+                    for g in grupos_conf:
+                        if objetivo in g:
+                            parecidos = g - buscados
+                            ok_sonido = not any((t in parecidos) or (t[:1] in parecidos) for t in presentes)
+                            break
+            # La D y la R suenan casi igual sueltas (el modelo lee la R tocada como "d"): para ellas además se
+            # exige un puntaje decente, aunque eso rechace algunas D bien dichas.
+            if objetivo in ("d", "ð", "ɾ", "r") and (primero_sc is None or primero_sc < -3.5):
+                ok_sonido = False
+            salida["correcta"] = ok_sonido
+            salida["reconocido_sonido"] = presentes
+        elif tipo == "ritmo":
             ciclos = _ciclos_pataka(tokens)
             silabas = sum(1 for t in tokens if t[:1] in ("p", "t", "k"))
             salida.update({
@@ -1491,7 +1533,7 @@ async def ejercicio_voz(
             salida["palabras_flojas"] = malas if malas is not None else []
             # Palabras sueltas cortas (3-4 sonidos): un solo sonido dudoso baja a 67 %, así que
             # el corte es más flexible que en frases y trabalenguas.
-            corte = 0.7 if tipo == "palabra" else 0.75
+            corte = 0.6 if tipo == "palabra" else 0.75
             if tipo == "palabra":
                 # Palabra suelta: además del porcentaje, un sonido muy mal dicho tiene que fallar la palabra.
                 #  - el PRIMER sonido (el que casi siempre se cambia: "tan" por "pan") no puede bajar de -3.5,
@@ -1507,10 +1549,57 @@ async def ejercicio_voz(
                 validos = [s for s in evaluados if s is not None]
                 primero = scores[0] if scores else None
                 primer_sonido_mal = (primero is not None and primero < -3.5 and not inicio_inestable)
-                algun_sonido_muy_mal = (bool(validos) and min(validos) < -7.0) or (
-                    inicio_inestable and primero is not None and primero < -9.0) or (
-                    inicio_n and primero is not None and primero < -5.0)
-                salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal
+                # LL e Y al inicio ("llama", "yema"): el modelo puntúa muy bajo (-8 a -15) aunque estén bien dichas,
+                # así que el primer sonido no se mide por puntaje sino por lo que se oye: tiene que sonar como y/ll
+                # (j, ʝ, dʒ, ʎ, i...) y no como "l" ni quedar vacío ("lama", "ama").
+                inicio_ll_y = texto.strip().lower().startswith(("ll", "y"))
+                primero_tok = tokens[0].replace("ː", "") if tokens else ""
+                inicio_ll_y_ok = primero_tok.startswith("dʒ") or primero_tok[:1] in ("j", "ʝ", "ɟ", "ʎ", "i", "ʒ", "ʃ")
+                fon_lista = resultado.get("fonemas") or []
+                libres = [t.replace("ː", "") for t in tokens]
+                vocales_pal = set("aeiouɑɛɪɔʊəʌɨɐɜæ")
+                # Un sonido muy mal dicho falla la palabra: -7 para consonantes. Las vocales se confunden menos con
+                # otro sonido y la voz las puntúa más bajo al final de palabra ("mono"), así que para ellas -8.5.
+                # La LL/Y dentro de la palabra ("silla") el modelo la puntúa -7 a -8 aunque esté bien: se juzga por
+                # lo que se oye (y, ll, j, d suave...) y no por el puntaje.
+                ll_medio_ok = any(t[:1] in ("j", "ʝ", "ɟ", "ʎ", "i", "ʒ", "ʃ", "ð") or t.startswith("dʒ") for t in libres)
+                def _limite(i, f):
+                    if f == "ʝ":
+                        return None if (i > 0 and ll_medio_ok) else -7.0
+                    if f in ("ɾ", "r"):
+                        return -5.5  # la R suave se pierde o se vuelve "ll"/"l" ("capiballa", "capibala"): más estricto
+                    return -8.5 if f in vocales_pal else -7.0
+                muy_mal_por_puntaje = any(
+                    sc is not None and _limite(i, f) is not None and sc < _limite(i, f)
+                    for i, (f, sc) in enumerate(zip(fon_lista, scores))
+                    if not (inicio_inestable and i == 0)
+                )
+                if inicio_ll_y:
+                    algun_sonido_muy_mal = muy_mal_por_puntaje or not inicio_ll_y_ok
+                else:
+                    algun_sonido_muy_mal = muy_mal_por_puntaje or (
+                        inicio_inestable and primero is not None and primero < -9.0) or (
+                        inicio_n and primero is not None and primero < -5.0)
+                # La M inicial es nasal: si lo que se oye empieza con otro sonido ("besa" por "mesa") no es una M.
+                if fon_lista and fon_lista[0] == "m" and libres and libres[0][:1] not in ("m", "n", "ŋ", "ɱ", "ɲ"):
+                    algun_sonido_muy_mal = True
+                # Sinfones (pr, br, tr, fr, pl, bl...): al decirlos mal se pierde la R o la L ("fesa" por "fresa").
+                # Si la palabra tiene consonante + r/l, tiene que oírse alguna r/l.
+                liquidas = {"r", "ɾ", "ɹ", "l", "ɫ", "ʎ", "ɻ", "ɽ", "ʁ"}
+                consonantes_pal = {"p", "b", "t", "d", "k", "ɡ", "g", "f", "x"}
+                tiene_sinfon = any(
+                    fon_lista[i] in consonantes_pal and fon_lista[i + 1] in ("ɾ", "r", "l")
+                    for i in range(len(fon_lista) - 1)
+                )
+                if tiene_sinfon and libres and not any(t[:1] in liquidas for t in libres):
+                    algun_sonido_muy_mal = True
+                # La D entre vocales ("nido" dicho "nio") se omite o se vuelve casi nada: bien dicha sale ~0,
+                # si la omiten baja a -3.5 o menos. Por eso una D que no es la primera no puede bajar de -3.0.
+                d_omitida = any(
+                    i > 0 and f in ("d", "ð") and sc is not None and sc < -3.0
+                    for i, (f, sc) in enumerate(zip(fon_lista, scores))
+                )
+                salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal and not d_omitida
             else:
                 salida["correcta"] = (
                     pct_ok >= corte
@@ -1518,7 +1607,8 @@ async def ejercicio_voz(
                     and not malas
                 )
         palabra_corta = "".join(ch for ch in texto.lower() if ch.isalnum())[:14]
-        _guardar_debug_frase(audio_path, None, f"ej_{tipo}_{palabra_corta}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
+        tipo_seguro = "".join(ch for ch in tipo if ch.isalnum())[:12]  # el tipo viene del cliente: no puede traer / ni ..
+        _guardar_debug_frase(audio_path, None, f"ej_{tipo_seguro}_{palabra_corta}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
         try:
             ruta_log = os.path.join(BASE_DIR, "data", "intentos_voz.csv")
             nuevo_log = not os.path.exists(ruta_log)

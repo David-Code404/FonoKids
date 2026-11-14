@@ -126,7 +126,7 @@ export const PRACTICA_SECCIONES = [
         key: "pr_r", titulo: "R", icono: "🐸", libre: true,
         niveles: [
           { titulo: "R al principio", palabras: [P("rana", "🐸"), P("rosa", "🌹"), P("rueda", "🛞"), P("ratón", "🐭"), P("regalo", "🎁")] },
-          { titulo: "R en medio", palabras: [P("pera", "🍐"), P("cara", "🙂"), P("loro", "🦜"), P("torre", "🏰"), P("tortuga", "🐢"), P("naranja", "🍊"), P("zanahoria", "🥕")] },
+          { titulo: "R en medio", palabras: [P("pera", "🍐"), P("cara", "🙂"), P("loro", "🦜"), P("torre", "🗼"), P("tortuga", "🐢"), P("naranja", "🍊"), P("zanahoria", "🥕"), P("capibara", "🦫")] },
           { titulo: "R al final", palabras: [P("mar", "🌊"), P("flor", "🌸"), P("color", "🎨"), P("doctor", "🧑‍⚕️"), P("tractor", "🚜"), P("cantar", "🎤")] },
         ],
       },
@@ -134,7 +134,7 @@ export const PRACTICA_SECCIONES = [
         key: "pr_s", titulo: "S", icono: "☀️", libre: true,
         niveles: [
           { titulo: "S al principio", palabras: [P("sol", "☀️"), P("sal", "🧂"), P("sapo", "🐸"), P("sopa", "🍲"), P("silla", "🪑"), P("serpiente", "🐍")] },
-          { titulo: "S en medio", palabras: [P("casa", "🏠"), P("oso", "🐻"), P("vaso", "🥛"), P("pasta", "🍝"), P("mesa", "🍽️"), P("pasto", "🌱")] },
+          { titulo: "S en medio", palabras: [P("casa", "🏠"), P("oso", "🐻"), P("vaso", "🥛"), P("pasta", "🍝"), P("queso", "🧀"), P("pasto", "🌱")] },
           { titulo: "S al final", palabras: [P("autobús", "🚌"), P("gafas", "👓"), P("paraguas", "☂️"), P("tijeras", "✂️"), P("lunes", "📅")] },
         ],
       },
@@ -142,14 +142,14 @@ export const PRACTICA_SECCIONES = [
         key: "pr_l", titulo: "L", icono: "🌙", libre: true,
         niveles: [
           { titulo: "L al principio", palabras: [P("luna", "🌙"), P("luz", "💡"), P("lápiz", "✏️"), P("lupa", "🔍"), P("libro", "📚"), P("lengua", "👅")] },
-          { titulo: "L en medio", palabras: [P("pelota", "⚽"), P("helado", "🍦"), P("vela", "🕯️"), P("mula", "🫏"), P("pala", "⛏️"), P("bola", "🔮")] },
-          { titulo: "L al final", palabras: [P("caracol", "🐌"), P("papel", "📄"), P("sol", "☀️"), P("farol", "🏮"), P("mantel", "🧺")] },
+          { titulo: "L en medio", palabras: [P("pelota", "⚽"), P("helado", "🍦"), P("vela", "🕯️"), P("mula", "🫏"), P("pala", "⛏️"), P("bola", "🏀")] },
+          { titulo: "L al final", palabras: [P("caracol", "🐌"), P("papel", "📄"), P("sol", "☀️"), P("farol", "🏮"), P("hotel", "🏨")] },
         ],
       },
       {
         key: "pr_g", titulo: "G suave", icono: "🐱", libre: true,
         niveles: [
-          { titulo: "G al principio", palabras: [P("gato", "🐱"), P("goma", "🧽"), P("gorra", "🧢"), P("gusano", "🐛"), P("gallina", "🐔"), P("guitarra", "🎸")] },
+          { titulo: "G al principio", palabras: [P("gato", "🐱"), P("gota", "💧"), P("gorra", "🧢"), P("gusano", "🐛"), P("gallina", "🐔"), P("guitarra", "🎸")] },
           { titulo: "G en medio", palabras: [P("mago", "🧙"), P("tigre", "🐯"), P("lagarto", "🦎"), P("amigo", "🧑‍🤝‍🧑"), P("hormiga", "🐜")] },
         ],
       },
@@ -166,8 +166,8 @@ export const PRACTICA_SECCIONES = [
     titulo: "🔗 Sinfones (precursores de la R y la L)",
     grupos: [
       { key: "sf_l", titulo: "Con L: PL, BL, GL, FL, CL", icono: "🎈", libre: true, niveles: [
-        { titulo: "PL", palabras: [P("plato", "🍽️"), P("plátano", "🍌"), P("pluma", "🪶"), P("plancha", "♨️"), P("playa", "🏖️")] },
-        { titulo: "BL", palabras: [P("blusa", "👚"), P("blanco", "⬜"), P("bloque", "🧱"), P("blando", "🧸"), P("tabla", "📋")] },
+        { titulo: "PL", palabras: [P("plato", "🍽️"), P("plátano", "🍌"), P("pluma", "🪶"), P("planeta", "🪐"), P("playa", "🏖️")] },
+        { titulo: "BL", palabras: [P("blusa", "👚"), P("blanco", "⬜"), P("bloque", "🧱"), P("blando", "🧸"), P("tabla", "🪵")] },
         { titulo: "GL", palabras: [P("globo", "🎈"), P("iglesia", "⛪"), P("regla", "📏")] },
         { titulo: "FL", palabras: [P("flor", "🌸"), P("flecha", "🏹"), P("flan", "🍮"), P("flauta", "🎶")] },
         { titulo: "CL", palabras: [P("clavo", "📌"), P("clase", "🏫"), P("clavel", "🌺"), P("clima", "⛅")] },
@@ -179,7 +179,7 @@ export const PRACTICA_SECCIONES = [
         { titulo: "TR", palabras: [P("tren", "🚂"), P("trigo", "🌾"), P("trompeta", "🎺"), P("tres", "3️⃣")] },
         { titulo: "FR", palabras: [P("fresa", "🍓"), P("fruta", "🍎"), P("frío", "🥶"), P("fresco", "🍃")] },
         { titulo: "CR", palabras: [P("cruz", "✝️"), P("crema", "🧴"), P("cráneo", "💀"), P("cráter", "🌋")] },
-        { titulo: "GR", palabras: [P("grillo", "🦗"), P("granja", "🚜"), P("gris", "🩶"), P("grande", "🐘")] },
+        { titulo: "GR", palabras: [P("grillo", "🦗"), P("granja", "🏡"), P("gris", "🩶"), P("grande", "🐘")] },
       ] },
     ],
   },
@@ -192,7 +192,7 @@ export const PRACTICA_SECCIONES = [
       ] },
       { key: "di_r", titulo: "R", icono: "🐸", libre: true, niveles: [
         { titulo: "Directas: ra, re, ro", palabras: [P("rana", "🐸"), P("pera", "🍐"), P("cara", "🙂")] },
-        { titulo: "Inversas: ar, er, or", palabras: [P("puerta", "🚪"), P("torre", "🏰"), P("árbol", "🌳"), P("cuerda", "🪢")] },
+        { titulo: "Inversas: ar, er, or", palabras: [P("puerta", "🚪"), P("torre", "🗼"), P("árbol", "🌳"), P("cuerda", "🪢")] },
       ] },
       { key: "di_l", titulo: "L", icono: "🌙", libre: true, niveles: [
         { titulo: "Directas: la, le, lo", palabras: [P("luna", "🌙"), P("lobo", "🐺"), P("lupa", "🔍")] },
@@ -237,18 +237,18 @@ const grupoExtra = (key, letra, icono, inicial, medio, final) => ({
 
 export const SONIDOS_EXTRA = [
   grupoExtra("p", "P", "🦆", [["pan", "🍞"], ["pato", "🦆"], ["papa", "🥔"], ["piña", "🍍"], ["payaso", "🤡"]], [["sapo", "🐸"], ["copa", "🏆"], ["mapa", "🗺️"], ["tapa", "🥫"], ["zapato", "👟"]], []),
-  grupoExtra("b", "B", "👢", [["bus", "🚌"], ["bota", "👢"], ["boca", "👄"], ["bebé", "👶"], ["bicicleta", "🚲"]], [["cubo", "🧊"], ["lobo", "🐺"], ["tubo", "🧪"], ["nube", "☁️"], ["jabón", "🧼"]], []),
-  grupoExtra("t", "T", "🍅", [["taza", "☕"], ["toro", "🐂"], ["tigre", "🐯"], ["tomate", "🍅"], ["teléfono", "📞"]], [["pato", "🦆"], ["bota", "👢"], ["moto", "🏍️"], ["pelota", "⚽"], ["zapato", "👟"]], [["robot", "🤖"]]),
-  grupoExtra("d", "D", "🎲", [["dado", "🎲"], ["dedo", "☝️"], ["dulce", "🍬"], ["dinosaurio", "🦖"]], [["nido", "🪺"], ["helado", "🍦"], ["pedal", "🦶"], ["cuadro", "🖼️"]], [["red", "🥅"], ["pared", "🧱"], ["ciudad", "🏙️"]]),
+  grupoExtra("b", "B", "👜", [["bus", "🚌"], ["bolsa", "👜"], ["boca", "👄"], ["bebé", "👶"], ["bicicleta", "🚲"]], [["cubo", "🧊"], ["lobo", "🐺"], ["tubo", "🧪"], ["abeja", "🐝"], ["jabón", "🧼"]], []),
+  grupoExtra("t", "T", "🍅", [["taza", "☕"], ["toro", "🐂"], ["tigre", "🐯"], ["tomate", "🍅"], ["teléfono", "📞"]], [["pato", "🦆"], ["nota", "🎵"], ["moto", "🏍️"], ["pelota", "⚽"], ["zapato", "👟"]], [["robot", "🤖"]]),
+  grupoExtra("d", "D", "🐬", [["delfín", "🐬"], ["dedo", "☝️"], ["dulce", "🍬"], ["dinosaurio", "🦖"]], [["nido", "🪺"], ["helado", "🍦"], ["pedal", "🦶"], ["cuadro", "🖼️"]], [["red", "🥅"], ["pared", "🧱"], ["ciudad", "🏙️"]]),
   grupoExtra("f", "F", "🦭", [["foca", "🦭"], ["foto", "📷"], ["fuego", "🔥"], ["fantasma", "👻"]], [["café", "☕"], ["sofá", "🛋️"], ["jirafa", "🦒"], ["elefante", "🐘"]], []),
-  grupoExtra("m", "M", "🐒", [["mano", "✋"], ["mesa", "🍽️"], ["mono", "🐒"], ["moto", "🏍️"], ["mariposa", "🦋"]], [["cama", "🛏️"], ["humo", "💨"], ["limón", "🍋"], ["camisa", "👕"], ["tomate", "🍅"]], [["álbum", "📒"]]),
-  grupoExtra("n", "N", "☁️", [["nube", "☁️"], ["nido", "🪺"], ["nariz", "👃"], ["naranja", "🍊"]], [["luna", "🌙"], ["pino", "🌲"], ["banana", "🍌"], ["manzana", "🍎"]], [["pan", "🍞"], ["balón", "⚽"], ["avión", "✈️"], ["camión", "🚚"]]),
-  grupoExtra("j", "J", "🧃", [["jugo", "🧃"], ["jabón", "🧼"], ["jirafa", "🦒"], ["jardín", "🌳"]], [["ojo", "👁️"], ["caja", "📦"], ["oreja", "👂"], ["ventana", "🪟"]], [["reloj", "⌚"]]),
+  grupoExtra("m", "M", "🐒", [["mano", "✋"], ["mamá", "👩"], ["mono", "🐒"], ["moto", "🏍️"], ["mariposa", "🦋"]], [["cama", "🛏️"], ["humo", "💨"], ["limón", "🍋"], ["camisa", "👕"], ["tomate", "🍅"]], [["álbum", "📒"]]),
+  grupoExtra("n", "N", "🚀", [["nave", "🚀"], ["nido", "🪺"], ["nariz", "👃"], ["naranja", "🍊"]], [["luna", "🌙"], ["pino", "🌲"], ["banana", "🍌"], ["manzana", "🍎"]], [["pan", "🍞"], ["balón", "⚽"], ["avión", "✈️"], ["camión", "🚚"]]),
+  grupoExtra("j", "J", "🧃", [["jugo", "🧃"], ["jabón", "🧼"], ["jirafa", "🦒"], ["jardín", "🌻"]], [["ojo", "👁️"], ["caja", "📦"], ["oreja", "👂"], ["ventana", "🪟"]], [["reloj", "⌚"]]),
   grupoExtra("z", "Z", "👟", [["zorro", "🦊"], ["zapato", "👟"], ["zanahoria", "🥕"]], [["taza", "☕"], ["pizza", "🍕"], ["plaza", "🏛️"]], [["luz", "💡"], ["pez", "🐟"], ["lápiz", "✏️"], ["arroz", "🍚"]]),
-  grupoExtra("ch", "CH", "🍫", [["chupete", "🍼"], ["chicle", "🫧"], ["chaqueta", "🧥"], ["chocolate", "🍫"]], [["coche", "🚙"], ["leche", "🥛"], ["noche", "🌙"], ["mochila", "🎒"]], []),
-  grupoExtra("ll", "LL", "🔑", [["llave", "🔑"], ["lluvia", "🌧️"], ["llama", "🦙"]], [["pollo", "🐔"], ["silla", "🪑"], ["calle", "🛣️"], ["gallina", "🐔"]], []),
-  grupoExtra("y", "Y", "🛥️", [["yo-yo", "🪀"], ["yate", "🛥️"], ["yema", "🥚"], ["yogur", "🥛"]], [["rayo", "⚡"], ["joya", "💎"], ["payaso", "🤡"], ["mayonesa", "🥫"]], []),
-  grupoExtra("ni", "Ñ", "🧒", [], [["uña", "💅"], ["año", "📅"], ["piña", "🍍"], ["baño", "🛁"], ["niño", "🧒"], ["araña", "🕷️"]], []),
+  grupoExtra("ch", "CH", "🍫", [["chancho", "🐷"], ["chaqueta", "🧥"], ["chocolate", "🍫"], ["chivo", "🐐"]], [["coche", "🚙"], ["cuchara", "🥄"], ["noche", "🌃"], ["mochila", "🎒"]], []),
+  grupoExtra("ll", "LL", "🔑", [["llave", "🔑"], ["lluvia", "🌧️"], ["llama", "🦙"]], [["pollo", "🍗"], ["silla", "🪑"], ["calle", "🛣️"], ["gallina", "🐔"]], []),
+  grupoExtra("y", "Y", "🛥️", [["yo-yo", "🪀"], ["yate", "🛥️"], ["yema", "🥚"], ["yogur", "🥣"]], [["rayo", "⚡"], ["joya", "💎"], ["payaso", "🤡"], ["mayonesa", "🥫"]], []),
+  grupoExtra("ni", "Ñ", "🧒", [], [["uña", "💅"], ["año", "🎂"], ["piña", "🍍"], ["baño", "🛁"], ["niño", "🧒"], ["araña", "🕷️"]], []),
 ];
 // La L ya existe como grupo de práctica (pr_l): se suma a la lista de sonidos.
 SONIDOS_EXTRA.push(PRACTICA_SECCIONES[0].grupos.find((g) => g.key === "pr_l"));
@@ -262,3 +262,39 @@ PRACTICA_SECCIONES.push({ titulo: "Más sonidos", grupos: SONIDOS_EXTRA });
 export const ORDEN_SONIDOS = [
   "m", "p", "n", "t", "b", "d", "f", "c-k", "g", "ch", "ll", "y", "ni", "l", "j", "z", "s", "rr", "sinfones",
 ];
+
+// ---------------------------------------------------------------------------
+// Evaluaciones de CADA sonido (previa, intermedia al lograr 5 palabras y final al lograr todas).
+const GRUPO_DE_EVAL = { r: "pr_r", s: "pr_s", l: "pr_l", k: "pr_k", g: "pr_g", sinfonesL: "sf_l", sinfonesR: "sf_r" };
+export const grupoDeEval = (key) => GRUPO_DE_EVAL[key] || `pr_${key}`;
+
+function buscarGrupo(grupoKey) {
+  for (const sec of PRACTICA_SECCIONES) for (const g of sec.grupos) if (g.key === grupoKey) return g;
+  return null;
+}
+
+/// Todas las palabras de un sonido, sin repetir.
+export function palabrasDeGrupo(grupoKey) {
+  const g = buscarGrupo(grupoKey);
+  if (!g) return [];
+  const vistas = new Set();
+  return g.niveles.flatMap((n) => n.palabras.map((p) => p.palabra)).filter((w) => !vistas.has(w) && vistas.add(w));
+}
+
+/// La evaluación de un sonido: la escrita a mano si existe; si no, 3 palabras sacadas de su práctica
+/// (una al principio, una en medio y una al final, cuando el sonido las tiene).
+export function evaluacionDeGrupo(grupoKey) {
+  const key = Object.keys(GRUPO_DE_EVAL).find((k) => GRUPO_DE_EVAL[k] === grupoKey) || grupoKey.replace(/^pr_/, "");
+  const hecha = EVALUACIONES.find((e) => e.key === key);
+  if (hecha) return hecha;
+  const g = buscarGrupo(grupoKey);
+  if (!g) return null;
+  const pos = (titulo) => (/principio/i.test(titulo) ? "inicial" : /final/i.test(titulo) ? "final" : "media");
+  const elegidas = [];
+  for (const nv of g.niveles) if (nv.palabras[0] && elegidas.length < 3) elegidas.push({ ...nv.palabras[0], pos: pos(nv.titulo) });
+  for (const nv of g.niveles) for (const p of nv.palabras) {
+    if (elegidas.length >= 3) break;
+    if (!elegidas.some((x) => x.palabra === p.palabra)) elegidas.push({ ...p, pos: pos(nv.titulo) });
+  }
+  return { key, titulo: `Sonido ${g.titulo}`, icono: g.icono, palabras: elegidas };
+}

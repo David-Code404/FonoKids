@@ -16,7 +16,7 @@ const TABS = [
   { key: "logros", label: "Logros", icon: "🏆" },
   { key: "errores", label: "Para practicar", icon: "🔁" },
   { key: "ejercicios", label: "Ejercicios", icon: "🔤" },
-  { key: "praxias", label: "Praxias", icon: "🤸" },
+  { key: "praxias", label: "Gimnasia", icon: "🤸" },
 ];
 
 /// Navegación por pestañas: Aprender / Logros / Para practicar -- igual que

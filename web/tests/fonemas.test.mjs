@@ -27,7 +27,7 @@ test("TODAS las palabras de la app se pueden partir y cada sonido tiene forma y 
     assert.ok(u.length >= 2, `muy corta: ${p.palabra}`);
     for (const x of u) {
       assert.ok(x.letras && x.sonido, `unidad vacía en ${p.palabra}`);
-      assert.ok(["circulo", "triangulo", "cuadrado"].includes(f.formaDe(x)));
+      assert.ok(["circulo", "triangulo", "cuadrado", "rectangulo"].includes(f.formaDe(x)));
       assert.ok(f.comoSeVe(x));
     }
     n++;
@@ -72,4 +72,41 @@ test("la lista de Ejercicios no repite sonidos (la L salía dos veces)", async (
   for (const s of pal.PRACTICA_SECCIONES) for (const g of s.grupos) if (g.key.startsWith("pr_") && !vistos.has(g.key)) { vistos.add(g.key); claves.push(g.key); }
   assert.equal(new Set(claves).size, claves.length);
   assert.ok(claves.includes("pr_l"));
+});
+
+test("las cartas muestran la letra tal cual (sin NNN) y los dígrafos son rectángulo", () => {
+  const u = f.fonemasDe("sal");
+  assert.deepEqual(u.map((x) => f.comoSeVe(x)), ["S", "A", "L"]);
+  assert.equal(f.formaDe(f.fonemasDe("chuleta")[0]), "rectangulo");
+  assert.equal(f.formaDe(f.fonemasDe("pollo")[2]), "rectangulo");
+  assert.equal(f.formaDe(f.fonemasDe("rana")[0]), "triangulo");
+});
+
+test("cada sonido tiene su evaluación de 3 palabras y los ids de evaluación se leen", () => {
+  for (const s of pal.PRACTICA_SECCIONES) for (const g of s.grupos) {
+    if (!g.key.startsWith("pr_")) continue;
+    const ev = pal.evaluacionDeGrupo(g.key);
+    assert.ok(ev && ev.palabras.length >= 3, `sin evaluación: ${g.key}`);
+    const lista = pal.palabrasDeGrupo(g.key);
+    for (const x of ev.palabras) assert.ok(lista.includes(x.palabra), `${x.palabra} no está en ${g.key}`);
+  }
+  assert.equal(JSON.stringify(ps.parsearIdPalabra("m_mano")), '{"sonido":"m","palabra":"mano"}');
+  assert.equal(JSON.stringify(ps.parsearIdPalabra("ni_uña")), '{"sonido":"ni","palabra":"uña"}');
+});
+
+test("dice qué sonido mejorar según el puntaje de cada sonido", () => {
+  const j = (x) => (x ? x.map((m) => m.letras).join("+") : null);
+  assert.equal(j(f.sonidosAMejorar("nido", [-6.73, -0.09, -0.04, -0.08])), "N");
+  assert.equal(j(f.sonidosAMejorar("rana", [-0.1, -0.2, -5.0, -0.1])), "N");
+  assert.equal(j(f.sonidosAMejorar("dado", [-5.55, -0.17, -4.49, -3.9])), "D+O");
+  assert.deepEqual(f.sonidosAMejorar("rana", [-0.1, -0.2, -0.5, -0.1]), []);       // todo bien: nada que mejorar
+  assert.equal(f.sonidosAMejorar("llama", [-12, -0.1, -0.1, -0.1]).length, 0);    // el primer sonido de LL no cuenta
+  assert.equal(f.sonidosAMejorar("rana", [-1, -2]), null);                          // no coincide el largo: no se puede ubicar
+});
+
+test("dice qué sonidos salieron bien para elogiar con nombre propio", async () => {
+  const { sonidosBienDichos } = await import("../src/fonemas.js");
+  assert.deepEqual(sonidosBienDichos("mano", [-0.02, -0.1, -0.05, -0.04]).map((x) => x.letras), ["M", "N"]);
+  assert.deepEqual(sonidosBienDichos("nido", [-6.73, -0.09, -0.04, -0.08]).map((x) => x.letras), ["D"]);
+  assert.equal(sonidosBienDichos("mano", [-0.02]), null);
 });

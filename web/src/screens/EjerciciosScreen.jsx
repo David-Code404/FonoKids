@@ -87,7 +87,7 @@ function percentil(valores, p) {
   return orden[Math.floor(p * (orden.length - 1))];
 }
 
-function PraxiaStage({ ejercicio, onBack }) {
+function PraxiaStage({ ejercicio, onBack, onSiguiente }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const landmarkerRef = useRef(null);
@@ -320,6 +320,7 @@ function PraxiaStage({ ejercicio, onBack }) {
             <div className="result-overlay-emoji" style={{ fontSize: 64 }}>🎉</div>
             <div className="repeat-hint">¡Muy bien! Completaste las {REPETICIONES} repeticiones.</div>
             <EsfuerzoResumen esfuerzo={esfuerzo} />
+            {onSiguiente && <button className="path-cta" onClick={onSiguiente}>Siguiente ejercicio →</button>}
             <button className="path-cta" onClick={repetir}>Otra vez 🔁</button>
             <button className="path-cta" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
               Elegir otro ejercicio
@@ -365,7 +366,7 @@ function PraxiaStage({ ejercicio, onBack }) {
 }
 
 // ---------------------------------------------------------------- SOPLO
-function SoploStage({ ejercicio, onBack }) {
+function SoploStage({ ejercicio, onBack, onSiguiente }) {
   const rafRef = useRef(null);
   const streamRef = useRef(null);
   const ctxRef = useRef(null);
@@ -493,6 +494,7 @@ function SoploStage({ ejercicio, onBack }) {
             <div className="result-overlay-emoji" style={{ fontSize: 64 }}>🎉</div>
             <div className="repeat-hint">¡Apagaste la vela! 💨</div>
             <EsfuerzoResumen esfuerzo={esfuerzo} />
+            {onSiguiente && <button className="path-cta" onClick={onSiguiente}>Siguiente ejercicio →</button>}
             <button className="path-cta" onClick={repetir}>Otra vez 🔁</button>
             <button className="path-cta" style={{ background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
               Elegir otro ejercicio
@@ -518,7 +520,7 @@ function SoploStage({ ejercicio, onBack }) {
 }
 
 // ---------------------------------------------------------------- VOZ
-function VozStage({ ejercicio, onBack }) {
+function VozStage({ ejercicio, onBack, onSiguiente }) {
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
   const [micListo, setMicListo] = useState(false);
@@ -636,10 +638,17 @@ function VozStage({ ejercicio, onBack }) {
                   Ritmo: {resultado.silabas_por_segundo} sílabas por segundo
                 </span>
               )}
-              {!resultado.correcta && (
+              {!resultado.correcta ? (
                 <button className="path-cta" style={{ marginTop: 10 }} onClick={empezar}>
                   🎤 Intentar de nuevo
                 </button>
+              ) : (
+                <>
+                  {onSiguiente && <button className="path-cta" style={{ marginTop: 10 }} onClick={onSiguiente}>Siguiente ejercicio →</button>}
+                  <button className="path-cta" style={{ marginTop: 6, background: "transparent", color: "var(--text-secondary)", boxShadow: "none" }} onClick={onBack}>
+                    Elegir otro ejercicio
+                  </button>
+                </>
               )}
             </div>
           ) : (
@@ -652,21 +661,31 @@ function VozStage({ ejercicio, onBack }) {
 }
 
 // ---------------------------------------------------------------- PANTALLA
+// Los trabalenguas se abren por niveles: hay que lograr uno del nivel anterior.
+function estaBloqueado(e) {
+  const logradas = palabrasLogradas();
+  return !!e.nivel && e.nivel > 1 && !EJERCICIOS.some((o) => o.nivel === e.nivel - 1 && logradas[o.id]);
+}
+
 export default function EjerciciosScreen() {
   const [abierto, setAbierto] = useState(null);
   const ejercicio = EJERCICIOS.find((e) => e.id === abierto);
 
   if (ejercicio) {
     const volver = () => setAbierto(null);
-    if (ejercicio.tipo === "praxia") return <PraxiaStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} />;
-    if (ejercicio.tipo === "soplo") return <SoploStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} />;
-    return <VozStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} />;
+    // El siguiente ejercicio en orden de dificultad; si todavía está cerrado (trabalenguas por niveles), vuelve a la lista.
+    const ordenados = EJERCICIOS.slice().sort((a, b) => a.orden - b.orden);
+    const sig = ordenados[ordenados.findIndex((e) => e.id === ejercicio.id) + 1];
+    const irSiguiente = sig ? () => setAbierto(estaBloqueado(sig) ? null : sig.id) : null;
+    if (ejercicio.tipo === "praxia") return <PraxiaStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} onSiguiente={irSiguiente} />;
+    if (ejercicio.tipo === "soplo") return <SoploStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} onSiguiente={irSiguiente} />;
+    return <VozStage key={ejercicio.id} ejercicio={ejercicio} onBack={volver} onSiguiente={irSiguiente} />;
   }
 
   return (
     <div className="path-screen">
       <div className="path-header">
-        <span className="path-title"><span className="path-mascot">🤸</span> Praxias</span>
+        <span className="path-title"><span className="path-mascot">🤸</span> Gimnasia de la boca</span>
       </div>
       <div className="racha-bar">
         <span className="racha-hint">Calienta la carita y la boca antes de practicar 💪</span>
@@ -675,8 +694,7 @@ export default function EjerciciosScreen() {
         {EJERCICIOS.slice().sort((a, b) => a.orden - b.orden).map((e, i) => {
           const logradas = palabrasLogradas();
           // Los trabalenguas se abren por niveles: hay que lograr uno del nivel anterior.
-          const bloqueado = !!e.nivel && e.nivel > 1 &&
-            !EJERCICIOS.some((o) => o.nivel === e.nivel - 1 && logradas[o.id]);
+          const bloqueado = estaBloqueado(e);
           return (
           <button
             key={e.id}

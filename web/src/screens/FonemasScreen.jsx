@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getServerUrl, ejercicioVoz } from "../api.js";
 import { createAudioRecorder } from "../audioRecorder.js";
-import { PalabraStage } from "./SonidosScreen.jsx";
-import { PRACTICA_SECCIONES, ORDEN_SONIDOS } from "../palabras.js";
+import { PalabraStage, EvaluacionRun } from "./SonidosScreen.jsx";
+import { PRACTICA_SECCIONES, ORDEN_SONIDOS, EJERCICIOS_POR_EVALUACION, evaluacionDeGrupo } from "../palabras.js";
 import { fonemasDe, decirSonido, decirEnVoz, esVocal, comoSeVe, formaDe, videosDe } from "../fonemas.js";
 import { sonidoBien, sonidoFalta } from "../sonidos.js";
-import { palabrasLogradas } from "../progreso.js";
+import { palabrasLogradas, estadoEvaluacion } from "../progreso.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 import "./HomeScreen.css";
@@ -37,7 +37,7 @@ function Encabezado({ icono, titulo, onBack }) {
   return (
     <div className="path-header">
       {onBack && <button className="icon-button" onClick={onBack}>←</button>}
-      <span className="path-title">{icono} {titulo}</span>
+      <span className="path-title" style={{ textTransform: "none" }}>{icono} {titulo}</span>
     </div>
   );
 }
@@ -46,10 +46,10 @@ function Encabezado({ icono, titulo, onBack }) {
 // El niño graba el sonido; si sale bien pasa solo al siguiente. Las consonantes se miden con el
 // detector (sonido suelto: tolerancia mayor que en palabras); las vocales solo se revisan de
 // forma muy suave porque el detector no las distingue bien sueltas. Tras 3 intentos deja seguir.
-const UMBRAL_CONSONANTE = -4.5;
+const UMBRAL_CONSONANTE = -2.5;
 const UMBRAL_VOCAL = -6.0;
 
-function GrabarSonido({ sonido, onBien }) {
+export function GrabarSonido({ sonido, onBien }) {
   const streamRef = useRef(null);
   const recRef = useRef(createAudioRecorder());
   const [listo, setListo] = useState(false);
@@ -79,9 +79,12 @@ function GrabarSonido({ sonido, onBien }) {
     try {
       const r = await ejercicioVoz(getServerUrl(), blob, sonido.sonido, "sonido");
       if (!r.valid) { setAviso(r.reason || "No te escuché, ¡prueba otra vez!"); return; }
+      // El servidor decide (el sonido pedido tiene que aparecer en lo que reconoce); el corte por puntaje
+      // queda solo como respaldo si el servidor no manda veredicto.
       const score = r.scores?.[0];
       const umbral = esVocal(sonido.letras) ? UMBRAL_VOCAL : UMBRAL_CONSONANTE;
-      if (score == null || score >= umbral) { sonidoBien(); onBien(); }
+      const bien = typeof r.correcta === "boolean" ? r.correcta : (score == null || score >= umbral);
+      if (bien) { sonidoBien(); onBien(); }
       else { sonidoFalta(); setFallos((n) => n + 1); setAviso("¡Casi! Escucha otra vez y prueba de nuevo"); }
     } catch (e) {
       setAviso(e.message || "Error al analizar el audio.");
@@ -99,6 +102,9 @@ function GrabarSonido({ sonido, onBien }) {
       )}
       {procesando && <div className="audio-only-label">Analizando...</div>}
       {aviso && <div className="audio-only-error">{aviso}</div>}
+      {!listo && aviso && (
+        <button className="cambiar-modo" onClick={onBien}>Seguir sin micrófono →</button>
+      )}
       {fallos >= 3 && !grabando && !procesando && (
         <button className="cambiar-modo" onClick={onBien}>Seguir igual →</button>
       )}
@@ -109,12 +115,13 @@ function GrabarSonido({ sonido, onBien }) {
 // Paso 1: el niño dice cada sonido por separado (sin evaluar). Paso 2: dice la palabra entera.
 // Carta con su forma (círculo, triángulo o cuadrado) y la letra bien centrada.
 function Carta({ forma, texto, estado }) {
-  const color = { circulo: "#ff7a8a", triangulo: "#8c6bff", cuadrado: "#3ec9a0" }[forma];
+  const color = { circulo: "#ff7a8a", triangulo: "#8c6bff", cuadrado: "#3ec9a0", rectangulo: "#ffa23e" }[forma];
   return (
     <div className={`carta ${estado}`}>
       <svg viewBox="0 0 100 100" aria-hidden="true">
         {forma === "circulo" && <circle cx="50" cy="50" r="46" fill={color} />}
         {forma === "cuadrado" && <rect x="6" y="6" width="88" height="88" rx="16" fill={color} />}
+        {forma === "rectangulo" && <rect x="2" y="22" width="96" height="56" rx="12" fill={color} />}
         {forma === "triangulo" && <polygon points="50,6 95,92 5,92" fill={color} strokeLinejoin="round" stroke={color} strokeWidth="6" />}
       </svg>
       <span className={forma === "triangulo" ? "carta-texto bajo" : "carta-texto"}>{texto}</span>
@@ -167,6 +174,7 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
           <span><i className="ley ley-circulo" /> vocal</span>
           <span><i className="ley ley-triangulo" /> suena largo</span>
           <span><i className="ley ley-cuadrado" /> suena cortito</span>
+          <span><i className="ley ley-rectangulo" /> dos letras, un sonido</span>
         </div>
         {videosDe(sonidos[i].sonido)[0] ? (
           <>
@@ -187,10 +195,55 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
   );
 }
 
+
+// Pruebas de CADA sonido: previa al empezar, intermedia al lograr 5 palabras y final al lograr todas.
+function PruebasDelSonido({ grupo, onAbrir, solo }) {
+  const def = evaluacionDeGrupo(grupo.key);
+  if (!def) return null;
+  const est = estadoEvaluacion(def.key, grupo.palabras.map((p) => p.palabra), EJERCICIOS_POR_EVALUACION);
+  const filas = [
+    { etapa: "previa", nombre: "Para empezar: ¿cómo te sale?", texto: est.previa.toca ? "Haz esta prueba antes de empezar →" : null },
+    {
+      etapa: "intermedia", nombre: "¿Cómo vas? Mira cuánto mejoraste",
+      texto: est.intermedia.toca ? "¡Ya lograste 5 palabras! Toca hacerla →"
+        : `Se abre al lograr ${est.intermedia.faltan} palabra${est.intermedia.faltan === 1 ? "" : "s"} más`,
+    },
+    {
+      etapa: "final", nombre: "¡Gran reto final!",
+      texto: est.final.toca ? "¡Lograste todas las palabras! Toca hacerla →"
+        : `Se abre al lograr todas las palabras (faltan ${est.final.faltan})`,
+    },
+  ];
+  return (
+    <div style={{ padding: "0 14px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+      {filas.map((f, i) => {
+        if (solo && f.etapa !== solo) return null;
+        const hecha = est[f.etapa].hecha;
+        const abierta = est[f.etapa].toca;
+        return (
+          <button
+            key={f.etapa}
+            className={`paso-camino paso-eval ${hecha ? "paso-hecho" : ""}`}
+            disabled={!abierta}
+            onClick={() => onAbrir(def, f.etapa)}
+          >
+            <span className="paso-num">{i + 1}</span>
+            <span className="paso-texto">
+              <strong>📋 {f.nombre}</strong>
+              <small>{hecha ? `${"⭐".repeat(hecha.bien)}${"☆".repeat(Math.max(hecha.total - hecha.bien, 0))}  ${hecha.bien} de ${hecha.total}` : f.texto}</small>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function FonemasScreen({ grupoInicial = null, onSalir = null }) {
   const grupos = useMemo(sonidosConPalabras, []);
   const [grupo, setGrupo] = useState(() => grupos.find((g) => g.key === grupoInicial) || null);
   const [palabra, setPalabra] = useState(null);
+  const [prueba, setPrueba] = useState(null); // { def, etapa }
   const [, refrescar] = useState(0);
 
   const abrirSiguiente = () => {
@@ -199,6 +252,16 @@ export default function FonemasScreen({ grupoInicial = null, onSalir = null }) {
     refrescar((n) => n + 1);
     setPalabra(k >= 0 && k + 1 < lista.length ? lista[k + 1] : null);
   };
+
+  if (grupo && prueba) {
+    return (
+      <EvaluacionRun
+        evalDef={prueba.def}
+        etapa={prueba.etapa}
+        onSalir={() => { setPrueba(null); refrescar((n) => n + 1); }}
+      />
+    );
+  }
 
   if (grupo && palabra) {
     return (
@@ -220,9 +283,13 @@ export default function FonemasScreen({ grupoInicial = null, onSalir = null }) {
         <div className="racha-bar">
           <span className="racha-hint">Dices cada sonido y luego la palabra. Al lograrla se abre la siguiente</span>
         </div>
-        <div className="nivel-palabras" style={{ padding: "0 14px 14px" }}>
-          {grupo.palabras.map((p, k) => {
-            const bloqueada = k > 0 && !logradas[grupo.palabras[k - 1].palabra] && !logradas[p.palabra];
+        {(() => {
+          // test previo -> primeros 5 ejercicios -> prueba del medio -> el resto -> reto final
+          const abrir = (def, etapa) => setPrueba({ def, etapa });
+          const corte = grupo.palabras.length > EJERCICIOS_POR_EVALUACION ? EJERCICIOS_POR_EVALUACION : grupo.palabras.length;
+          const boton = (p, k) => {
+            const primerasOk = grupo.palabras.slice(0, corte).every((q) => logradas[q.palabra]);
+            const bloqueada = grupo.key !== "pr_m" && ((k > 0 && !logradas[grupo.palabras[k - 1].palabra] && !logradas[p.palabra]) || (k >= corte && !primerasOk)); // la M queda abierta para la presentación
             return (
               <button
                 key={p.palabra}
@@ -235,8 +302,26 @@ export default function FonemasScreen({ grupoInicial = null, onSalir = null }) {
                 {logradas[p.palabra] && <span className="nivel-check">✅</span>}
               </button>
             );
-          })}
-        </div>
+          };
+          return (
+            <>
+              <PruebasDelSonido grupo={grupo} solo="previa" onAbrir={abrir} />
+              <div className="nivel-palabras" style={{ padding: "0 14px 14px" }}>
+                {grupo.palabras.slice(0, corte).map((p, k) => boton(p, k))}
+              </div>
+              <PruebasDelSonido grupo={grupo} solo="intermedia" onAbrir={abrir} />
+              {grupo.palabras.length > corte && (
+                <>
+                  <div className="posicion-titulo" style={{ padding: "0 14px" }}>⭐ Palabras más difíciles</div>
+                  <div className="nivel-palabras" style={{ padding: "0 14px 14px" }}>
+                    {grupo.palabras.slice(corte).map((p, k) => boton(p, corte + k))}
+                  </div>
+                </>
+              )}
+              <PruebasDelSonido grupo={grupo} solo="final" onAbrir={abrir} />
+            </>
+          );
+        })()}
       </div>
     );
   }
