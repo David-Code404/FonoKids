@@ -11,19 +11,20 @@
 .fon-dibujo { font-size: 44px; line-height: 1; }
 .fon-pista { font-weight: 800; font-size: 16px; color: var(--text-primary); }
 .cartas-fila { display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; min-height: 160px; }
-.carta { position: relative; width: 84px; height: 84px; opacity: 0.7; transition: all 0.2s; filter: drop-shadow(0 3px 0 rgba(0,0,0,0.12)); }
-.carta svg { width: 100%; height: 100%; display: block; }
-.carta-texto { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; font-size: 28px; }
-.carta-texto.bajo { padding-top: 24%; }
-.carta.activa { width: 150px; height: 150px; opacity: 1; }
-.carta.activa .carta-texto { font-size: 52px; }
+.carta { --c1: #ff8fa3; --c2: #ff5d7a; --borde: #d63f5c; position: relative; width: 96px; height: 138px; border-radius: 26px; background: linear-gradient(160deg, var(--c1), var(--c2)); border-bottom: 9px solid var(--borde); box-shadow: 0 8px 16px rgba(60, 40, 110, 0.22), inset 0 3px 0 rgba(255, 255, 255, 0.35); display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; padding: 8px 6px 10px; opacity: 0.9; transition: all 0.25s; }
+.carta-dibujo { width: 68px; height: 68px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 40px; line-height: 1; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.08), 0 3px 6px rgba(0, 0, 0, 0.18); }
+.carta-texto { color: #fff; font-weight: 900; font-size: 36px; line-height: 1; text-shadow: 0 3px 0 rgba(0, 0, 0, 0.2); }
+.carta-palabra { color: #fff; font-weight: 800; font-size: 14px; letter-spacing: 0.5px; opacity: 0.95; }
+.carta-circulo { --c1: #ff8fa3; --c2: #ff5d7a; --borde: #d63f5c; }
+.carta-triangulo { --c1: #ad94ff; --c2: #7b5cf5; --borde: #5a3fd0; }
+.carta-cuadrado { --c1: #55e0b8; --c2: #22b98c; --borde: #168c6a; }
+.carta-rectangulo { --c1: #ffc562; --c2: #ff9a1f; --borde: #d27500; }
+.carta.activa { width: 156px; height: 230px; border-radius: 34px; border-bottom-width: 13px; opacity: 1; z-index: 1; padding: 12px 8px 14px; gap: 6px; box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.95), 0 0 0 10px var(--c1), 0 16px 30px rgba(60, 40, 110, 0.35), inset 0 4px 0 rgba(255, 255, 255, 0.4); animation: carta-latido 1.3s ease-in-out infinite; }
+.carta.activa .carta-dibujo { width: 112px; height: 112px; font-size: 68px; }
+.carta.activa .carta-texto { font-size: 66px; text-shadow: 0 5px 0 rgba(0, 0, 0, 0.22); }
 .carta.hecha { opacity: 1; }
-.cartas-leyenda { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; font-size: 12px; font-weight: 700; color: var(--text-secondary); }
-.cartas-leyenda span { display: inline-flex; align-items: center; gap: 5px; }
-.ley { display: inline-block; width: 11px; height: 11px; }
-.ley-circulo { border-radius: 50%; background: #ff7a8a; }
-.ley-cuadrado { border-radius: 3px; background: #3ec9a0; }
-.ley-triangulo { background: #8c6bff; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.carta.hecha::after { content: "⭐"; position: absolute; top: -12px; right: -10px; width: 34px; height: 34px; display: grid; place-items: center; font-size: 20px; background: #fff; border-radius: 50%; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25); }
+@keyframes carta-latido { 0%, 100% { transform: translateY(-4px) scale(1); } 50% { transform: translateY(-12px) scale(1.04); } }
+.cartas-fila { gap: 16px; padding: 14px 0; align-items: flex-end; }
 .fon-video { width: min(60vw, 210px); margin: 2px 0; border-radius: 16px; }
 
-.ley-rectangulo { width: 15px; height: 9px; border-radius: 3px; background: #ffa23e; }

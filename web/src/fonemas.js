@@ -126,3 +126,17 @@ export function sonidosBienDichos(palabra, scores) {
   const consonantes = unicos.filter((m) => !m.vocal);
   return (consonantes.length ? consonantes : unicos).slice(0, 2);
 }
+
+// Dibujo de ejemplo de cada sonido (una palabra que empieza o suena con él), para las cartas con imagen.
+const EJEMPLOS = {
+  a: ["🐝", "abeja"], e: ["🐘", "elefante"], i: ["🏝️", "isla"], o: ["🐻", "oso"], u: ["🍇", "uvas"],
+  m: ["🐒", "mono"], p: ["🦆", "pato"], n: ["🚀", "nave"], t: ["🍅", "tomate"], b: ["🚌", "bus"], v: ["🐄", "vaca"],
+  d: ["🐬", "delfín"], f: ["🦭", "foca"], k: ["🏠", "casa"], g: ["🐱", "gato"], ch: ["🍫", "chocolate"],
+  ll: ["🔑", "llave"], y: ["🥚", "yema"], "ñ": ["🕷️", "araña"], l: ["🌙", "luna"], s: ["☀️", "sol"], z: ["👟", "zapato"],
+  r: ["🐸", "rana"], rr: ["🐶", "perro"], j: ["🧃", "jugo"], ks: ["🎹", "xilófono"], w: ["🥝", "kiwi"],
+};
+/// { dibujo, palabra } de ejemplo para un sonido de fonemasDe, o null si no hay.
+export function ejemploDe(sonido) {
+  const e = EJEMPLOS[sonido];
+  return e ? { dibujo: e[0], palabra: e[1] } : null;
+}

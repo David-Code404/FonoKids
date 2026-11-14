@@ -3,7 +3,7 @@ import { getServerUrl, ejercicioVoz } from "../api.js";
 import { createAudioRecorder } from "../audioRecorder.js";
 import { PalabraStage, EvaluacionRun } from "./SonidosScreen.jsx";
 import { PRACTICA_SECCIONES, ORDEN_SONIDOS, EJERCICIOS_POR_EVALUACION, evaluacionDeGrupo } from "../palabras.js";
-import { fonemasDe, decirSonido, decirEnVoz, esVocal, comoSeVe, formaDe, videosDe } from "../fonemas.js";
+import { fonemasDe, decirSonido, decirEnVoz, esVocal, comoSeVe, formaDe, videosDe, ejemploDe } from "../fonemas.js";
 import { sonidoBien, sonidoFalta } from "../sonidos.js";
 import { palabrasLogradas, estadoEvaluacion } from "../progreso.js";
 import "./LearningPathScreen.css";
@@ -113,18 +113,14 @@ export function GrabarSonido({ sonido, onBien }) {
 }
 
 // Paso 1: el niño dice cada sonido por separado (sin evaluar). Paso 2: dice la palabra entera.
-// Carta con su forma (círculo, triángulo o cuadrado) y la letra bien centrada.
-function Carta({ forma, texto, estado }) {
-  const color = { circulo: "#ff7a8a", triangulo: "#8c6bff", cuadrado: "#3ec9a0", rectangulo: "#ffa23e" }[forma];
+// Carta del sonido con imagen: arriba el dibujo de una palabra que lleva ese sonido (como en las tarjetas
+// de aprender a leer) y abajo la letra grande. El color distingue el tipo de sonido.
+function Carta({ forma, texto, estado, ejemplo }) {
   return (
-    <div className={`carta ${estado}`}>
-      <svg viewBox="0 0 100 100" aria-hidden="true">
-        {forma === "circulo" && <circle cx="50" cy="50" r="46" fill={color} />}
-        {forma === "cuadrado" && <rect x="6" y="6" width="88" height="88" rx="16" fill={color} />}
-        {forma === "rectangulo" && <rect x="2" y="22" width="96" height="56" rx="12" fill={color} />}
-        {forma === "triangulo" && <polygon points="50,6 95,92 5,92" fill={color} strokeLinejoin="round" stroke={color} strokeWidth="6" />}
-      </svg>
-      <span className={forma === "triangulo" ? "carta-texto bajo" : "carta-texto"}>{texto}</span>
+    <div className={`carta carta-${forma} ${estado}`}>
+      {ejemplo && <span className="carta-dibujo" aria-hidden="true">{ejemplo.dibujo}</span>}
+      <span className="carta-texto">{texto}</span>
+      {ejemplo && estado === "activa" && <span className="carta-palabra">{ejemplo.palabra}</span>}
     </div>
   );
 }
@@ -166,15 +162,9 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
         </div>
         <div className="cartas-fila">
           {sonidos.map((u, k) => (
-            <Carta key={k} forma={formaDe(u)} texto={k === i ? comoSeVe(u) : u.letras}
+            <Carta key={k} forma={formaDe(u)} ejemplo={ejemploDe(u.sonido)} texto={k === i ? comoSeVe(u) : u.letras}
               estado={k === i ? "activa" : k < i ? "hecha" : ""} />
           ))}
-        </div>
-        <div className="cartas-leyenda">
-          <span><i className="ley ley-circulo" /> vocal</span>
-          <span><i className="ley ley-triangulo" /> suena largo</span>
-          <span><i className="ley ley-cuadrado" /> suena cortito</span>
-          <span><i className="ley ley-rectangulo" /> dos letras, un sonido</span>
         </div>
         {videosDe(sonidos[i].sonido)[0] ? (
           <>
