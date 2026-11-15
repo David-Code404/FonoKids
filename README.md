@@ -28,7 +28,7 @@ pip install -r requirements.txt
 python server/main.py
 ```
 
-El servidor queda en `http://127.0.0.1:8000`. Necesita en local `models/audio_classifier.pth` y `data/modelos_cara_completa/best_cara_completa.pth`.
+El servidor queda en `http://127.0.0.1:8000`. Necesita en local `models/audio_classifier.pth` y `models/best_cara_completa.pth` (los dos modelos entrenados van en la carpeta `models`).
 
 Aplicación web:
 

@@ -46,7 +46,7 @@ AUDIO_CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "audio_classifier.pth")
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 ARCHIVADO_SESSIONS_DIR = os.path.join(BASE_DIR, "dataARCHIVADO", "sesiones_continuas")
 # [LABIOS DESACTIVADO] MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")
-MODELO_CARA_PATH = os.path.join(BASE_DIR, "data", "modelos_cara_completa", "best_cara_completa.pth")
+MODELO_CARA_PATH = os.path.join(BASE_DIR, "models", "best_cara_completa.pth")
 # [LABIOS DESACTIVADO] USAR_MODELO_CARA = os.environ.get("FONOKIDS_CARA", "1") != "0"
 MIN_DETECCION_CARA = 0.6
 OJO_DERECHO_EXTERNO = 36
