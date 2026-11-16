@@ -277,12 +277,13 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
         titulo={modoEvaluacion ? `${tipo === "diagnostico" ? "Prueba" : "Evaluación"} ${indice + 1} de ${total}` : "Practica"}
         onBack={onBack}
       />
-      <div className="repeat-stage ejercicio-stage">
+      <div className={`repeat-stage ejercicio-stage${resultado?.valid ? " dos-col" : ""}`}>
+        <div className="stage-izq">
         <div className="palabra-dibujo">{item.emoji}</div>
         {imagenSola && !modoEvaluacion && !verPalabra ? (
           <>
             <div className="repeat-hint">¿Qué ves en el dibujo? ¡Dilo en voz alta!</div>
-            <button className="cambiar-modo" onClick={() => setVerPalabra(true)}>🔤 No sé qué es: ver la palabra</button>
+            <button className="cambiar-modo boton-ayuda" onClick={() => setVerPalabra(true)} aria-label="Ayúdame: mostrar la palabra"><span className="ayuda-gesto">🤷</span><span>¡Ayúdame!</span><span className="ayuda-gesto">👀</span></button>
           </>
         ) : (
           <div className="repeat-word" style={{ fontSize: 34 }}>{item.palabra.toUpperCase()}</div>
@@ -328,6 +329,8 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
           </button>
         )}
 
+        </div>
+        <div className="stage-der">
         {resultado && (
           resultado.valid ? (
             <div className="result-overlay-tip" style={{ marginTop: 6 }}>
@@ -353,6 +356,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
             <div className="audio-only-error">{resultado.reason || "No se pudo analizar."}</div>
           )
         )}
+        </div>
       </div>
     </div>
   );

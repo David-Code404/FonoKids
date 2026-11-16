@@ -71,7 +71,7 @@
 .como-silabas span { padding: 4px 12px; border-radius: 14px; background: #fff; font-weight: 800; font-size: 17px; }
 
 .como-video {
-  display: block; width: min(100%, 360px); aspect-ratio: 4 / 3; margin: 8px 0; border-radius: 18px;
+  display: block; width: min(100%, 360px); aspect-ratio: 4 / 3; margin: 8px auto; border-radius: 18px;
   background: #000; object-fit: cover; box-shadow: 0 6px 16px rgba(0,0,0,0.18);
 }
 
@@ -80,4 +80,18 @@
   border-radius: 999px; background: linear-gradient(135deg, #8c6bff, #3ec9a0); color: #fff; font-weight: 800;
   font-size: 14px; cursor: pointer; box-shadow: 0 4px 0 rgba(0,0,0,0.14);
 }
-.video-ref { margin: 4px 0 12px; }
+.video-ref { margin: 4px 0 12px; text-align: center; }
+
+/* Práctica de una palabra: al salir el resultado, la pantalla se parte en dos columnas
+   (dibujo y botones a la izquierda, resultado y video a la derecha) para no tener que deslizar. */
+.stage-izq, .stage-der { display: flex; flex-direction: column; align-items: center; gap: 12px; min-width: 0; }
+@media (min-width: 900px) {
+  .repeat-stage.dos-col { flex-direction: row; align-items: center; justify-content: center; gap: 40px; }
+  .repeat-stage.dos-col .stage-izq { flex: 0 0 auto; }
+  .repeat-stage.dos-col .stage-der { flex: 1 1 0; max-width: 560px; }
+  .repeat-stage.dos-col .como-video { width: min(100%, 300px); }
+}
+
+/* Botón "¡Ayúdame!": con gestos grandes para los niños que todavía no leen. */
+.boton-ayuda { display: inline-flex; align-items: center; gap: 10px; padding: 10px 22px; font-size: 16px; font-weight: 800; }
+.ayuda-gesto { font-size: 34px; line-height: 1; }

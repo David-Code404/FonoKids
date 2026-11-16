@@ -1567,8 +1567,13 @@ async def ejercicio_voz(
                     if f == "ʝ":
                         return None if (i > 0 and ll_medio_ok) else -7.0
                     if f in ("ɾ", "r"):
-                        return -5.5  # la R suave se pierde o se vuelve "ll"/"l" ("capiballa", "capibala"): más estricto
-                    return -8.5 if f in vocales_pal else -7.0
+                        # La R suave se pierde o se vuelve "ll"/"l" ("capiballa", "capibala"): más estricto (-5.5).
+                        # Pero si el reconocimiento libre oyó una r en lo que se dijo ("m a r r i p o s a"), la R sí
+                        # sonó aunque el puntaje salga bajo (-5.5 a -9 con voz real): ahí se tolera hasta -9.5.
+                        # Si se oye otra cosa en su lugar ("m a l i p o s a", "k a p i b a j a") sigue en -5.5.
+                        r_oida = any(t[:1] in ("r", "ɾ", "ɹ", "ɽ", "ʁ") for t in libres)
+                        return -9.5 if r_oida else -5.5
+                    return -8.5 if f in vocales_pal else -5.0  # consonante: bien dicha rara vez baja de -4
                 muy_mal_por_puntaje = any(
                     sc is not None and _limite(i, f) is not None and sc < _limite(i, f)
                     for i, (f, sc) in enumerate(zip(fon_lista, scores))
@@ -1593,13 +1598,26 @@ async def ejercicio_voz(
                 )
                 if tiene_sinfon and libres and not any(t[:1] in liquidas for t in libres):
                     algun_sonido_muy_mal = True
+                # La L que cierra sílaba ("dulce" dicho "duce", "alto" dicho "ato"): si se omite no se oye ninguna
+                # l/r y su puntaje baja de -3.0, así que la palabra no puede darse por buena.
+                for i, f in enumerate(fon_lista):
+                    if (f == "l" and 0 < i < len(fon_lista) - 1 and fon_lista[i - 1] in vocales_pal
+                            and fon_lista[i + 1] not in vocales_pal and scores[i] is not None and scores[i] < -3.0
+                            and libres and not any(t[:1] in liquidas for t in libres)):
+                        algun_sonido_muy_mal = True
                 # La D entre vocales ("nido" dicho "nio") se omite o se vuelve casi nada: bien dicha sale ~0,
                 # si la omiten baja a -3.5 o menos. Por eso una D que no es la primera no puede bajar de -3.0.
                 d_omitida = any(
                     i > 0 and f in ("d", "ð") and sc is not None and sc < -3.0
                     for i, (f, sc) in enumerate(zip(fon_lista, scores))
                 )
-                salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal and not d_omitida
+                # La M/N dentro de la palabra ("mamá" dicho "maá", "mono" dicho "moo"): bien dicha sale entre 0 y -4,
+                # si se omite baja a -6 o menos, así que no puede bajar de -5.0.
+                nasal_omitida = any(
+                    i > 0 and f in ("m", "n") and sc is not None and sc < -5.0
+                    for i, (f, sc) in enumerate(zip(fon_lista, scores))
+                )
+                salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal and not d_omitida and not nasal_omitida
             else:
                 salida["correcta"] = (
                     pct_ok >= corte
