@@ -1598,6 +1598,10 @@ async def ejercicio_voz(
                 )
                 if tiene_sinfon and libres and not any(t[:1] in liquidas for t in libres):
                     algun_sonido_muy_mal = True
+                # Murmullo o susurro: si lo que se oye tiene menos de la mitad de los sonidos que tiene la palabra
+                # ("t" para "pato"), no se pronunció la palabra aunque algunos puntajes salgan altos.
+                if fon_lista and len(tokens) < 0.5 * len(fon_lista):
+                    algun_sonido_muy_mal = True
                 # La L que cierra sílaba ("dulce" dicho "duce", "alto" dicho "ato"): si se omite no se oye ninguna
                 # l/r y su puntaje baja de -3.0, así que la palabra no puede darse por buena.
                 for i, f in enumerate(fon_lista):

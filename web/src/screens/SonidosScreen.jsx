@@ -18,7 +18,7 @@ import "./HomeScreen.css";
 import "./EjerciciosScreen.css";
 import "./SonidosScreen2.css";
 import FonemasScreen from "./FonemasScreen.jsx";
-import { fonemasDe, sonidosAMejorar, sonidosBienDichos, videosDe, decirSonido } from "../fonemas.js";
+import { fonemasDe, sonidosAMejorar, sonidosBienDichos, videosDe, decirSonido, pistaCara } from "../fonemas.js";
 import { GrabarSonido } from "./FonemasScreen.jsx";
 
 // Los tests (previo, intermedio y final) están apagados por ahora: ponerlo en true para volver a mostrarlos.
@@ -98,6 +98,11 @@ function MiraYRepite({ palabra, resultado }) {
   return (
     <div style={{ marginTop: 10, textAlign: "center" }}>
       <div className="repeat-hint" style={{ fontWeight: 800 }}>👀 Mira cómo se hace la {nombre} y repite</div>
+      {pistaCara(u.sonido) && (
+        <div className="pista-cara">
+          <span className="pista-parte">{pistaCara(u.sonido).parte}</span> {pistaCara(u.sonido).texto}
+        </div>
+      )}
       {videos.length > 0 && (
         <video
           key={videos[0]} ref={videoRef} className="como-video" src={videos[0]} autoPlay playsInline disablePictureInPicture
@@ -322,6 +327,13 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
           <button className="cambiar-modo" onClick={() => elegir(modo === "camara" ? "voz" : "camara")}>
             {modo === "camara" ? "🎤 Cambiar a solo voz" : "📷 Cambiar a cámara"}
           </button>
+        )}
+        {micListo && !resultado && !procesando && (
+          <div className="guia-ninos" aria-label="Qué hacer: mira, habla y toca listo">
+            <span className={!grabando ? "paso-activo" : ""}><b>🎤</b>Toca y habla</span>
+            <i>➜</i>
+            <span className={grabando ? "paso-activo" : ""}><b>✋</b>Toca «Listo»</span>
+          </div>
         )}
         {micListo && !procesando && !(modoEvaluacion && resultado?.valid) && (
           <button className="path-cta" onClick={grabando ? terminar : empezar}>

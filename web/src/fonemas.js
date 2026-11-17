@@ -140,3 +140,40 @@ export function ejemploDe(sonido) {
   const e = EJEMPLOS[sonido];
   return e ? { dibujo: e[0], palabra: e[1] } : null;
 }
+
+// Pista para niños de cómo se mueve la cara en cada sonido: qué parte usar (labios, lengua, dientes, garganta)
+// y qué hacer, con palabras cortas y un dibujo. Se muestra cuando un sonido sale mal.
+const L = "👄 Los labios", T = "👅 La lengua", D = "🦷 Los dientes", G = "🗣️ La garganta";
+const PISTAS = {
+  m: [L, "se juntan fuerte y suena mmm"],
+  p: [L, "se juntan y se abren con un soplido: ¡pa!"],
+  b: [L, "se juntan y se abren suave: ¡ba!"],
+  v: [L, "se juntan y se abren suave: ¡ba!"],
+  w: [L, "hacen un redondito, como un besito: ¡gu!"],
+  f: [D, "de arriba tocan el labio de abajo y sopla: fff"],
+  t: [T, "toca los dientes de arriba y suelta: ¡ta!"],
+  d: [T, "toca los dientes de arriba, suavecito: ¡da!"],
+  n: [T, "toca arriba, detrás de los dientes, y suena nnn"],
+  l: [T, "sube con la punta arriba y suena lll"],
+  r: [T, "da un toquecito rápido arriba: ¡ra!"],
+  rr: [T, "vibra arriba como un motorcito: rrrr"],
+  s: [D, "juntitos, y sale aire suave: sss"],
+  z: [D, "juntitos, y sale aire suave: sss"],
+  ch: [L, "como un besito y la lengua arriba: ¡cha!"],
+  k: [T, "se va atrás, hacia la garganta: ¡ka!"],
+  g: [T, "se va atrás y la garganta vibra: ¡ga!"],
+  j: [G, "sopla fuerte, como un secador: jjj"],
+  ll: [T, "sube y se pega arriba: yyy"],
+  y: [T, "sube y se pega arriba: yyy"],
+  "ñ": [T, "sube y la nariz también suena: ñ"],
+  ks: [T, "se va atrás y luego sopla: ks"],
+  a: [L, "se abren bien grandes: aaa"],
+  e: [L, "se abren como una sonrisa mediana: eee"],
+  i: [L, "sonríen bien anchos: iii"],
+  o: [L, "hacen un círculo: ooo"],
+  u: [L, "hacen un besito chiquito: uuu"],
+};
+export function pistaCara(sonido) {
+  const x = PISTAS[(sonido || "").toLowerCase()];
+  return x ? { parte: x[0], texto: x[1] } : null;
+}
