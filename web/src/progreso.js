@@ -96,7 +96,7 @@ export const contarLogradas = (lista) => {
 ///  - intermedia: se abre al lograr `cada` palabras más desde la previa;
 ///  - final: se abre al lograr TODAS las palabras del sonido (y haber hecho la intermedia).
 // Sonidos con TODO habilitado para la presentación (pruebas y palabras abiertas sin condiciones).
-export const SONIDOS_DESBLOQUEADOS = new Set(["m"]);
+export const SONIDOS_DESBLOQUEADOS = new Set(["r"]);
 
 export function estadoEvaluacion(sonido, palabras, cada = 5) {
   const e = evaluaciones()[sonido] || {};

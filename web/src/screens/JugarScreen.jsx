@@ -5,7 +5,7 @@ import EjerciciosScreen from "./EjerciciosScreen.jsx";
 import { PalabraPorSonidos } from "./FonemasScreen.jsx";
 import { armarPartida, palabrasAprendidas, guardarTestPrevio, testPrevioHecho, gruposDelCamino, getNombre, setNombre, entrarNino } from "../modoNinos.js";
 import { decirSonido, pistaCara } from "../fonemas.js";
-import { callar, hablar } from "../voz.js";
+import { callar, hablar, hablarUnaVez } from "../voz.js";
 import { getEstado } from "../rachas.js";
 import { useAyuda } from "../useAyuda.js";
 import { usarCamara } from "../progreso.js";
@@ -157,7 +157,7 @@ function Escena({ paso }) {
 function Tutorial({ onListo }) {
   const [paso, setPaso] = useState(0);
   useEffect(() => {
-    hablar(PASOS[paso].voz);
+    hablarUnaVez(`tuto-${paso}`, PASOS[paso].voz);
     if (paso >= PASOS.length - 1) return undefined;
     const t = setTimeout(() => setPaso(paso + 1), 5200);
     return () => clearTimeout(t);
@@ -240,7 +240,7 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
 
   useEffect(() => () => callar(), []);
   // Pantalla de juego (se llega desde el camino): arranca directo con el sonido elegido.
-  useEffect(() => { if (claveInicial) jugar(claveInicial); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { if (claveInicial) { const [c, m] = claveInicial.split("|"); jugar(c, m || null); } /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   // Volver: desde el camino de Aprender vuelve a Aprender; en la entrada vuelve al inicio.
   const salir = () => { callar(); if (onSalir) onSalir(); else setVista(testPrevioHecho() ? "inicio" : "bienvenida"); };
@@ -250,17 +250,17 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
     if (!testPrevioHecho()) { jugar(); return; }
     if (onAprender) onAprender(); else setVista("inicio");
   }
-  useAyuda("¡Toca el botón naranja que dice hola!", vista === "bienvenida");
+  useAyuda("¡Toca el botón naranja que dice inicio!", vista === "bienvenida");
   useAyuda("Escribe tu nombre aquí y toca el botón verde.", vista === "nombre");
   useAyuda("Toca el botón verde para jugar otra vez.", vista === "fin");
   useAyuda("Toca el botón verde para ver tu camino.", vista === "inicio");
   useAyuda("Toca el botón verde para empezar.", vista === "intro");
 
-  function jugar(clave = null) {
-    const p = armarPartida(clave);
+  function jugar(clave = null, modo = null) {
+    const p = armarPartida(clave, modo);
     if (!p) { if (onSalir) onSalir(); else setVista("todo"); return; }
     setPartida(p); setI(0); setAciertos(0); setVista("intro");
-    hablar(`${textoIntro(p).voz} Mira y escucha cómo se hace.`);
+    hablarUnaVez(`intro-${p.clave}-${p.tipo}`, `${textoIntro(p).voz} Mira y escucha cómo se hace.`);
   }
 
   function terminarPalabra(bien) {
@@ -287,7 +287,7 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
               else seguirDespues();
             }}
           >
-            👋 ¡Hola!
+            ▶ ¡Inicio!
           </button>
         </div>
       </div>

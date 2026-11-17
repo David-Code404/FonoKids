@@ -62,3 +62,11 @@ export function hablar(texto, { forzar = false, fuerte = false, alTerminar = nul
     a.play().catch(() => { if (audioActual === a) audioActual = null; });
   } catch { /* sin voz */ }
 }
+
+// Las indicaciones de guía se dicen UNA sola vez mientras la app esté abierta (repetirlas cansa al niño).
+const yaDichas = new Set();
+export function hablarUnaVez(clave, texto, opciones) {
+  if (yaDichas.has(clave)) return;
+  yaDichas.add(clave);
+  hablar(texto, opciones);
+}

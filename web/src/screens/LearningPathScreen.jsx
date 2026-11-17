@@ -1,7 +1,7 @@
 import Mascota, { BotonVoz } from "../components/Mascota.jsx";
-import { armarPartida, resultadoTestPrevio, testPrevioHecho, getNombre, gruposDelCamino } from "../modoNinos.js";
+import { armarPartida, resultadoTestPrevio, testPrevioHecho, getNombre, gruposDelCamino, pruebasDeSonido } from "../modoNinos.js";
 import { useAyuda } from "../useAyuda.js";
-import { hablar } from "../voz.js";
+import { hablar, hablarUnaVez } from "../voz.js";
 import { useEffect, useRef, useState } from "react";
 import { getHealth, getRecordings, getServerUrl, guardarEjercicio, predict, wordsFromClasses } from "../api.js";
 import { iconFor } from "../wordIcons.js";
@@ -144,7 +144,7 @@ export default function LearningPathScreen({ onJugar = null }) {
   // Guía para el niño: al entrar Fofo dice qué hacer y, si se queda quieto, lo repite.
   useEffect(() => {
     if (!onJugar) return undefined;
-    const t = setTimeout(() => hablar(`${getNombre() ? getNombre() + ", " : ""}toca el círculo que brilla.`), 700);
+    const t = setTimeout(() => hablarUnaVez("mapa-brilla", `${getNombre() ? getNombre() + ", " : ""}toca el círculo que brilla.`), 700);
     return () => clearTimeout(t);
   }, [onJugar]);
   useAyuda("Toca el círculo que brilla.", !!onJugar);
@@ -159,6 +159,7 @@ export default function LearningPathScreen({ onJugar = null }) {
   const [selectedWord, setSelectedWord] = useState(null);
   const [extraSonido, setExtraSonido] = useState(null);
   const [verResumen, setVerResumen] = useState(false);
+  const [menuSonido, setMenuSonido] = useState(null); // el sonido cuyo círculo se tocó: sus tres pruebas
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
   // Al abrir un paso que SÍ evalúa de verdad, primero se pregunta cómo
   // quiere practicar (cámara o solo voz) -- pedido explícito: la pregunta
@@ -898,6 +899,29 @@ export default function LearningPathScreen({ onJugar = null }) {
         </div>
       )}
 
+      {menuSonido && (() => {
+        const p = pruebasDeSonido(menuSonido.clave);
+        if (!p) return null;
+        const Fila = ({ ico, nombre, estado, boton }) => (
+          <div className="prueba-fila"><span className="prueba-ico">{ico}</span><b>{nombre}</b><span className="prueba-estado">{estado}</span>{boton}</div>
+        );
+        return (
+          <div className="prueba-fondo" onClick={() => setMenuSonido(null)}>
+            <div className="prueba-caja" onClick={(e) => e.stopPropagation()}>
+              <h3 className="prueba-titulo">{p.icono} {menuSonido.titulo}</h3>
+              <Fila ico="🏁" nombre="Test inicial" estado={p.inicial === true ? "⭐ ¡Bien!" : p.inicial === false ? "💪 A practicar" : "—"} />
+              <Fila ico="📘" nombre="Practicar" estado={`${p.logradas} de ${p.total} palabras`}
+                boton={<button className="prueba-boton" onClick={() => { setMenuSonido(null); onJugar(menuSonido.clave, "p"); }}>▶ Practicar</button>} />
+              <Fila ico="🎯" nombre="Test del medio" estado={p.medio.hecho ? "✅ Hecho" : p.medio.abierto ? "¡Ya puedes!" : `🔒 Faltan ${p.medio.falta} palabras`}
+                boton={p.medio.abierto ? <button className="prueba-boton" onClick={() => { setMenuSonido(null); onJugar(menuSonido.clave, "intermedia"); }}>{p.medio.hecho ? "🔁 Otra vez" : "▶ Hacer"}</button> : null} />
+              <Fila ico="🏆" nombre="Test final" estado={p.final.hecho ? "✅ Hecho" : p.final.abierto ? "¡Ya puedes!" : p.medio.hecho ? `🔒 Faltan ${p.final.falta} palabras` : "🔒 Primero el test del medio"}
+                boton={p.final.abierto ? <button className="prueba-boton" onClick={() => { setMenuSonido(null); onJugar(menuSonido.clave, "final"); }}>{p.final.hecho ? "🔁 Otra vez" : "▶ Hacer"}</button> : null} />
+              <button className="prueba-cerrar" onClick={() => setMenuSonido(null)}>✕ Cerrar</button>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="mapa-aventura">
         {listaOrdenada.map((it, i) => {
           const esCat = it.tipo === "cat";
@@ -916,7 +940,7 @@ export default function LearningPathScreen({ onJugar = null }) {
             return gs.find((g) => rt[g] === false) || gs[0];
           };
           const abrir = onJugar
-            ? () => onJugar(claveJuego())
+            ? () => setMenuSonido({ clave: claveJuego(), titulo })
             : (esCat ? () => openCategory(it.cat) : () => { setExtraSonido(it.g); setView("extra"); });
           return (
             <div

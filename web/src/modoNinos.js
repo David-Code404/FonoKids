@@ -1,6 +1,6 @@
 // Arma la partida guiada del modo niños: Fofo elige la letra y las palabras; el niño solo juega.
 import { PRACTICA_SECCIONES, palabrasDeGrupo, evaluacionDeGrupo } from "./palabras.js";
-import { palabrasLogradas, evaluaciones, contarLogradas } from "./progreso.js";
+import { palabrasLogradas, evaluaciones, contarLogradas, SONIDOS_DESBLOQUEADOS } from "./progreso.js";
 
 // De los sonidos más fáciles a los más difíciles.
 const ORDEN = ["pr_m", "pr_p", "pr_n", "pr_t", "pr_b", "pr_d", "pr_f", "pr_k", "pr_g", "pr_ch", "pr_ll", "pr_y", "pr_ni", "pr_l", "pr_j", "pr_z", "pr_s", "pr_r", "sf_l", "sf_r"];
@@ -73,9 +73,10 @@ function estadoSonido(g) {
   const logradas = contarLogradas(nombres);
   const total = nombres.length;
   let toca = null;
+  const abierto = !!ev && SONIDOS_DESBLOQUEADOS.has(ev.key); // para la demostración: la R tiene todo abierto
   if (ev) {
-    if (!e.intermedia && logradas >= PALABRAS_POR_PARTIDA) toca = "intermedia";
-    else if (!e.final && e.intermedia && logradas >= total) toca = "final";
+    if (!e.intermedia && (abierto || logradas >= PALABRAS_POR_PARTIDA)) toca = "intermedia";
+    else if (!e.final && e.intermedia && (abierto || logradas >= total)) toca = "final";
   }
   const terminado = (!ev || !!e.final) && logradas >= total;
   return { ev, toca, terminado };
@@ -84,7 +85,7 @@ function estadoSonido(g) {
 /// La próxima partida. Primero el TEST PREVIO (una sola vez). Después, solo los sonidos que salieron mal en el test,
 /// de los más fáciles a los más difíciles: práctica de 5 palabras, prueba del medio y reto final.
 /// Devuelve { tipo: "testprevio" | "prueba" | "practica", ... } o null si ya aprendió todo.
-export function armarPartida(claveForzada = null) {
+export function armarPartida(claveForzada = null, modo = null) {
   if (!testPrevioHecho()) {
     const palabras = palabrasTestPrevio();
     return { tipo: "testprevio", clave: "testprevio", titulo: "Juego de Fofo", icono: "🎮", sonido: null, palabras };
@@ -97,7 +98,8 @@ export function armarPartida(claveForzada = null) {
     if (g) {
       const st = estadoSonido(g);
       const base = { clave: g.key, titulo: g.titulo, icono: g.icono, sonido: g.key.startsWith("pr_") ? g.key.slice(3) : null };
-      if (st.toca && res[g.key] === false) return { ...base, tipo: "prueba", etapa: st.toca, evalDef: st.ev, palabras: st.ev.palabras };
+      if ((modo === "intermedia" || modo === "final") && st.ev) return { ...base, tipo: "prueba", etapa: modo, evalDef: st.ev, palabras: st.ev.palabras };
+      if (modo !== "p" && st.toca && res[g.key] === false) return { ...base, tipo: "prueba", etapa: st.toca, evalDef: st.ev, palabras: st.ev.palabras };
       const todas = palabrasDe(g);
       const faltan = todas.filter((p) => !logradas[p.palabra]);
       return { ...base, tipo: "practica", palabras: (faltan.length ? faltan : todas).slice(0, PALABRAS_POR_PARTIDA) };
@@ -199,4 +201,22 @@ export async function entrarNino(nombre) {
   } catch {
     return { nuevo: true };
   }
+}
+
+/// Las tres pruebas de un sonido, para mostrarlas al tocar su círculo: test inicial (el juego de entrada), test del medio y test final.
+export function pruebasDeSonido(clave) {
+  const g = grupo(clave);
+  if (!g) return null;
+  const nombres = palabrasDeGrupo(g.key);
+  const ev = evaluacionDeGrupo(g.key);
+  const e = (ev && evaluaciones()[ev.key]) || {};
+  const logradas = contarLogradas(nombres);
+  const total = nombres.length;
+  const inicial = resultadoTestPrevio()[g.key];
+  const demo = !!ev && SONIDOS_DESBLOQUEADOS.has(ev.key);
+  return {
+    titulo: g.titulo, icono: g.icono, logradas, total, inicial,
+    medio: { hecho: !!e.intermedia, abierto: !!ev && (demo || logradas >= PALABRAS_POR_PARTIDA), falta: Math.max(PALABRAS_POR_PARTIDA - logradas, 0) },
+    final: { hecho: !!e.final, abierto: !!ev && (demo || (!!e.intermedia && logradas >= total)), falta: Math.max(total - logradas, 0) },
+  };
 }

@@ -117,7 +117,7 @@ export default function App() {
 
       <div className="tab-content">
         <div className="tab-pane" style={{ display: index === 0 ? "flex" : "none" }}>
-          {visited.has(0) && <LearningPathScreen onJugar={(clave) => setJugando(clave)} />}
+          {visited.has(0) && <LearningPathScreen onJugar={(clave, modo) => setJugando(modo ? `${clave}|${modo}` : clave)} />}
         </div>
         <div className="tab-pane" style={{ display: index === 1 ? "flex" : "none" }}>
           {visited.has(1) && index === 1 && <LetrasScreen />}

@@ -252,7 +252,7 @@ function SonidoAPracticar({ palabra, resultado }) {
 // Muestra el dibujo (y la palabra, salvo en "solo imagen"), graba y evalúa con
 // POST /ejercicio_voz. En la evaluación NO se repite el intento y, tras la pausa,
 // pasa a la siguiente; en la práctica se puede intentar de nuevo.
-export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice, total, onTerminar, onBack, modoInicial = null, etiquetaBack = null, onSaltar = null, modoNinos = false, onAyuda = null, auto = false }) {
+export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice, total, onTerminar, onBack, modoInicial = null, etiquetaBack = null, onSaltar = null, modoNinos = false, onAyuda = null, auto = false, sinGuia = false }) {
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
   const timerRef = useRef(null);
@@ -436,7 +436,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
   }
 
   const [leidaDe, setLeidaDe] = useState(null);
-  const letrasPorLeer = !(imagenSola && !modoEvaluacion && !verPalabra) && leidaDe !== item.palabra && !(!modoEvaluacion && fonemasListos(item.palabra));
+  const letrasPorLeer = !sinGuia && !(imagenSola && !modoEvaluacion && !verPalabra) && leidaDe !== item.palabra && !(!modoEvaluacion && fonemasListos(item.palabra));
   const fraseDi = () => `Di: ${item.palabra}.`;
   // La mascota dice la palabra en voz alta cuando el micrófono está listo; al salir se calla y no avanza sola.
   useEffect(() => {
@@ -530,7 +530,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
         {modoEvaluacion && item.pos && (
           <div className="repeat-hint">Sonido: {ETIQUETA_POS[item.pos] || item.pos}</div>
         )}
-        {modoNinos && !(imagenSola && !modoEvaluacion && !verPalabra) && <ComoSeDice palabra={item.palabra} callado={grabando || procesando || !!bien} auto={micListo && !resultado && letrasPorLeer} onFin={() => { setLeidaDe(item.palabra); hablar(`Ahora di la palabra: ${item.palabra}`); }} />}
+        {modoNinos && !sinGuia && !(imagenSola && !modoEvaluacion && !verPalabra) && <ComoSeDice palabra={item.palabra} callado={grabando || procesando || !!bien} auto={micListo && !resultado && letrasPorLeer} onFin={() => { setLeidaDe(item.palabra); hablar(`Ahora di la palabra: ${item.palabra}`); }} />}
 
         {micError ? (
           <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
@@ -591,7 +591,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
               <div className="result-overlay-emoji">{bien ? "😄" : "🤔"}</div>
               <span className="result-overlay-tip-label">{mensaje}</span>
               <ElogioEspecifico palabra={item.palabra} resultado={resultado} bien={bien} />
-              {bien && modoNinos && <ComoSeDice palabra={item.palabra} lista />}
+              {bien && modoNinos && !sinGuia && <ComoSeDice palabra={item.palabra} lista />}
               {!bien && !modoNinos && <SonidoAPracticar palabra={item.palabra} resultado={resultado} />}
               {!bien && modoNinos && explicacion && <QuePaso exp={explicacion} />}
               {!bien && !modoEvaluacion && <MiraYRepite palabra={item.palabra} resultado={resultado} />}
@@ -707,6 +707,7 @@ export function EvaluacionRun({ evalDef, etapa, onSalir, modoNinos = false, modo
       claveGuardado={`${evalDef.key}_${evalDef.palabras[i].palabra}`}
       tipo="evaluacion"
       modoEvaluacion
+      sinGuia={etapa === "intermedia" || etapa === "final"} // en el test del medio y el final no se muestra la guía de fonemas
       modoNinos={modoNinos}
       modoInicial={modoInicial}
       indice={i}
