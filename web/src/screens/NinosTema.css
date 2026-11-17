@@ -1,0 +1,250 @@
+/* Tema "mundo de Fofo" para el modo niños (6 a 7 años): cielo, nubes, colinas, botones grandes tipo calcomanía. */
+.tab-shell.ninos-shell {
+  position: relative;
+  background: linear-gradient(180deg, #7cc8ff 0%, #b9e4ff 48%, #fff4c9 100%);
+  overflow: hidden;
+}
+.ninos-shell .tab-content { position: relative; z-index: 2; background: transparent; }
+
+/* Decorado: sol, nubes que pasan y la colina verde de abajo */
+.cielo { position: absolute; inset: 0; z-index: 1; pointer-events: none; overflow: hidden; }
+.cielo .sol { position: absolute; top: 92px; right: 30px; font-size: 76px; animation: sol-gira 30s linear infinite; }
+.cielo .nube { position: absolute; font-size: 84px; opacity: .95; animation: nube-pasa 60s linear infinite; }
+.cielo .nube.n1 { top: 8%; left: -12%; animation-duration: 70s; }
+.cielo .nube.n2 { top: 26%; left: -20%; font-size: 60px; animation-duration: 90s; animation-delay: -30s; }
+.cielo .nube.n3 { top: 52%; left: -15%; font-size: 70px; animation-duration: 110s; animation-delay: -60s; }
+.cielo .colina { position: absolute; left: -10%; right: -10%; bottom: -90px; height: 190px; background: radial-gradient(ellipse at 50% 0%, #7ddc8f 0 62%, #5cc476 63%); border-radius: 50% 50% 0 0; }
+.cielo .flor { position: absolute; bottom: 22px; font-size: 40px; animation: mascota-salto 3s ease-in-out infinite; }
+@keyframes nube-pasa { from { transform: translateX(0); } to { transform: translateX(140vw); } }
+@keyframes sol-gira { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* Todas las pantallas del modo niños: fondo transparente, sin barra blanca de adultos */
+.ninos-shell .path-screen { background: transparent; }
+.ninos-shell .path-header { background: transparent; border: none; padding: 14px 18px; }
+.ninos-shell .path-title { font-size: 26px; font-weight: 900; color: #3b2a7a; background: rgba(255,255,255,.85); border-radius: 999px; padding: 6px 18px; box-shadow: 0 4px 0 rgba(60,40,120,.18); }
+.ninos-shell .icon-button {
+  width: 60px; height: 60px; border-radius: 50%; font-size: 30px; font-weight: 900; color: #fff; border: 5px solid #fff;
+  background: linear-gradient(135deg, #ffb347, #ff6b6b); box-shadow: 0 6px 0 rgba(120,50,30,.28); cursor: pointer;
+}
+.ninos-shell .boton-voz { width: 60px; height: 60px; font-size: 30px; border: 5px solid #fff; background: linear-gradient(135deg, #6ee7b7, #38bdf8); box-shadow: 0 6px 0 rgba(20,90,110,.28); }
+
+/* Fofo y su globo, más grandes y alegres */
+.ninos-shell .mascota-cara { background: radial-gradient(circle at 35% 30%, #fff, #ffe2b8); border: 5px solid #fff; }
+.ninos-shell .mascota-globo { border-color: #fff; background: #fff; font-size: 22px; font-weight: 900; color: #3b2a7a; box-shadow: 0 6px 0 rgba(60,40,120,.2); border-width: 4px; border-style: solid; }
+.ninos-shell .mascota-globo::before { border-color: #fff; background: #fff; }
+.ninos-shell .mascota-grande .mascota-cara { width: 130px; height: 130px; font-size: 80px; }
+.ninos-shell .mascota-grande .mascota-globo { font-size: 26px; max-width: 480px; }
+
+/* Botones de calcomanía */
+.ninos-shell .jugar-btn { border: 6px solid #fff; font-size: 30px; }
+.ninos-shell .jugar-btn-gigante { font-size: 56px; padding: 30px 84px; border-radius: 60px; }
+.ninos-shell .jugar-fila { gap: 22px; }
+.ninos-shell .jugar-btn-sec { flex-direction: column; gap: 4px; width: 170px; padding: 16px 10px; font-size: 22px; }
+.ninos-shell .jugar-btn-sec span { font-size: 64px; }
+.ninos-shell .jugar-fila .jugar-btn-sec:nth-child(1) { background: linear-gradient(160deg, #e9d5ff, #c4b5fd); }
+.ninos-shell .jugar-fila .jugar-btn-sec:nth-child(2) { background: linear-gradient(160deg, #fff3b0, #ffd84d); }
+.ninos-shell .jugar-papas { color: rgba(60,40,120,.55); background: rgba(255,255,255,.6); border-radius: 999px; padding: 6px 14px; }
+.ninos-shell .jugar-letra { font-size: clamp(64px, 14vh, 120px); background: #fff; border-radius: 50%; width: clamp(110px, 22vh, 190px); height: clamp(110px, 22vh, 190px); display: grid; place-items: center; border: 8px solid #ffd84d; box-shadow: 0 10px 0 rgba(60,40,120,.18); }
+.ninos-shell .jugar-pista { background: #fff; border: 4px solid #6ee7b7; font-size: 22px; }
+.ninos-shell .jugar-progreso { background: rgba(255,255,255,.85); border-radius: 999px; padding: 6px 20px; flex: 0 1 auto; margin: 0 auto; box-shadow: 0 4px 0 rgba(60,40,120,.18); }
+.ninos-shell .jugar-estrellas-grande { background: rgba(255,255,255,.85); border-radius: 40px; padding: 10px 30px; }
+
+/* La palabra y su dibujo, dentro de una tarjeta grande */
+.ninos-shell .repeat-stage { padding: 12px 20px 70px; gap: 12px; }
+.ninos-shell .palabra-dibujo { background: #fff; border-radius: 40px; border: 8px solid #ffd84d; padding: 10px 30px; box-shadow: 0 10px 0 rgba(60,40,120,.18); font-size: clamp(72px, 17vh, 130px); }
+.ninos-shell .repeat-word { color: #3b2a7a; text-shadow: 0 3px 0 #fff; }
+.ninos-shell .path-cta { font-size: 28px; padding: 16px 44px; border-radius: 50px; border: 6px solid #fff; box-shadow: 0 8px 0 rgba(0,0,0,.18); }
+.ninos-shell .mode-choice-button { border: 6px solid #fff; }
+.ninos-shell .result-overlay-tip { background: #fff; border: 6px solid #6ee7b7; border-radius: 34px; box-shadow: 0 10px 0 rgba(60,40,120,.18); }
+.ninos-shell .guia-ninos span { background: #fff; opacity: .9; border: 4px solid #e9d5ff; border-radius: 22px; }
+.ninos-shell .guia-ninos span.paso-activo { border-color: #6ee7b7; }
+.ninos-shell .camera-frame { border: 8px solid #fff; box-shadow: 0 10px 0 rgba(60,40,120,.2); }
+.ninos-shell .pista-cara { background: #e6fff3; border: 3px solid #6ee7b7; }
+.ninos-shell .jugar-aprendida { border: 4px solid #fff; }
+
+@media (max-width: 700px) {
+  .ninos-shell .jugar-btn-gigante { font-size: 40px; padding: 24px 50px; }
+  .ninos-shell .mascota-grande .mascota-cara { width: 96px; height: 96px; font-size: 58px; }
+}
+@media (prefers-reduced-motion: reduce) { .cielo .nube, .cielo .sol, .cielo .flor { animation: none; } }
+
+.ninos-shell .jugar-centro { gap: clamp(8px, 2vh, 18px); }
+.ninos-shell .jugar-btn-gigante { font-size: clamp(36px, 7vh, 56px); padding: clamp(18px, 3.6vh, 30px) clamp(50px, 9vh, 84px); }
+
+/* Mano que señala el botón que el niño tiene que tocar */
+.guia-mano { position: relative; overflow: visible; }
+.guia-mano::after {
+  content: "👆"; position: absolute; left: 50%; bottom: -62px; font-size: 54px; line-height: 1; transform: translateX(-50%);
+  animation: mano-toca 1.1s ease-in-out infinite; filter: drop-shadow(0 4px 4px rgba(0,0,0,.25)); pointer-events: none;
+}
+@keyframes mano-toca { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -14px); } }
+.ninos-shell .jugar-btn-gigante.guia-mano { margin-bottom: 60px; }
+@media (prefers-reduced-motion: reduce) { .guia-mano::after { animation: none; } }
+
+/* Tutorial: pasos con dibujo grande */
+.tuto-paso { display: flex; flex-direction: column; align-items: center; gap: 6px; background: #fff; border: 8px solid #ffd84d; border-radius: 44px; padding: 22px 44px; max-width: 560px; box-shadow: 0 10px 0 rgba(60,40,120,.18); animation: tuto-entra .5s ease; position: relative; }
+.tuto-icono { font-size: clamp(80px, 18vh, 130px); line-height: 1.1; }
+.tuto-texto { font-size: clamp(22px, 4vh, 32px); font-weight: 900; color: #3b2a7a; }
+.tuto-num { position: absolute; top: -26px; left: -18px; width: 56px; height: 56px; border-radius: 50%; background: #ff6b6b; color: #fff; font-size: 30px; font-weight: 900; display: grid; place-items: center; border: 5px solid #fff; }
+.tuto-puntos { display: flex; gap: 10px; }
+.tuto-puntos i { width: 16px; height: 16px; border-radius: 50%; background: rgba(255,255,255,.7); }
+.tuto-puntos i.on { background: #ff6b6b; transform: scale(1.3); }
+@keyframes tuto-entra { from { opacity: 0; transform: translateY(20px) scale(.95); } to { opacity: 1; transform: none; } }
+.ninos-shell .jugar-ayuda { border: none; background: rgba(255,255,255,.8); color: #3b2a7a; font-family: inherit; font-weight: 800; font-size: 16px; border-radius: 999px; padding: 8px 18px; cursor: pointer; }
+
+.ninos-shell .fon-pista { font-size: 22px; font-weight: 900; color: #3b2a7a; background: #fff; border-radius: 999px; padding: 6px 20px; box-shadow: 0 4px 0 rgba(60,40,120,.18); }
+
+/* Que todo quepa en una pantalla de laptop sin deslizar */
+.ninos-shell .repeat-stage { gap: 6px; padding-bottom: 56px; }
+.ninos-shell .guia-ninos { gap: 8px; }
+.ninos-shell .guia-ninos span { padding: 3px 12px; font-size: 13px; }
+.ninos-shell .guia-ninos span b { font-size: 24px; }
+.ninos-shell .repeat-stage .audio-only-stage { padding: 6px 10px; gap: 2px; }
+.ninos-shell .repeat-stage .audio-only-orb { width: 56px; height: 56px; }
+.ninos-shell .palabra-dibujo { font-size: clamp(64px, 14vh, 110px); padding: 6px 24px; }
+.ninos-shell .repeat-word { font-size: clamp(34px, 6vh, 48px) !important; }
+.ninos-shell .path-cta { padding: 12px 40px; }
+.ninos-shell .repeat-stage .audio-only-stage { aspect-ratio: auto; width: auto; min-width: 170px; }
+.ninos-shell .repeat-word { line-height: 1.05; }
+
+/* Resultado para niños: Fofo ya dice el mensaje, así que la tarjeta solo trae lo que hay que hacer */
+.tip-ninos .result-overlay-emoji, .tip-ninos .result-overlay-tip-label { display: none; }
+.tip-ninos .como-video { width: min(100%, 230px); margin: 4px auto; }
+.tip-ninos { padding: 10px 14px; gap: 4px; }
+.tip-ninos .pista-cara { font-size: 15px; padding: 6px 12px; margin: 4px auto; }
+.tip-ninos .ver-video { padding: 6px 14px; font-size: 13px; margin-bottom: 4px; }
+.ninos-shell .repeat-stage.dos-col .stage-der { max-width: 520px; }
+.ninos-shell .repeat-stage.dos-col { padding-bottom: 12px; padding-top: 4px; }
+
+/* Escenas del tutorial: muestran lo que pasa de verdad en el juego */
+.esc { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: clamp(150px, 26vh, 230px); width: 100%; }
+.esc-tarjeta { display: flex; flex-direction: column; align-items: center; background: #fff7d6; border: 6px solid #ffd84d; border-radius: 30px; padding: 6px 30px; box-shadow: 0 6px 0 rgba(60,40,120,.18); }
+.esc-emoji { font-size: clamp(64px, 13vh, 100px); line-height: 1.1; }
+.esc-palabra { font-size: clamp(24px, 4.4vh, 34px); font-weight: 900; color: #3b2a7a; letter-spacing: 3px; }
+.esc-ojos { font-size: 44px; animation: ojos-miran 2s ease-in-out infinite; }
+@keyframes ojos-miran { 0%, 100% { transform: translateX(-14px); } 50% { transform: translateX(14px); } }
+.esc-dice { background: #fff; border: 4px solid #6ee7b7; border-radius: 22px; padding: 4px 18px; font-size: 28px; font-weight: 900; color: #3b2a7a; animation: dice-aparece 2.4s ease-in-out infinite; }
+@keyframes dice-aparece { 0%, 40% { opacity: 0; transform: translateY(8px) scale(.9); } 55%, 100% { opacity: 1; transform: none; } }
+.esc-boton { position: relative; width: clamp(86px, 15vh, 120px); height: clamp(86px, 15vh, 120px); border-radius: 50%; display: grid; place-items: center; font-size: clamp(44px, 8vh, 60px); background: linear-gradient(135deg, #8c6bff, #2ecc8f); border: 6px solid #fff; box-shadow: 0 8px 0 rgba(0,0,0,.18); animation: boton-toca 2.4s ease-in-out infinite; }
+@keyframes boton-toca { 0%, 25% { transform: scale(1); } 32% { transform: scale(.9); } 40%, 100% { transform: scale(1); } }
+.onda { position: absolute; inset: -8px; border-radius: 50%; border: 4px solid rgba(46,204,143,.6); animation: onda-sale 1.6s ease-out infinite; opacity: 0; }
+.onda.o2 { animation-delay: .5s; }
+@keyframes onda-sale { 0% { transform: scale(.9); opacity: .9; } 100% { transform: scale(1.7); opacity: 0; } }
+.esc-dedo { position: absolute; bottom: -10px; right: 28%; font-size: 48px; animation: dedo-toca 2.4s ease-in-out infinite; filter: drop-shadow(0 3px 3px rgba(0,0,0,.25)); }
+@keyframes dedo-toca { 0%, 15% { transform: translateY(20px); } 28% { transform: translateY(-34px); } 40%, 100% { transform: translateY(20px); } }
+.esc-estrella-grande { font-size: clamp(90px, 17vh, 140px); line-height: 1; animation: estrella-pop 1.6s ease-in-out infinite; filter: drop-shadow(0 6px 8px rgba(255,170,0,.5)); }
+@keyframes estrella-pop { 0%, 100% { transform: scale(.85) rotate(-8deg); } 50% { transform: scale(1.15) rotate(8deg); } }
+.esc-chispas i { position: absolute; font-style: normal; font-size: 28px; animation: chispa 1.6s ease-in-out infinite; }
+.esc-chispas i:nth-child(1) { top: 6%; left: 22%; } .esc-chispas i:nth-child(2) { top: 10%; right: 22%; animation-delay: .4s; }
+.esc-chispas i:nth-child(3) { bottom: 22%; left: 18%; animation-delay: .8s; } .esc-chispas i:nth-child(4) { bottom: 26%; right: 18%; animation-delay: 1.2s; }
+@keyframes chispa { 0%, 100% { opacity: 0; transform: scale(.4); } 50% { opacity: 1; transform: scale(1.2); } }
+.esc-fila { font-size: clamp(24px, 4.4vh, 34px); letter-spacing: 4px; }
+.esc-calma { background: #fff; border: 4px solid #ffd84d; border-radius: 999px; padding: 6px 22px; font-size: 26px; font-weight: 900; color: #3b2a7a; }
+.esc-letras { display: flex; gap: 10px; }
+.esc-letras b { width: clamp(46px, 8vh, 62px); height: clamp(56px, 10vh, 74px); border-radius: 16px; display: grid; place-items: center; color: #fff; font-size: clamp(26px, 5vh, 38px); font-weight: 900; border: 4px solid #fff; box-shadow: 0 5px 0 rgba(0,0,0,.18); background: linear-gradient(160deg, #a78bfa, #7c5cff); animation: letra-salta 2s ease-in-out infinite; }
+.esc-letras b:nth-child(2) { background: linear-gradient(160deg, #fda4af, #fb7185); animation-delay: .25s; } .esc-letras b:nth-child(3) { animation-delay: .5s; } .esc-letras b:nth-child(4) { background: linear-gradient(160deg, #fda4af, #fb7185); animation-delay: .75s; }
+@keyframes letra-salta { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-12px); } }
+.esc-boca { background: #e6fff3; border: 3px solid #6ee7b7; border-radius: 16px; padding: 6px 14px; font-size: 18px; font-weight: 800; color: #3b2a7a; }
+@media (prefers-reduced-motion: reduce) { .esc *, .esc { animation: none !important; } }
+
+/* Escucha automática: un cartel que avisa cuándo le toca hablar al niño */
+.escuchando { background: #fff; border: 5px solid #ffd84d; border-radius: 999px; padding: 12px 34px; font-size: 26px; font-weight: 900; color: #3b2a7a; box-shadow: 0 8px 0 rgba(60,40,120,.18); }
+.escuchando-on { border-color: #6ee7b7; background: #e6fff3; animation: mascota-salto .8s ease-in-out infinite; }
+.ninos-shell .jugar-fila .jugar-btn-sec:nth-child(3) { background: linear-gradient(160deg, #c8f7e1, #6ee7b7); }
+
+/* Esquina de arriba: engranaje para adultos (los niños lo ignoran) y la voz */
+.jugar-esquina { display: flex; gap: 10px; align-items: center; }
+.boton-adultos { width: 60px; height: 60px; border-radius: 50%; border: 5px solid #fff; background: rgba(255,255,255,.7); font-size: 28px; cursor: pointer; box-shadow: 0 6px 0 rgba(60,40,120,.18); opacity: .8; }
+.boton-adultos:hover { opacity: 1; }
+
+/* ¿Qué pasó? (errores explicados al niño) */
+.que-paso { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; width: 100%; }
+.que-paso-linea { display: flex; align-items: center; gap: 10px; background: #fff7e6; border: 3px solid #ffd9a8; border-radius: 18px; padding: 6px 14px; text-align: left; }
+.que-paso-linea span { font-size: 28px; line-height: 1; }
+.que-paso-linea b { font-size: 17px; color: #3b2a7a; font-weight: 800; }
+.test-barra { height: 14px; margin: 0 24px; border-radius: 999px; background: rgba(255,255,255,.7); overflow: hidden; }
+.test-barra span { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #ffb347, #ff6b6b); transition: width .4s ease; }
+
+/* Nombre del niño */
+.nombre-input { width: min(90%, 420px); text-align: center; font-family: inherit; font-size: 40px; font-weight: 900; color: #3b2a7a; padding: 12px 16px; border-radius: 30px; border: 8px solid #ffd84d; background: #fff; box-shadow: 0 8px 0 rgba(60,40,120,.18); outline: none; }
+.nombre-input::placeholder { color: rgba(59,42,122,.35); }
+.nombre-input:focus { border-color: #6ee7b7; }
+.ninos-shell .nodo-titulo { background: rgba(255,255,255,.85); border-radius: 999px; padding: 2px 14px; }
+.ninos-shell .mapa-aventura { padding-bottom: 90px; }
+
+/* Pantalla de decir una palabra: todo en UNA pantalla, sin deslizar. En pantallas anchas va en dos columnas:
+   izquierda = Fofo, el dibujo y la palabra; derecha = cámara, los 3 pasos y el botón. */
+@media (min-width: 900px) {
+  .ninos-shell .repeat-stage:not(.dos-col) { justify-content: center; padding-top: 4px; padding-bottom: 20px; }
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-flow: row dense;
+    column-gap: 40px; row-gap: 8px; align-items: center; justify-items: center; width: min(100%, 980px);
+  }
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .mascota,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .palabra-dibujo,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .repeat-word,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .repeat-hint { grid-column: 1; }
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .camera-frame,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .audio-only-stage,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .audio-only-error,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .guia-ninos,
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .path-cta { grid-column: 2; }
+  .ninos-shell .repeat-stage:not(.dos-col) .camera-frame { width: min(100%, 400px); max-height: 34vh; }
+  .ninos-shell .repeat-stage:not(.dos-col) .camera-frame video, .ninos-shell .repeat-stage:not(.dos-col) .camera-frame canvas { max-height: 34vh; object-fit: cover; }
+}
+/* Los 3 pasos, con número */
+.guia-ninos span { position: relative; }
+.guia-ninos span em { position: absolute; top: -8px; left: -6px; width: 22px; height: 22px; border-radius: 50%; background: #ff6b6b; color: #fff; font-style: normal; font-weight: 900; font-size: 13px; display: grid; place-items: center; border: 2px solid #fff; }
+.ninos-shell .guia-ninos span { padding: 6px 12px 4px; }
+
+.boton-apagado { opacity: .45; cursor: not-allowed; filter: grayscale(.4); }
+
+/* Cómo se dice cada parte */
+.como-se-dice { display: flex; flex-direction: column; align-items: center; gap: 6px; max-width: 460px; }
+.como-chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.como-chip { border: 4px solid #fff; border-radius: 18px; background: #fff; min-width: 58px; padding: 4px 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; font-family: inherit; box-shadow: 0 5px 0 rgba(60,40,120,.18); }
+.como-chip b { font-size: 26px; font-weight: 900; color: #3b2a7a; line-height: 1.1; }
+.como-chip span { font-size: 22px; line-height: 1; }
+.como-chip-on { border-color: #6ee7b7; background: #e6fff3; transform: translateY(-3px); }
+.como-tip { background: #fff; border: 3px solid #ffd9a8; border-radius: 16px; padding: 6px 14px; font-size: 16px; font-weight: 700; color: #3b2a7a; text-align: center; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: wrap; }
+.como-lista { display: flex; flex-direction: column; gap: 5px; width: 100%; margin: 6px 0; }
+.como-titulo { font-weight: 900; font-size: 17px; color: #3b2a7a; }
+.como-fila { display: flex; align-items: center; gap: 10px; border: 3px solid #d9f5e8; background: #f2fffa; border-radius: 16px; padding: 4px 12px; cursor: pointer; text-align: left; font-family: inherit; }
+.como-letra { min-width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #8c6bff, #2ecc8f); color: #fff; display: grid; place-items: center; font-size: 17px; flex: 0 0 auto; }
+.como-icono { font-size: 24px; flex: 0 0 auto; }
+.como-texto { font-size: 14.5px; font-weight: 700; color: #3b2a7a; line-height: 1.25; }
+@media (min-width: 900px) {
+  .ninos-shell .repeat-stage:not(.dos-col) .stage-izq > .como-se-dice { grid-column: 1; }
+}
+
+/* Los botones de acción son VERDES de verdad (la guía dice "toca el botón verde"). El de "¡Hola!" es naranja. */
+.ninos-shell .path-cta,
+.ninos-shell .jugar-btn:not(.jugar-btn-sec):not(.jugar-btn-gigante) { background: linear-gradient(135deg, #4ade80, #16a34a); color: #fff; }
+.ninos-shell .jugar-btn-gigante { background: linear-gradient(135deg, #ff9f43, #ff6b6b); }
+.nombre-caja { position: relative; width: min(90%, 420px); display: flex; justify-content: center; margin-bottom: 40px; }
+.nombre-caja .nombre-input { width: 100%; }
+
+/* ¡Bravo! al acertar una letra */
+.bravo-toast { background: #e8fff3; border: 6px solid #6ee7b7; border-radius: 999px; padding: 12px 40px; font-size: 34px; font-weight: 900; color: #0b6b3f; box-shadow: 0 8px 0 rgba(20,120,80,.25); animation: globo-pop .5s ease; }
+
+.nombre-rotulo { background: #fff; border: 5px solid #ffd84d; border-radius: 999px; padding: 8px 26px; font-size: 26px; font-weight: 900; color: #3b2a7a; box-shadow: 0 6px 0 rgba(60,40,120,.18); animation: mascota-salto 2s ease-in-out infinite; }
+.nombre-input { font-size: clamp(26px, 4.6vh, 36px); }
+
+/* Resumen del juego de entrada: lo que salió bien y lo que hay que practicar */
+.resumen-centro { gap: clamp(6px, 1.4vh, 12px); justify-content: flex-start; padding-top: 6px; }
+.resumen-seccion { width: min(94%, 860px); }
+.resumen-titulo { display: inline-block; margin: 0 0 6px; padding: 4px 18px; border-radius: 999px; font-size: 22px; font-weight: 900; }
+.resumen-titulo-mal { background: #ffe3e3; color: #b42318; } .resumen-titulo-ok { background: #e3fbf1; color: #0b6b3f; }
+.resumen-rejilla { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.resumen-cuadro { position: relative; width: 104px; background: #fff; border: 5px solid #fff; border-radius: 22px; padding: 6px 4px 8px; display: flex; flex-direction: column; align-items: center; gap: 2px; box-shadow: 0 6px 0 rgba(60,40,120,.18); }
+.resumen-mal { border-color: #ff9f9f; } .resumen-ok { border-color: #6ee7b7; }
+.resumen-dibujo { font-size: 44px; line-height: 1.1; }
+.resumen-cuadro b { font-size: 15px; color: #3b2a7a; font-weight: 900; text-align: center; line-height: 1.1; }
+.resumen-marca { position: absolute; top: -12px; right: -10px; font-size: 28px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.25)); }
+
+/* Los 3 pasos caben siempre en una sola fila */
+.ninos-shell .guia-ninos { flex-wrap: nowrap; gap: 6px; }
+.ninos-shell .guia-ninos span { padding: 6px 8px 4px; font-size: 12px; white-space: nowrap; }
+.ninos-shell .guia-ninos span b { font-size: 22px; }
+
+.pista-cara { gap: 6px; }

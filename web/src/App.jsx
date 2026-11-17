@@ -1,56 +1,96 @@
-import { useState } from "react";
-import PhrasesScreen from "./screens/PhrasesScreen.jsx";
-import ErrorsScreen from "./screens/ErrorsScreen.jsx";
+import { useEffect, useState } from "react";
 import LearningPathScreen from "./screens/LearningPathScreen.jsx";
-import DiagnosticoScreen from "./screens/DiagnosticoScreen.jsx";
 import EjerciciosScreen from "./screens/EjerciciosScreen.jsx";
-import FonemasScreen from "./screens/FonemasScreen.jsx";
+import LetrasScreen from "./screens/LetrasScreen.jsx";
+import JugarScreen from "./screens/JugarScreen.jsx";
+import { testPrevioHecho, getNombre, setNombre, reiniciarTestPrevio } from "./modoNinos.js";
+
+// Para las pruebas y la muestra: cada vez que se actualiza la página se pide de nuevo el nombre del niño y se hace el test previo.
+// Poner en false para que la app recuerde el nombre y el test entre una visita y otra.
+const PEDIR_NOMBRE_Y_TEST_AL_RECARGAR = true;
+if (PEDIR_NOMBRE_Y_TEST_AL_RECARGAR) {
+  setNombre("");
+  reiniciarTestPrevio();
+  if (window.location.hash && window.location.hash !== "#/") window.history.replaceState(null, "", "#/");
+}
+import "./screens/NinosTema.css";
 import "./App.css";
 
-// Pedido explícito: Aprender (camino de etapas, termina en la práctica real
-// con cámara o con una frase completa) / Logros (lo que salió BIEN) / Para
-// practicar (lo que salió mal, separado de Logros para no mezclar estrellas
-// con fallas). "Frases" y "Sonidos" ya NO son pestañas aparte.
+// Recorrido del niño:
+//   1. Al abrir la app: "¡Hola!" -> su nombre -> cómo se juega -> TEST PREVIO (todo guiado por Fofo).
+//   2. Al terminar el test cae en APRENDER (el camino de círculos), donde brilla el sonido que toca practicar.
+//   3. Al tocar un círculo, Fofo guía la práctica de ese sonido (palabras, prueba del medio y reto final).
+// Las otras pestañas del menú: Gimnasia de la boca.
 const TABS = [
   { key: "aprender", label: "Aprender", icon: "🧭" },
-  { key: "logros", label: "Logros", icon: "🏆" },
-  { key: "errores", label: "Para practicar", icon: "🔁" },
-  { key: "ejercicios", label: "Ejercicios", icon: "🔤" },
+  { key: "letras", label: "Cómo se dice", icon: "📖" },
   { key: "praxias", label: "Gimnasia", icon: "🤸" },
 ];
 
-/// Navegación por pestañas: Aprender / Logros / Para practicar -- igual que
-/// main_tab_screen.dart (MainTabScreen).
+// Decorado de las pantallas del niño: cielo, nubes y colina con flores.
+function PantallaNinos({ children }) {
+  return (
+    <div className="tab-shell ninos-shell">
+      <div className="cielo" aria-hidden="true">
+        <span className="sol">☀️</span>
+        <span className="nube n1">☁️</span>
+        <span className="nube n2">☁️</span>
+        <span className="nube n3">☁️</span>
+        <span className="colina" />
+        <span className="flor" style={{ left: "8%" }}>🌷</span>
+        <span className="flor" style={{ left: "30%", animationDelay: "-1s" }}>🌼</span>
+        <span className="flor" style={{ left: "62%", animationDelay: "-2s" }}>🌻</span>
+        <span className="flor" style={{ left: "88%", animationDelay: "-.5s" }}>🌷</span>
+      </div>
+      <div className="tab-content">{children}</div>
+    </div>
+  );
+}
+
 export default function App() {
   const [index, setIndex] = useState(0);
-  // Ojo: las pantallas con cámara piden el micrófono/cámara apenas se
-  // montan, así que NUNCA se montan hasta que el usuario realmente toca esa
-  // pestaña -- igual que el Set<int> _visited en main_tab_screen.dart.
+  // Las pantallas con cámara piden el micrófono/cámara apenas se montan: no se montan hasta que el niño toca esa pestaña.
   const [visited, setVisited] = useState(new Set([0]));
-  // Pedido explícito (para la muestra): el test de diagnóstico se hace cada
-  // vez que se carga/actualiza la página, no solo la primera vez -- una
-  // palabra por cada sonido difícil, para ver en qué falla el chico. El
-  // resultado se sigue guardando en localStorage (lo usa Aprender para
-  // ordenar las categorías); lo que cambia es que ya no se saltea la prueba
-  // por haberla hecho antes. Cambiar a !yaHizoDiagnostico() (de
-  // DiagnosticoScreen.jsx) para volver a pedirla solo la primera vez.
-  const [mostrandoDiagnostico, setMostrandoDiagnostico] = useState(true);
+  // "inicio" = recorrido de entrada (hola, nombre, test previo). "app" = Aprender y Gimnasia.
+  // Rutas: "#/" es la entrada y "#/aprender" es la app; así "atrás" y recargar llevan donde corresponde.
+  // Mientras no haya hecho el test previo SIEMPRE se empieza por la entrada, sin importar la dirección que tenga el navegador.
+  // También se pide el nombre del niño: sin nombre guardado siempre se empieza por "¡Hola!" y su nombre.
+  const rutaDeHash = () => (testPrevioHecho() && getNombre() ? "app" : "inicio");
+  const [modo, setModoEstado] = useState(rutaDeHash);
+  const [jugando, setJugando] = useState(null); // clave del sonido que se está practicando (pantalla de juego)
+  const setModo = (m) => {
+    setModoEstado(m);
+    const hash = m === "app" ? "#/aprender" : "#/";
+    if (window.location.hash !== hash) window.history.pushState(null, "", hash);
+  };
+  useEffect(() => {
+    const alCambiar = () => setModoEstado(rutaDeHash());
+    window.addEventListener("popstate", alCambiar);
+    window.addEventListener("hashchange", alCambiar);
+    return () => { window.removeEventListener("popstate", alCambiar); window.removeEventListener("hashchange", alCambiar); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function selectTab(i) {
     setIndex(i);
     setVisited((prev) => new Set(prev).add(i));
   }
 
-  if (mostrandoDiagnostico) {
+  // Practicando un sonido: pantalla del niño, con la flecha ← de vuelta al camino.
+  if (jugando) {
     return (
-      <DiagnosticoScreen
-        onFinish={() => {
-          setMostrandoDiagnostico(false);
-          // Frases ya no es pestaña aparte -- después del diagnóstico va a
-          // Aprender, que ya prioriza las categorías donde falló.
-          selectTab(0);
-        }}
-      />
+      <PantallaNinos>
+        <JugarScreen key={jugando} claveInicial={jugando} onSalir={() => setJugando(null)} />
+      </PantallaNinos>
+    );
+  }
+
+  // Entrada: hola, nombre, cómo se juega y test previo. Al terminar pasa a Aprender.
+  if (modo === "inicio") {
+    return (
+      <PantallaNinos>
+        <JugarScreen onAprender={() => { setIndex(0); setModo("app"); }} />
+      </PantallaNinos>
     );
   }
 
@@ -77,19 +117,13 @@ export default function App() {
 
       <div className="tab-content">
         <div className="tab-pane" style={{ display: index === 0 ? "flex" : "none" }}>
-          {visited.has(0) && <LearningPathScreen />}
+          {visited.has(0) && <LearningPathScreen onJugar={(clave) => setJugando(clave)} />}
         </div>
         <div className="tab-pane" style={{ display: index === 1 ? "flex" : "none" }}>
-          {visited.has(1) && <PhrasesScreen active={index === 1} />}
+          {visited.has(1) && index === 1 && <LetrasScreen />}
         </div>
         <div className="tab-pane" style={{ display: index === 2 ? "flex" : "none" }}>
-          {visited.has(2) && <ErrorsScreen active={index === 2} />}
-        </div>
-        <div className="tab-pane" style={{ display: index === 3 ? "flex" : "none" }}>
-          {visited.has(3) && index === 3 && <FonemasScreen />}
-        </div>
-        <div className="tab-pane" style={{ display: index === 4 ? "flex" : "none" }}>
-          {visited.has(4) && index === 4 && <EjerciciosScreen />}
+          {visited.has(2) && index === 2 && <EjerciciosScreen />}
         </div>
       </div>
     </div>

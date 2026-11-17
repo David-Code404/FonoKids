@@ -5,6 +5,7 @@ import { PalabraStage, EvaluacionRun } from "./SonidosScreen.jsx";
 import { PRACTICA_SECCIONES, ORDEN_SONIDOS, EJERCICIOS_POR_EVALUACION, evaluacionDeGrupo } from "../palabras.js";
 import { fonemasDe, decirSonido, decirEnVoz, esVocal, comoSeVe, formaDe, videosDe, ejemploDe } from "../fonemas.js";
 import { sonidoBien, sonidoFalta } from "../sonidos.js";
+import { hablar } from "../voz.js";
 import { palabrasLogradas, estadoEvaluacion } from "../progreso.js";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
@@ -49,7 +50,7 @@ function Encabezado({ icono, titulo, onBack }) {
 const UMBRAL_CONSONANTE = -2.5;
 const UMBRAL_VOCAL = -6.0;
 
-export function GrabarSonido({ sonido, onBien }) {
+export function GrabarSonido({ sonido, onBien, auto = false }) {
   const streamRef = useRef(null);
   const recRef = useRef(createAudioRecorder());
   const [listo, setListo] = useState(false);
@@ -57,6 +58,9 @@ export function GrabarSonido({ sonido, onBien }) {
   const [procesando, setProcesando] = useState(false);
   const [aviso, setAviso] = useState("");
   const [fallos, setFallos] = useState(0);
+  const [bravo, setBravo] = useState(false); // festejo corto antes de pasar a la siguiente letra
+  const [intento, setIntento] = useState(0); // sube en cada fallo para volver a escuchar solo
+  const terminarRef = useRef(null);
 
   useEffect(() => {
     let cancelado = false;
@@ -69,9 +73,34 @@ export function GrabarSonido({ sonido, onBien }) {
   }, []);
 
   function empezar() {
-    if (streamRef.current && recRef.current.start(streamRef.current)) { setGrabando(true); setAviso(""); }
+    if (streamRef.current && recRef.current.start(streamRef.current)) {
+      setGrabando(true); setAviso("");
+      if (auto) {
+        // Corta solo: cuando el niño habló y se queda en silencio (o a los 5 segundos).
+        const est = { hablo: false, ultimaVoz: 0, ini: performance.now(), cortado: false };
+        recRef.current.alNivel((rms) => {
+          const t = performance.now();
+          if (rms > 0.025) { est.hablo = true; est.ultimaVoz = t; }
+          if (!est.cortado && ((est.hablo && t - est.ultimaVoz > 900 && t - est.ini > 600) || t - est.ini > 5000)) {
+            est.cortado = true;
+            recRef.current.alNivel(null);
+            terminarRef.current && terminarRef.current();
+          }
+        });
+      }
+    }
   }
+
+  // Modo automático: sin apretar nada. Fofo dice "¡Ahora tú!", se pone a escuchar solo y, si sale bien, pasa al siguiente.
+  useEffect(() => {
+    if (!auto || !listo || grabando || procesando || bravo || fallos >= 3) return undefined;
+    const t = setTimeout(() => { if (intento === 0) hablar("¡Ahora tú!"); setTimeout(() => empezar(), intento === 0 ? 900 : 300); }, intento === 0 ? 1800 : 2600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, listo, grabando, procesando, intento, fallos]);
+
   async function terminar() {
+    recRef.current.alNivel(null);
     setGrabando(false);
     const blob = recRef.current.stop();
     if (!blob) return;
@@ -84,8 +113,8 @@ export function GrabarSonido({ sonido, onBien }) {
       const score = r.scores?.[0];
       const umbral = esVocal(sonido.letras) ? UMBRAL_VOCAL : UMBRAL_CONSONANTE;
       const bien = typeof r.correcta === "boolean" ? r.correcta : (score == null || score >= umbral);
-      if (bien) { sonidoBien(); onBien(); }
-      else { sonidoFalta(); setFallos((n) => n + 1); setAviso("¡Casi! Escucha otra vez y prueba de nuevo"); }
+      if (bien) { sonidoBien(); if (auto) { hablar("¡Bravo!", { fuerte: true }); setBravo(true); setTimeout(onBien, 1100); } else onBien(); }
+      else { sonidoFalta(); setFallos((n) => n + 1); setIntento((n) => n + 1); setAviso("¡Casi! Escucha otra vez y prueba de nuevo"); }
     } catch (e) {
       setAviso(e.message || "Error al analizar el audio.");
     } finally {
@@ -93,13 +122,19 @@ export function GrabarSonido({ sonido, onBien }) {
     }
   }
 
+  terminarRef.current = terminar;
+
   return (
     <>
-      {listo && !procesando && (
+      {auto && listo && !procesando && !bravo && fallos < 3 && (
+        <div className={`escuchando ${grabando ? "escuchando-on" : ""}`}>{grabando ? "🎤 ¡Te escucho!" : "👂 Escucha… ¡ya te toca!"}</div>
+      )}
+      {listo && !procesando && !(auto && fallos < 3) && (
         <button className="path-cta" onClick={grabando ? terminar : empezar}>
           {grabando ? "Listo →" : "🎤 Decir el sonido"}
         </button>
       )}
+      {bravo && <div className="bravo-toast">¡Bravo! ⭐</div>}
       {procesando && <div className="audio-only-label">Analizando...</div>}
       {aviso && <div className="audio-only-error">{aviso}</div>}
       {!listo && aviso && (
@@ -125,7 +160,7 @@ function Carta({ forma, texto, estado, ejemplo }) {
   );
 }
 
-function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
+export function PalabraPorSonidos({ item, clave, onBack, onTerminar, modoNinos = false, modoInicial = null }) {
   const sonidos = useMemo(() => fonemasDe(item.palabra), [item.palabra]);
   const [i, setI] = useState(0);
   const videoRef = useRef(null);
@@ -147,6 +182,9 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
         item={item}
         claveGuardado={clave}
         tipo="palabra"
+        modoNinos={modoNinos}
+        modoInicial={modoInicial}
+        auto={modoNinos}
         onTerminar={onTerminar}
         onBack={onBack}
       />
@@ -154,11 +192,11 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
   }
   return (
     <div className="path-screen">
-      <Encabezado icono={item.emoji} titulo={`Sonido ${i + 1} de ${sonidos.length}`} onBack={onBack} />
+      <Encabezado icono={item.emoji} titulo={`${modoNinos ? "Letra" : "Sonido"} ${i + 1} de ${sonidos.length}`} onBack={onBack} />
       <div className="repeat-stage ejercicio-stage">
         <div className="fon-cabecera">
           <span className="fon-dibujo">{item.emoji}</span>
-          <span className="fon-pista">Escucha y di solo este sonido</span>
+          <span className="fon-pista">{modoNinos ? "Escucha y di solo esta letra" : "Escucha y di solo este sonido"}</span>
         </div>
         <div className="cartas-fila">
           {sonidos.map((u, k) => (
@@ -179,7 +217,7 @@ function PalabraPorSonidos({ item, clave, onBack, onTerminar }) {
         ) : (
           <button className="cambiar-modo" onClick={() => decirSonido(sonidos[i].sonido)}>🔁 Escuchar otra vez</button>
         )}
-        <GrabarSonido key={i} sonido={sonidos[i]} onBien={() => setI(i + 1)} />
+        <GrabarSonido key={i} sonido={sonidos[i]} onBien={() => setI(i + 1)} auto={modoNinos} />
       </div>
     </div>
   );

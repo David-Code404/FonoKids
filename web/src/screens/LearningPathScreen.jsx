@@ -1,3 +1,7 @@
+import Mascota, { BotonVoz } from "../components/Mascota.jsx";
+import { armarPartida, resultadoTestPrevio, testPrevioHecho, getNombre, gruposDelCamino } from "../modoNinos.js";
+import { useAyuda } from "../useAyuda.js";
+import { hablar } from "../voz.js";
 import { useEffect, useRef, useState } from "react";
 import { getHealth, getRecordings, getServerUrl, guardarEjercicio, predict, wordsFromClasses } from "../api.js";
 import { iconFor } from "../wordIcons.js";
@@ -135,8 +139,15 @@ function esIntentoPalabraCompleta(row) {
 /// "solo voz" pide una FRASE completa (ver frases.js/predictFrase), no la
 /// palabra sola; el modo cámara sigue pidiendo la palabra sola (la frase es
 /// audio-only, no tiene sentido con cámara mirando la boca).
-export default function LearningPathScreen() {
+export default function LearningPathScreen({ onJugar = null }) {
   const [unlockedWords, setUnlockedWords] = useState([]);
+  // Guía para el niño: al entrar Fofo dice qué hacer y, si se queda quieto, lo repite.
+  useEffect(() => {
+    if (!onJugar) return undefined;
+    const t = setTimeout(() => hablar(`${getNombre() ? getNombre() + ", " : ""}toca el círculo que brilla.`), 700);
+    return () => clearTimeout(t);
+  }, [onJugar]);
+  useAyuda("Toca el círculo que brilla.", !!onJugar);
   const [view, setView] = useState("categorias"); // categorias | etapas | pasos | repetir | practicar | practicar_frase | descanso
   // A dónde ir después de la pausa de "descanso" (dificultad que se ajusta
   // sola, ver chooseMode) -- "practicar" o "practicar_frase".
@@ -147,6 +158,7 @@ export default function LearningPathScreen() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedWord, setSelectedWord] = useState(null);
   const [extraSonido, setExtraSonido] = useState(null);
+  const [verResumen, setVerResumen] = useState(false);
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
   // Al abrir un paso que SÍ evalúa de verdad, primero se pregunta cómo
   // quiere practicar (cámara o solo voz) -- pedido explícito: la pregunta
@@ -824,6 +836,14 @@ export default function LearningPathScreen() {
   ].sort((a, b) => ORDEN_SONIDOS.indexOf(a.clave) - ORDEN_SONIDOS.indexOf(b.clave));
 
   const estadoRacha = getEstado();
+  // El círculo recomendado es el mismo que elegiría Fofo al tocar "¡Jugar!" (según el test previo).
+  const siguiente = armarPartida();
+  const claveSiguiente = siguiente && siguiente.tipo !== "testprevio" ? siguiente.clave : null;
+  const gruposDe = (it) => (it.tipo === "cat"
+    ? ({ "c-k": ["pr_k"], g: ["pr_g"], sinfones: ["sf_l", "sf_r"], s: ["pr_s"], rr: ["pr_r"], "ll-ch": ["pr_ll", "pr_ch"] }[it.cat.key] || [`pr_${it.cat.key}`])
+    : [it.g.key]);
+  const itemPractica = claveSiguiente ? listaOrdenada.find((it) => gruposDe(it).includes(claveSiguiente)) : null;
+  const primeraParaPracticar = itemPractica ? (itemPractica.tipo === "cat" ? itemPractica.cat.title : `el sonido ${itemPractica.g.titulo}`) : null;
 
   return (
     <div className="path-screen">
@@ -832,6 +852,7 @@ export default function LearningPathScreen() {
         <span className="path-progress-pill">
           🏆 {ALL_WORDS.filter((w) => estadoPalabra(w) === true).length}/{ALL_WORDS.length} palabras
         </span>
+        <BotonVoz />
       </div>
 
       <div className="racha-bar">
@@ -848,44 +869,74 @@ export default function LearningPathScreen() {
         )}
       </div>
 
-      <div className="etapa-list lista-sonidos">
+      <div className="mapa-saludo">
+        <Mascota grande animo="feliz" mensaje={!siguiente ? "¡Hola! Toca el círculo que quieras y vamos a jugar." : siguiente.tipo === "testprevio" ? "¡Hola! Toca un círculo para jugar." : primeraParaPracticar ? `¡Hola! Hoy practiquemos ${primeraParaPracticar}. ¡Toca el círculo que brilla ${itemPractica.tipo === "cat" ? itemPractica.cat.words[0]?.icon : itemPractica.g.icono}!` : "¡Hola! Toca el círculo que quieras y vamos a jugar."} />
+      </div>
+
+      {onJugar && testPrevioHecho() && (
+        <div className="resumen-boton-fila">
+          <button className="resumen-boton" onClick={() => setVerResumen((v) => !v)}>📋 {verResumen ? "Cerrar" : "¿Cuáles fallé en el juego?"}</button>
+        </div>
+      )}
+      {verResumen && (
+        <div className="resumen-panel">
+          {[[false, "💪 A practicar", "resumen-titulo-mal"], [true, "⭐ ¡Los dije bien!", "resumen-titulo-ok"]].map(([est, tit, cl]) => {
+            const lista = gruposDelCamino().filter((g) => g.estado === est);
+            return lista.length ? (
+              <section key={tit} className="resumen-seccion">
+                <h3 className={`resumen-titulo ${cl}`}>{tit}</h3>
+                <div className="resumen-rejilla">
+                  {lista.map((g) => (
+                    <div key={g.clave} className={`resumen-cuadro ${est ? "resumen-ok" : "resumen-mal"}`}>
+                      <span className="resumen-dibujo">{g.icono}</span><b>{g.titulo}</b>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null;
+          })}
+        </div>
+      )}
+
+      <div className="mapa-aventura">
         {listaOrdenada.map((it, i) => {
-          if (it.tipo === "cat") {
-            const cat = it.cat;
-            const resultado = estadoCategoria(cat);
-            return (
-              <button
-                key={cat.key}
-                className={`etapa-card etapa-color-${i % 4}`}
-                onClick={() => openCategory(cat)}
-                style={{ animationDelay: `${i * 0.04}s` }}
-              >
-                <span className="orden-num">{i + 1}</span>
-                <span className="etapa-card-word">
-                  <span className="etapa-card-icon">{cat.words[0]?.icon}</span> {cat.title}
-                  {resultado === false && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>Para practicar</span>}
-                  {resultado === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Ya lo sabés!</span>}
-                </span>
-                <span className="etapa-card-action">{cat.hint}</span>
-              </button>
-            );
-          }
-          const g = it.g;
+          const esCat = it.tipo === "cat";
+          const titulo = esCat ? it.cat.title : `Sonido ${it.g.titulo}`;
+          const icono = esCat ? it.cat.words[0]?.icon : it.g.icono;
+          // Con el test previo hecho, las marcas salen de él: ⭐ lo dijo bien, 💪 hay que practicarlo.
+          const rt = resultadoTestPrevio();
+          const gs = gruposDe(it).filter((g) => g in rt);
+          const resultado = testPrevioHecho()
+            ? (gs.length ? (gs.every((g) => rt[g]) ? true : gs.some((g) => rt[g] === false) ? false : undefined) : undefined)
+            : (esCat ? estadoCategoria(it.cat) : getDiagnosticoGuardado()?.[it.g.key.slice(3)]);
+          // Con el recorrido del niño: tocar el círculo abre el juego guiado de ese sonido. Si no, la lista de palabras de antes.
+          const claveJuego = () => {
+            const rt = resultadoTestPrevio();
+            const gs = gruposDe(it);
+            return gs.find((g) => rt[g] === false) || gs[0];
+          };
+          const abrir = onJugar
+            ? () => onJugar(claveJuego())
+            : (esCat ? () => openCategory(it.cat) : () => { setExtraSonido(it.g); setView("extra"); });
           return (
-            <button
-              key={g.key}
-              className={`etapa-card etapa-color-${i % 4}`}
-              onClick={() => { setExtraSonido(g); setView("extra"); }}
+            <div
+              key={esCat ? it.cat.key : it.g.key}
+              className={`nodo-wrap nodo-pos-${i % 4} ${it === itemPractica || (testPrevioHecho() && resultado === false) ? "nodo-sugerido" : ""}`}
               style={{ animationDelay: `${i * 0.04}s` }}
+              ref={it === itemPractica ? (el) => { if (el) setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 500); } : undefined}
             >
-              <span className="orden-num">{i + 1}</span>
-              <span className="etapa-card-word">
-                <span className="etapa-card-icon">{g.icono}</span> Sonido {g.titulo}
-                {getDiagnosticoGuardado()?.[g.key.slice(3)] === false && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>Para practicar</span>}
-                {getDiagnosticoGuardado()?.[g.key.slice(3)] === true && <span className="etapa-card-tag" style={{ marginLeft: 8 }}>¡Bien!</span>}
-              </span>
-              <span className="etapa-card-action">Al principio, en medio y al final →</span>
-            </button>
+              <button
+                className={`nodo nodo-color-${i % 4} ${resultado === true ? "nodo-ok" : resultado === false ? "nodo-practica" : ""}`}
+                onClick={abrir}
+                aria-label={titulo}
+              >
+                <span className="nodo-num">{i + 1}</span>
+                <span className="nodo-icono">{icono}</span>
+                {resultado === true && <span className="nodo-estado">⭐</span>}
+                {resultado === false && <span className="nodo-estado">💪</span>}
+              </button>
+              <span className="nodo-titulo">{titulo}</span>
+            </div>
           );
         })}
       </div>

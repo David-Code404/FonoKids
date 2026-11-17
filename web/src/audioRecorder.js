@@ -51,6 +51,7 @@ export function createAudioRecorder() {
   let processor = null;
   let chunks = [];
   let ultimoEsfuerzo = null;
+  let alNivel = null; // avisa qué tan fuerte suena el micrófono (para cortar solo cuando el niño deja de hablar)
 
   function start(stream) {
     const audioTrack = stream?.getAudioTracks?.()[0];
@@ -62,7 +63,13 @@ export function createAudioRecorder() {
       source = ctx.createMediaStreamSource(new MediaStream([audioTrack]));
       processor = ctx.createScriptProcessor(4096, 1, 1);
       processor.onaudioprocess = (e) => {
-        chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        const datos = e.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(datos));
+        if (alNivel) {
+          let suma = 0;
+          for (let i = 0; i < datos.length; i++) suma += datos[i] * datos[i];
+          alNivel(Math.sqrt(suma / datos.length));
+        }
       };
       source.connect(processor);
       processor.connect(ctx.destination);
@@ -99,5 +106,10 @@ export function createAudioRecorder() {
     return ultimoEsfuerzo;
   }
 
-  return { start, stop, esfuerzo };
+  /// Pone (o quita con null) la función que recibe el volumen de cada tramo de audio.
+  function ponerAlNivel(fn) {
+    alNivel = fn;
+  }
+
+  return { start, stop, esfuerzo, alNivel: ponerAlNivel };
 }

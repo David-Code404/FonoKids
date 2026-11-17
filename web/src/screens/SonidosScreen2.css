@@ -24,13 +24,15 @@
 .nivel-titulo { font-weight: 800; margin-bottom: 6px; }
 .nivel-palabras { display: flex; gap: 10px; flex-wrap: wrap; }
 .nivel-palabra {
-  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 96px;
-  padding: 10px 14px; border: 2px solid var(--border); border-radius: 16px; background: var(--surface);
-  font-weight: 800; font-size: 14px; cursor: pointer; color: var(--text-primary);
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 118px;
+  padding: 14px 18px; border: 3px solid var(--border); border-radius: 22px; background: var(--surface);
+  font-weight: 800; font-size: 17px; cursor: pointer; color: var(--text-primary); box-shadow: 0 5px 0 rgba(140,107,255,0.18); transition: transform .12s ease;
 }
 .nivel-palabra:disabled { cursor: not-allowed; }
 .nivel-palabra.lograda { border-color: #3ec9a0; background: #e6faf2; }
-.nivel-emoji { font-size: 36px; }
+.nivel-emoji { font-size: 56px; line-height: 1.1; }
+.nivel-palabra:not(:disabled):hover { transform: translateY(-3px) scale(1.04); }
+.nivel-palabra:not(:disabled):active { transform: scale(0.94); }
 .nivel-check { position: absolute; top: 4px; right: 6px; font-size: 14px; }
 
 .camino-bloque { margin-bottom: 14px; }
@@ -108,3 +110,11 @@
 .pista-cara { margin: 6px auto; padding: 10px 16px; max-width: 420px; border-radius: 16px; background: rgba(62,201,160,0.16);
   font-weight: 700; font-size: 16px; line-height: 1.4; text-align: center; }
 .pista-parte { font-weight: 900; font-size: 18px; }
+
+/* Flota abajo a la derecha para que la pantalla no crezca y no haya que subir ni bajar. */
+.como-video-fila { position: fixed; right: 28px; bottom: 28px; z-index: 30; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.como-video-mini { max-height: 170px; width: auto; border-radius: 16px; border: 4px solid #fff; box-shadow: 0 6px 14px rgba(0,0,0,.25); }
+
+.boton-saltar { display: block; margin: 10px auto 0; padding: 8px 22px; font-size: 16px; font-weight: 900; border-radius: 999px; background: #fff; color: #6a4bd6; border: 3px solid #d9ccff; cursor: pointer; }
+
+.boton-repetir { background: #fff !important; color: #6a4bd6 !important; border: 3px solid #d9ccff !important; box-shadow: 0 4px 0 #d9ccff !important; }

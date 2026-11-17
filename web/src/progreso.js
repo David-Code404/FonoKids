@@ -125,3 +125,12 @@ export function estadoEvaluacion(sonido, palabras, cada = 5) {
     final: { hecha: e.final || null, toca: !e.final && logradas >= total, faltan: Math.max(total - logradas, 0) },
   };
 }
+
+// Palabras que el niño ya dijo bien alguna vez: de esas ya no se vuelven a leer los fonemas uno por uno.
+const K_FONEMAS_LISTOS = "fk_fonemas_listos_aprender";
+export function marcarFonemasListos(palabra) {
+  const l = leer(K_FONEMAS_LISTOS, {});
+  l[palabra] = true;
+  escribir(K_FONEMAS_LISTOS, l);
+}
+export const fonemasListos = (palabra) => !!leer(K_FONEMAS_LISTOS, {})[palabra] || !!leer(K_LOGRADAS, {})[palabra];

@@ -75,4 +75,12 @@ const FALTA = ["¡Uy, te falta un poquito!", "¡Casi! Inténtalo de nuevo", "¡T
 const elegir = (l) => l[Math.floor(Math.random() * l.length)];
 
 export const mensajeBien = () => `${elegir(BIEN)} ⭐`;
+// Cuando se falla en el juego de entrada o en una prueba (solo hay un intento): sin "inténtalo de nuevo", con ánimo para seguir.
+const ANIMO = ["¡Buen intento! ¡Sigue así!", "¡Casi, casi! ¡Tú puedes!", "¡Lo intentaste, qué bien! ¡Vamos con la siguiente!"];
+export const mensajeAnimo = () => elegir(ANIMO);
+
+// Festejo para niños: siempre "¡Bravo!", sin decir el nombre.
+export function mensajeBravo() {
+  return `${elegir(["¡Bravo!", "¡Bravo, lo lograste!", "¡Bravo, qué bien!"])} ⭐`;
+}
 export const mensajeFalta = () => elegir(FALTA);

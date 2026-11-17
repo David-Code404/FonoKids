@@ -271,6 +271,24 @@ export async function predict(
   }
 }
 
+/// Opinión del modelo visual (cara completa) sobre una palabra -- POST /predict_video. Devuelve null si falla.
+export async function predictVideo(baseUrl, videoBlob, palabra) {
+  const form = new FormData();
+  form.append("file", videoBlob, "clip.webm");
+  form.append("palabra", palabra);
+  try {
+    const res = await withTimeout(
+      (signal) => fetch(`${normalize(baseUrl)}/predict_video`, { method: "POST", body: form, signal }),
+      30000,
+      "timeout"
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 /// Ejercicios de voz (prueba) -- POST /ejercicio_voz en server/main.py.
 /// tipo: "ritmo" (pa-ta-ka) o "trabalenguas".
 export async function ejercicioVoz(baseUrl, audioBlob, texto, tipo) {

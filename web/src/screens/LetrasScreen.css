@@ -1,0 +1,21 @@
+.letras-pantalla { background: #fff8ec; }
+.letras-contenido { padding: 6px 24px 60px; max-width: 1180px; margin: 0 auto; width: 100%; }
+.letras-intro { font-weight: 700; color: var(--text-secondary); font-size: 16px; margin: 6px 0 14px; }
+.letras-grupo { margin-bottom: 22px; }
+.letras-titulo { display: inline-block; font-size: 20px; font-weight: 900; padding: 5px 18px; border-radius: 999px; color: #3b2a7a; margin: 0 0 10px; }
+.letras-rejilla { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.letra-tarjeta { background: #fff; border: 4px solid var(--borde, #ece1fb); border-radius: 24px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 5px 0 rgba(60,40,120,.14); }
+.letra-principal { display: flex; align-items: center; justify-content: space-between; border: none; border-radius: 18px; padding: 6px 16px; cursor: pointer; font-family: inherit; background: var(--fondo, #efe9ff); }
+.letra-grande { font-size: 40px; font-weight: 900; color: #3b2a7a; line-height: 1.1; }
+.letra-sonido { font-size: 26px; }
+.letra-principal:active { transform: scale(.96); }
+.letra-ejemplo { display: flex; align-items: center; gap: 10px; font-size: 40px; line-height: 1; }
+.letra-ejemplo b { font-size: 19px; color: #3b2a7a; font-weight: 800; }
+.letra-como { display: flex; align-items: flex-start; gap: 8px; background: #f6fffb; border: 3px solid #d9f5e8; border-radius: 14px; padding: 6px 10px; font-size: 15px; font-weight: 700; color: #3b2a7a; line-height: 1.3; }
+.letra-parte { font-size: 24px; line-height: 1; }
+.letra-ver { border: none; border-radius: 999px; padding: 7px 16px; background: linear-gradient(135deg, #8c6bff, #2ecc8f); color: #fff; font-weight: 800; font-size: 14px; font-family: inherit; cursor: pointer; }
+.letra-video .como-video { width: 100%; }
+.letra-rosa { --borde: #ffd0dc; --fondo: #ffe3ec; } .letra-morado { --borde: #d9ccff; --fondo: #efe9ff; }
+.letra-verde { --borde: #c3f0dc; --fondo: #e3fbf1; } .letra-naranja { --borde: #ffd9a8; --fondo: #fff2df; } .letra-azul { --borde: #c5e1ff; --fondo: #e4f1ff; }
+.letras-titulo.letra-rosa { background: #ffe3ec; } .letras-titulo.letra-morado { background: #efe9ff; } .letras-titulo.letra-verde { background: #e3fbf1; }
+.letras-titulo.letra-naranja { background: #fff2df; } .letras-titulo.letra-azul { background: #e4f1ff; }

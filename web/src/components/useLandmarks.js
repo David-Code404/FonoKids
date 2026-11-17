@@ -39,7 +39,9 @@ function puntos(ctx, cara, indices, color, radio, w, h) {
 }
 
 /// Dibuja los puntos de la cara sobre `canvasRef` mientras `activo` sea true.
-export function useLandmarks(videoRef, canvasRef, activo) {
+// Si se pasa `muestrasRef` y su valor es un arreglo, va guardando cuánto se abre la boca en cada cuadro
+// (distancia entre los labios de adentro dividida por el ancho de la boca) para saber si el niño movió los labios.
+export function useLandmarks(videoRef, canvasRef, activo, muestrasRef = null) {
   useEffect(() => {
     if (!activo) return undefined;
     let cancelado = false;
@@ -54,6 +56,7 @@ export function useLandmarks(videoRef, canvasRef, activo) {
           baseOptions: { modelAssetPath: MODEL_URL, delegate: "GPU" },
           runningMode: "VIDEO",
           numFaces: 1,
+          outputFaceBlendshapes: true, // forma de la boca ya calculada (jawOpen, mouthPucker, mouthClose...)
         });
         if (cancelado) { lm.close(); return; }
         landmarker = lm;
@@ -75,8 +78,20 @@ export function useLandmarks(videoRef, canvasRef, activo) {
       }
       const ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const cara = landmarker.detectForVideo(video, performance.now()).faceLandmarks?.[0];
+      const res = landmarker.detectForVideo(video, performance.now());
+      const cara = res.faceLandmarks?.[0];
       if (!cara) return;
+      if (muestrasRef && Array.isArray(muestrasRef.current)) {
+        const forma = {};
+        for (const c of res.faceBlendshapes?.[0]?.categories || []) forma[c.categoryName] = c.score;
+        // Con blendshapes: jaw = qué tanto abre la mandíbula (0 a 1). Si no vinieran, se usa la apertura de los labios.
+        if (forma.jawOpen != null) {
+          muestrasRef.current.push({ jaw: forma.jawOpen, pucker: forma.mouthPucker || 0, funnel: forma.mouthFunnel || 0, close: forma.mouthClose || 0 });
+        } else if (cara[13] && cara[14] && cara[78] && cara[308]) {
+          const ancho = Math.hypot(cara[308].x - cara[78].x, cara[308].y - cara[78].y) || 1;
+          muestrasRef.current.push({ jaw: Math.min(1, Math.hypot(cara[14].x - cara[13].x, cara[14].y - cara[13].y) / ancho / 1.5), pucker: 0, funnel: 0, close: 0 });
+        }
+      }
       const w = canvas.width;
       const h = canvas.height;
       ctx.lineCap = "round";
@@ -106,5 +121,5 @@ export function useLandmarks(videoRef, canvasRef, activo) {
       if (raf) cancelAnimationFrame(raf);
       landmarker?.close();
     };
-  }, [activo, videoRef, canvasRef]);
+  }, [activo, videoRef, canvasRef, muestrasRef]);
 }

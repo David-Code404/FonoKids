@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getServerUrl, ejercicioVoz, guardarEjercicio } from "../api.js";
+import { getServerUrl, ejercicioVoz, guardarEjercicio, getHealth, predictVideo } from "../api.js";
 import { createAudioRecorder } from "../audioRecorder.js";
 import EsfuerzoResumen from "../components/EsfuerzoResumen.jsx";
 import {
@@ -9,21 +9,31 @@ import {
 } from "../palabras.js";
 import {
   contarLogradas, reiniciarSonido, diasDeUso, ejerciciosHechos, estadoEvaluacion, evaluaciones,
-  guardarEvaluacion, guardarSoloImagen, marcarLograda, SONIDOS_DESBLOQUEADOS, palabrasLogradas, soloImagen,
+  guardarEvaluacion, guardarSoloImagen, marcarLograda, SONIDOS_DESBLOQUEADOS, palabrasLogradas, soloImagen, marcarFonemasListos, fonemasListos,
 } from "../progreso.js";
-import { mensajeBien, mensajeFalta, sonidoBien, sonidoFalta } from "../sonidos.js";
+import { mensajeBien, mensajeBravo, mensajeAnimo, mensajeFalta, sonidoBien, sonidoFalta } from "../sonidos.js";
+import { getNombre } from "../modoNinos.js";
 import { useLandmarks } from "../components/useLandmarks.js";
 import "./LearningPathScreen.css";
 import "./HomeScreen.css";
 import "./EjerciciosScreen.css";
 import "./SonidosScreen2.css";
 import FonemasScreen from "./FonemasScreen.jsx";
-import { fonemasDe, sonidosAMejorar, sonidosBienDichos, videosDe, decirSonido, pistaCara } from "../fonemas.js";
+import Mascota from "../components/Mascota.jsx";
+import { hablar, callar } from "../voz.js";
+import { useAyuda } from "../useAyuda.js";
+import { explicarError, explicarSinVoz } from "../errores.js";
+import { fonemasDe, sonidosAMejorar, sonidosBienDichos, videosDe, decirSonido, pistaCara, callarSonidos } from "../fonemas.js";
 import { GrabarSonido } from "./FonemasScreen.jsx";
 
 // Los tests (previo, intermedio y final) están apagados por ahora: ponerlo en true para volver a mostrarlos.
 const TESTS_ACTIVOS = true;
 let modoRecordado = null; // "camara" | "voz": lo que se eligió la última vez
+// Modelo visual (TCN + Conformer) como segunda opinión con cámara. APAGADO: el servidor tarda ~25 s en procesar el video
+// (decodifica los cuadros y detecta la cara con HRNet), demasiado para un niño. Se prende cuando sea rápido.
+const USAR_MODELO_VISUAL = false;
+// Cuánto tiene que abrirse y cerrarse la mandíbula (0 a 1) mientras habla; si se mueve menos, "no moviste los labios".
+const UMBRAL_BOCA_QUIETA = 0.2;
 const PAUSA_RESULTADO_MS = 4500; // el resultado se queda a la vista antes de seguir
 
 // Botón "Ver cómo se dice": al apretarlo se muestra el video de referencia (cara recortada, con
@@ -34,7 +44,7 @@ export function VideoReferencia({ src, etiqueta }) {
   if (!abierto) {
     return (
       <button className="ver-video" onClick={() => setAbierto(true)}>
-        ▶ {etiqueta}
+        ▶ {etiqueta.replace(/^Ver cómo se dice/, "Mira cómo se dice").replace(/\s*\(video (\d)\)/, " · $1")}
       </button>
     );
   }
@@ -84,6 +94,96 @@ function sonidosParaPracticar(palabra, resultado) {
     mal = [{ letras: letras[i].letras, indice: i, score: sc ? sc[i] : null }];
   }
   return { letras, mal: mal || [] };
+}
+
+// "Cómo se dice cada parte": las letras de la palabra con la parte de la cara que se usa (labios, lengua, dientes).
+// Al tocar una letra se oye su sonido y se ve la guía. En modo `lista` muestra todas juntas (para la tarjeta del resultado).
+function ComoSeDice({ palabra, lista = false, auto = false, onFin = null, callado = false }) {
+  const [abierta, setAbierta] = useState(null);
+  const [veces, setVeces] = useState(0);
+  const [leyendo, setLeyendo] = useState(false);
+  const siguiente = useRef(null);
+  // Con lista (tarjeta del resultado) cada sonido sale una vez; en la práctica salen TODAS las letras de la palabra, en orden (CASA = C A S A).
+  const unidades = fonemasDe(palabra).filter((u, i, a) => pistaCara(u.sonido) && (!lista || a.findIndex((x) => x.sonido === u.sonido) === i)).slice(0, 9);
+  // Al llegar a la palabra, se leen solas las letras una por una (se ilumina cada una y suena su sonido); al terminar, Fofo dice la frase.
+  useEffect(() => {
+    if (!auto || lista) return undefined;
+    let cancelado = false;
+    const ids = [];
+    let k = 0;
+    let id = 0;
+    setLeyendo(true);
+    const avanzar = (mi) => { if (!cancelado && mi === id) paso(); };
+    const paso = () => {
+      if (cancelado) return;
+      if (k >= unidades.length) { setAbierta(null); setLeyendo(false); siguiente.current = null; if (onFin) onFin(); return; }
+      id += 1;
+      const mi = id;
+      const u = unidades[k];
+      setAbierta(k);
+      k += 1;
+      // Igual que al tocar la letra: si hay video, se ve y suena su audio (y pasa a la siguiente cuando termina); si no, el sonido suelto.
+      const conVideo = videosDe(u.sonido).length > 0;
+      if (!conVideo) decirSonido(u.sonido);
+      siguiente.current = () => avanzar(mi);
+      ids.push(setTimeout(() => avanzar(mi), conVideo ? 4500 : 1400));
+    };
+    ids.push(setTimeout(paso, 600));
+    return () => { cancelado = true; ids.forEach(clearTimeout); setLeyendo(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, palabra]);
+  if (!unidades.length) return null;
+  if (lista) {
+    return (
+      <div className="como-lista">
+        <div className="como-titulo">📖 Así se dice cada parte</div>
+        {unidades.map((u) => {
+          const pc = pistaCara(u.sonido);
+          const [icono, ...resto] = pc.parte.split(" ");
+          return (
+            <button key={u.sonido} className="como-fila" onClick={() => { decirSonido(u.sonido); hablar(`${resto.join(" ")} ${pc.texto}`); }}>
+              <b className="como-letra">{u.letras}</b><span className="como-icono">{icono}</span>
+              <span className="como-texto">{resto.join(" ")} {pc.texto}</span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+  const pc = abierta != null ? pistaCara(unidades[abierta].sonido) : null;
+  return (
+    <div className="como-se-dice">
+      <div className="como-chips">
+        {unidades.map((u, k) => (
+          <button key={`${u.sonido}-${k}`} className={`como-chip ${abierta === k ? "como-chip-on" : ""}`}
+            onClick={() => { setAbierta(k); decirSonido(u.sonido); }} aria-label={`Cómo se dice la ${u.letras}`}>
+            <b>{u.letras}</b><span>{pistaCara(u.sonido).parte.split(" ")[0]}</span>
+          </button>
+        ))}
+      </div>
+      <div className="como-tip">{pc ? <><b>{pc.parte}</b> {pc.texto}</> : "👆 Toca una letra y mira cómo se dice"}</div>
+      {abierta != null && !callado && videosDe(unidades[abierta].sonido)[0] && (
+        // El video de referencia de ese sonido (con su audio): se ve y se oye al tocar la letra.
+        <div className="como-video-fila">
+          <video key={`${unidades[abierta].sonido}-${abierta}-${veces}`} className="como-video como-video-mini" src={videosDe(unidades[abierta].sonido)[0]} autoPlay playsInline disablePictureInPicture
+            onEnded={() => { if (siguiente.current) siguiente.current(); }}
+            controlsList="nodownload noremoteplayback" onContextMenu={(e) => e.preventDefault()} />
+          <button className="ver-video" onClick={() => setVeces((v) => v + 1)}>🔁 Otra vez</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// "¿Qué pasó?": lo que salió mal con dibujos y palabras cortas, y qué hacer para corregirlo (modo niños).
+function QuePaso({ exp }) {
+  return (
+    <div className="que-paso">
+      {exp.lineas.map((l, k) => (
+        <div key={k} className="que-paso-linea"><span>{l.icono}</span><b>{l.texto}</b></div>
+      ))}
+    </div>
+  );
 }
 
 // "Mira y repite": al fallar, el video de cómo se hace el sonido que falló y un botón para decirlo suelto.
@@ -152,10 +252,17 @@ function SonidoAPracticar({ palabra, resultado }) {
 // Muestra el dibujo (y la palabra, salvo en "solo imagen"), graba y evalúa con
 // POST /ejercicio_voz. En la evaluación NO se repite el intento y, tras la pausa,
 // pasa a la siguiente; en la práctica se puede intentar de nuevo.
-export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice, total, onTerminar, onBack, modoInicial = null, etiquetaBack = null }) {
+export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice, total, onTerminar, onBack, modoInicial = null, etiquetaBack = null, onSaltar = null, modoNinos = false, onAyuda = null, auto = false }) {
   const streamRef = useRef(null);
   const recorderRef = useRef(createAudioRecorder());
   const timerRef = useRef(null);
+  const avanceRef = useRef(null);
+  const terminarRef = useRef(null);
+  const picoRef = useRef(0); // volumen más alto de la grabación
+  const clasesVideoRef = useRef(null); // palabras que conoce el modelo visual (se pide al servidor)
+  const videoRecRef = useRef(null); // grabadora del video (solo con cámara y palabras del modelo visual)
+  const videoChunksRef = useRef([]);
+  const bocaRef = useRef(null); // aperturas de la boca mientras graba (con cámara)
   const [micListo, setMicListo] = useState(false);
   const [micError, setMicError] = useState(null);
   const [grabando, setGrabando] = useState(false);
@@ -163,6 +270,8 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
   const [resultado, setResultado] = useState(null);
   const [mensaje, setMensaje] = useState("");
   const [esfuerzo, setEsfuerzo] = useState(null);
+  const [explicacion, setExplicacion] = useState(null); // qué salió mal y qué hacer (modo niños)
+  const [fallosPalabra, setFallosPalabra] = useState(0); // intentos fallidos de esta palabra (a los 2 se ofrece ir con calma)
   const [imagenSola] = useState(soloImagen());
   const [verPalabra, setVerPalabra] = useState(false);
   const [hayVideo, setHayVideo] = useState(false);
@@ -202,47 +311,168 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
   }, [item.palabra, modo]);
 
   function empezar() {
+    // Al grabar no debe sonar nada más (ni la voz de Fofo, ni sonidos, ni videos): habla solo el niño.
+    callar();
+    callarSonidos();
+    setLeidaDe(item.palabra);
     if (streamRef.current && recorderRef.current.start(streamRef.current)) {
+      bocaRef.current = [];
+      picoRef.current = 0;
+      // Con cámara y una palabra que conoce el modelo visual: se graba también el video.
+      videoRecRef.current = null;
+      videoChunksRef.current = [];
+      try {
+        const vt = streamRef.current?.getVideoTracks?.() || [];
+        if (USAR_MODELO_VISUAL && vt.length && window.MediaRecorder && clasesVideoRef.current?.has(quitarTildes(item.palabra))) {
+          const tipo = ["video/webm;codecs=vp8", "video/webm", "video/mp4"].find((t) => MediaRecorder.isTypeSupported(t));
+          const mr = new MediaRecorder(new MediaStream(vt), tipo ? { mimeType: tipo } : undefined);
+          mr.ondataavailable = (e) => { if (e.data?.size) videoChunksRef.current.push(e.data); };
+          mr.start();
+          videoRecRef.current = mr;
+        }
+      } catch { videoRecRef.current = null; }
+      setExplicacion(null);
       setGrabando(true);
       setResultado(null);
+      // Corta solo: cuando el niño habló y se queda en silencio ~1 segundo (o pasan 9 segundos).
+      const est = { hablo: false, ultimaVoz: 0, ini: performance.now(), cortado: false };
+      recorderRef.current.alNivel((rms) => {
+        const t = performance.now();
+        if (rms > picoRef.current) picoRef.current = rms;
+        if (rms > 0.025) { est.hablo = true; est.ultimaVoz = t; }
+        if (!est.cortado && ((est.hablo && t - est.ultimaVoz > 1100 && t - est.ini > 900) || t - est.ini > 9000)) {
+          est.cortado = true;
+          recorderRef.current.alNivel(null);
+          terminarRef.current && terminarRef.current();
+        }
+      });
     }
   }
 
   async function terminar() {
+    recorderRef.current.alNivel(null);
     setGrabando(false);
+    const muestras = bocaRef.current || [];
+    bocaRef.current = null;
     const blob = recorderRef.current.stop();
+    // Termina de grabar el video (si se grabó) y lo deja listo para mandarlo al modelo visual.
+    const mr = videoRecRef.current;
+    videoRecRef.current = null;
+    const videoListo = mr
+      ? new Promise((ok) => {
+          mr.onstop = () => ok(videoChunksRef.current.length ? new Blob(videoChunksRef.current, { type: mr.mimeType || "video/webm" }) : null);
+          try { mr.stop(); } catch { ok(null); }
+        })
+      : Promise.resolve(null);
     if (!blob) return;
     const esf = recorderRef.current.esfuerzo();
     setEsfuerzo(esf);
     setProcesando(true);
     try {
-      const r = await ejercicioVoz(getServerUrl(), blob, item.palabra, "palabra");
+      // El audio decide (con sus reglas) y, en paralelo, el modelo visual da su opinión si la palabra es de las que conoce.
+      const [r, vis] = await Promise.all([
+        ejercicioVoz(getServerUrl(), blob, item.palabra, "palabra"),
+        videoListo.then((vb) => (vb ? predictVideo(getServerUrl(), vb, item.palabra) : null)),
+      ]);
+      // Si el audio la dio por buena pero el modelo visual está MUY seguro de que los labios no la hicieron bien, no pasa.
+      if (r.valid && r.correcta && vis?.valid && vis.veto) { r.correcta = false; r.camara_dice_mal = true; }
+      if (vis?.valid && vis.en_modelo) r.camara = { prob_correcto: vis.prob_correcto, veto: !!vis.veto };
+      // Con cámara: si casi no abrió ni movió la boca (boca cerrada o murmurando), la palabra no se dijo bien.
+      const bocaQuieta = hayVideo && muestras.length >= 8 && Math.max(...muestras.map((m) => m.jaw)) - Math.min(...muestras.map((m) => m.jaw)) < UMBRAL_BOCA_QUIETA
+        && Math.max(...muestras.map((m) => m.pucker + m.funnel)) < 0.3;
+      if (r.valid && bocaQuieta) {
+        r.correcta = false;
+        r.boca_cerrada = true;
+      } else if (!r.valid && bocaQuieta) {
+        r.boca_cerrada = true;
+      }
       setResultado(r);
       if (r.valid) {
         const bien = !!r.correcta;
-        setMensaje(bien ? mensajeBien() : mensajeFalta());
+        const msg = r.boca_cerrada ? "¡Abre bien la boca y mueve los labios!" : bien ? (modoNinos ? mensajeBravo(getNombre()) : mensajeBien()) : (modoNinos && modoEvaluacion ? mensajeAnimo() : mensajeFalta());
+        setMensaje(msg);
         bien ? sonidoBien() : sonidoFalta();
+        let voz = msg;
+        if (!bien && modoNinos) {
+          // Le explica al niño qué salió mal y qué hacer (lo que oyó, la letra que falló y cómo corregirla).
+          const exp = explicarError(item.palabra, r, { pico: picoRef.current, bocaCerrada: !!r.boca_cerrada, conPista: modoEvaluacion, camaraMal: !!r.camara_dice_mal });
+          setExplicacion(exp);
+          voz = `${msg.replace(/[!¡]/g, "")}. ${exp.voz}`;
+        } else if (!bien && !r.boca_cerrada) {
+          const { letras: ls, mal: ml } = sonidosParaPracticar(item.palabra, r);
+          const pc = ml.length ? pistaCara(ls[ml[0].indice].sonido) : null;
+          if (pc) voz = `${msg}. ${pc.parte} ${pc.texto}`;
+        }
+        if (!bien) {
+          const nf = fallosPalabra + 1;
+          setFallosPalabra(nf);
+          if (nf >= 2 && onAyuda && modoNinos) voz = "¡Vamos con calma! Toca el botón y di cada letra, una por una.";
+        }
+        setTimeout(() => hablar(voz, { fuerte: bien && modoNinos }), 700);
+        if (bien && !modoEvaluacion) avanceRef.current = setTimeout(() => onTerminar(true), 4500);
         guardarEjercicio(getServerUrl(), {
           ejercicio_id: claveGuardado, tipo, correcto: bien, voz: esf?.voz,
           porcentaje_ok: r.porcentaje_ok, tipo_error: r.tipo_error,
         });
         if (!modoEvaluacion && bien) marcarLograda(item.palabra);
-        if (modoEvaluacion) {
+        // Solo cuenta lo dicho bien en Aprender: en el juego de entrada y al empezar a practicar se leen siempre los fonemas.
+        if (bien && !modoEvaluacion) marcarFonemasListos(item.palabra);
+        // En el test: si salió bien sigue solo; si salió mal se queda a la vista la explicación hasta que el niño toque "Seguir".
+        if (modoEvaluacion && (bien || !modoNinos)) {
           timerRef.current = setTimeout(() => onTerminar(bien), PAUSA_RESULTADO_MS);
         }
+      } else if (modoNinos) {
+        // No se oyó voz (murmullo, boca cerrada, silencio o ruido): se le dice qué hacer.
+        const exp = explicarSinVoz({ bocaQuieta: !!r.boca_cerrada });
+        setExplicacion(exp);
+        setTimeout(() => hablar(exp.voz), 400);
       }
     } catch (e) {
       setResultado({ valid: false, reason: e.message || "Error al analizar el audio." });
+      if (modoNinos) { const exp = explicarSinVoz(); setExplicacion(exp); setTimeout(() => hablar(exp.voz), 400); }
     } finally {
       setProcesando(false);
     }
   }
 
+  const [leidaDe, setLeidaDe] = useState(null);
+  const letrasPorLeer = !(imagenSola && !modoEvaluacion && !verPalabra) && leidaDe !== item.palabra && !(!modoEvaluacion && fonemasListos(item.palabra));
+  const fraseDi = () => `Di: ${item.palabra}.`;
+  // La mascota dice la palabra en voz alta cuando el micrófono está listo; al salir se calla y no avanza sola.
+  useEffect(() => {
+    if (micListo && !resultado && !(modoNinos && letrasPorLeer)) hablar(imagenSola && !modoEvaluacion && !verPalabra ? "¿Qué ves en el dibujo? ¡Dilo en voz alta!" : fraseDi());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micListo, item.palabra]);
+  useEffect(() => () => { clearTimeout(avanceRef.current); callar(); }, []);
+  // Qué palabras entiende el modelo visual (TCN + Conformer): solo a esas se les pide su opinión con la cámara.
+  useEffect(() => {
+    let vivo = true;
+    getHealth(getServerUrl()).then((h) => {
+      if (!vivo || !h?.classes) return;
+      clasesVideoRef.current = new Set(h.classes.map((c) => c.replace(/_(correcto|incorrecto)$/, "")));
+    });
+    return () => { vivo = false; };
+  }, []);
+  const quitarTildes = (t) => t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
   useEffect(() => {
     if (hayVideo && videoRef.current && streamRef.current) videoRef.current.srcObject = streamRef.current;
   }, [hayVideo, micListo]);
   // puntos de la cara en vivo, como en la práctica de siempre
-  useLandmarks(videoRef, canvasRef, hayVideo && micListo);
+  useLandmarks(videoRef, canvasRef, hayVideo && micListo, bocaRef);
+
+  terminarRef.current = terminar;
+  // Con auto, la primera vez empieza a escuchar sola cuando Fofo termina de decir la palabra.
+  useEffect(() => {
+    if (!auto || !micListo || grabando || procesando || resultado) return undefined;
+    const t = setTimeout(() => empezar(), 2600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto, micListo, resultado]);
+  useAyuda(
+    resultado?.valid ? (resultado.correcta ? "¡Toca el botón verde para seguir!" : modoEvaluacion ? "Toca el botón Seguir." : "Toca el botón para intentar otra vez.") : `Toca el micrófono y di: ${item.palabra}`,
+    modoNinos && micListo && !grabando && !procesando && !letrasPorLeer,
+  );
 
   function elegir(m) {
     modoRecordado = m;
@@ -257,6 +487,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
       <div className="path-screen">
         <Encabezado icono={item.emoji} titulo={item.palabra} onBack={onBack} />
         <div className="mode-choice-stage">
+          <Mascota mensaje="¿Cómo quieres jugar? ¿Con cámara o solo con la voz?" />
           <div className="palabra-dibujo">{item.emoji}</div>
           <div className="mode-choice-title">¿Cómo quieres practicar?</div>
           <div className="mode-choice-buttons">
@@ -282,12 +513,15 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
         titulo={modoEvaluacion ? `${tipo === "diagnostico" ? "Prueba" : "Evaluación"} ${indice + 1} de ${total}` : "Practica"}
         onBack={onBack}
       />
-      <div className={`repeat-stage ejercicio-stage${resultado?.valid ? " dos-col" : ""}`}>
+      <div className={`repeat-stage ejercicio-stage${resultado && (resultado.valid || modoNinos) ? " dos-col" : ""}`}>
         <div className="stage-izq">
+        <Mascota
+          animo={resultado?.valid ? (bien ? "festejo" : "animo") : procesando ? "pensando" : "feliz"}
+          mensaje={micError ? "¡Ay! Necesito tu micrófono para escucharte." : resultado?.valid ? (bien ? mensaje : (resultado.boca_cerrada ? "¡Abre bien la boca y mueve los labios! 👄" : (modoEvaluacion ? "¡Casi! Mira qué pasó y cómo se dice." : "¡Casi! Mira cómo se hace y dilo otra vez."))) : procesando ? "Mmm, déjame escuchar…" : grabando ? "¡Te escucho! Dilo fuerte." : (imagenSola && !modoEvaluacion && !verPalabra ? "¿Qué ves en el dibujo? ¡Dilo en voz alta!" : `Di: ${item.palabra}${modoNinos && indice === 0 ? " 📣 ¡Alza la voz!" : ""}`)}
+        />
         <div className="palabra-dibujo">{item.emoji}</div>
         {imagenSola && !modoEvaluacion && !verPalabra ? (
           <>
-            <div className="repeat-hint">¿Qué ves en el dibujo? ¡Dilo en voz alta!</div>
             <button className="cambiar-modo boton-ayuda" onClick={() => setVerPalabra(true)} aria-label="Ayúdame: mostrar la palabra"><span className="ayuda-gesto">🤷</span><span>¡Ayúdame!</span><span className="ayuda-gesto">👀</span></button>
           </>
         ) : (
@@ -296,6 +530,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
         {modoEvaluacion && item.pos && (
           <div className="repeat-hint">Sonido: {ETIQUETA_POS[item.pos] || item.pos}</div>
         )}
+        {modoNinos && !(imagenSola && !modoEvaluacion && !verPalabra) && <ComoSeDice palabra={item.palabra} callado={grabando || procesando || !!bien} auto={micListo && !resultado && letrasPorLeer} onFin={() => { setLeidaDe(item.palabra); hablar(`Ahora di la palabra: ${item.palabra}`); }} />}
 
         {micError ? (
           <div className="audio-only-error">No se pudo usar el micrófono: {micError}</div>
@@ -303,7 +538,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
           <div className="audio-only-label">Activando el micrófono...</div>
         ) : hayVideo ? (
           <div className={`camera-frame frase-camera ${grabando ? "is-recording" : ""}`}>
-            <video ref={videoRef} className="camera-preview" autoPlay muted playsInline />
+            <video ref={(el) => { videoRef.current = el; if (el && streamRef.current && el.srcObject !== streamRef.current) el.srcObject = streamRef.current; }} className="camera-preview" autoPlay muted playsInline />
             <canvas ref={canvasRef} className="camera-overlay" />
           </div>
         ) : (
@@ -323,21 +558,28 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
           </div>
         )}
 
-        {!grabando && !procesando && (
+        {modoNinos && modoEvaluacion && !resultado && !grabando && !procesando && (
+          // Saltar: si no se sabe la palabra, se pasa a la siguiente y ese sonido queda marcado para practicar.
+          <button className="cambiar-modo boton-saltar" onClick={() => { callar(); onTerminar(false); }}>Saltar ➜</button>
+        )}
+
+        {!grabando && !procesando && !modoNinos && (
           <button className="cambiar-modo" onClick={() => elegir(modo === "camara" ? "voz" : "camara")}>
             {modo === "camara" ? "🎤 Cambiar a solo voz" : "📷 Cambiar a cámara"}
           </button>
         )}
         {micListo && !resultado && !procesando && (
-          <div className="guia-ninos" aria-label="Qué hacer: mira, habla y toca listo">
-            <span className={!grabando ? "paso-activo" : ""}><b>🎤</b>Toca y habla</span>
+          <div className="guia-ninos" aria-label="Qué hacer: 1 toca el botón verde, 2 di la palabra, 3 toca listo">
+            <span className={!grabando ? "paso-activo" : ""}><em>1</em><b>👇</b>Toca el botón verde</span>
             <i>➜</i>
-            <span className={grabando ? "paso-activo" : ""}><b>✋</b>Toca «Listo»</span>
+            <span className={grabando ? "paso-activo" : ""}><em>2</em><b>🗣️</b>Di la palabra fuerte</span>
+            <i>➜</i>
+            <span><em>3</em><b>✋</b>Toca «Listo»</span>
           </div>
         )}
         {micListo && !procesando && !(modoEvaluacion && resultado?.valid) && (
-          <button className="path-cta" onClick={grabando ? terminar : empezar}>
-            {grabando ? "Listo, evaluar →" : "🎤 Grabar"}
+          <button className={`path-cta ${modoNinos && !grabando && !resultado ? "guia-mano" : ""}`} onClick={grabando ? terminar : empezar}>
+            {grabando ? (modoNinos ? "✋ Listo" : "Listo, evaluar →") : (modoNinos ? "🎤 ¡Habla!" : "🎤 Grabar")}
           </button>
         )}
 
@@ -345,14 +587,21 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
         <div className="stage-der">
         {resultado && (
           resultado.valid ? (
-            <div className="result-overlay-tip" style={{ marginTop: 6 }}>
+            <div className={`result-overlay-tip ${modoNinos ? "tip-ninos" : ""}`} style={{ marginTop: 6 }}>
               <div className="result-overlay-emoji">{bien ? "😄" : "🤔"}</div>
               <span className="result-overlay-tip-label">{mensaje}</span>
               <ElogioEspecifico palabra={item.palabra} resultado={resultado} bien={bien} />
-              {!bien && <SonidoAPracticar palabra={item.palabra} resultado={resultado} />}
+              {bien && modoNinos && <ComoSeDice palabra={item.palabra} lista />}
+              {!bien && !modoNinos && <SonidoAPracticar palabra={item.palabra} resultado={resultado} />}
+              {!bien && modoNinos && explicacion && <QuePaso exp={explicacion} />}
               {!bien && !modoEvaluacion && <MiraYRepite palabra={item.palabra} resultado={resultado} />}
-              <EsfuerzoResumen esfuerzo={esfuerzo} />
-              {modoEvaluacion ? (
+              {!modoNinos && <EsfuerzoResumen esfuerzo={esfuerzo} />}
+              {modoEvaluacion && modoNinos && !bien ? (
+                <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginTop: 8 }}>
+                  <button className="path-cta guia-mano" onClick={() => onTerminar(false)}>▶ Seguir</button>
+                  <button className="path-cta boton-repetir" onClick={() => { clearTimeout(timerRef.current); empezar(); }}>🔁 Repetir</button>
+                </div>
+              ) : modoEvaluacion ? (
                 <span className="result-overlay-tip-text">Siguiente en un momento...</span>
               ) : bien ? (
                 <button className="path-cta" style={{ marginTop: 8 }} onClick={() => onTerminar(true)}>
@@ -363,9 +612,21 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
                   🎤 Intentar de nuevo
                 </button>
               )}
+              {!bien && !modoEvaluacion && onAyuda && modoNinos && fallosPalabra >= 2 && (
+                <button className="path-cta guia-mano" style={{ marginTop: 8 }} onClick={onAyuda}>
+                  🐢 Con calma
+                </button>
+              )}
+              {!bien && !modoEvaluacion && onSaltar && (
+                <button className="cambiar-modo" style={{ marginTop: 6 }} onClick={onSaltar}>
+                  ➡️ Otra palabra
+                </button>
+              )}
             </div>
           ) : (
-            <div className="audio-only-error">{resultado.reason || "No se pudo analizar."}</div>
+            modoNinos && explicacion
+              ? <div className="result-overlay-tip tip-ninos"><QuePaso exp={explicacion} /></div>
+              : <div className="audio-only-error">{resultado.reason || "No se pudo analizar."}</div>
           )
         )}
         </div>
@@ -377,7 +638,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
 // ------------------------------------------------------------ EVALUACIÓN
 const NOMBRE_ETAPA = { previa: "Previa", intermedia: "Intermedia", final: "Final" };
 
-export function EvaluacionRun({ evalDef, etapa, onSalir }) {
+export function EvaluacionRun({ evalDef, etapa, onSalir, modoNinos = false, modoInicial = null }) {
   const [i, setI] = useState(0);
   const [bien, setBien] = useState(0);
   const [fin, setFin] = useState(false);
@@ -398,6 +659,24 @@ export function EvaluacionRun({ evalDef, etapa, onSalir }) {
       }
       setFin(true);
     }
+  }
+
+  const msgFin = reinicio ? "¡Vamos a practicar otra vez! ¡Tú puedes!" : bien === total ? "¡Perfecto! ¡Todas bien!" : "¡Muy bien! ¡Sigamos jugando!";
+  useEffect(() => {
+    if (fin && modoNinos) hablar(msgFin);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fin]);
+
+  if (fin && modoNinos) {
+    return (
+      <div className="path-screen">
+        <div className="jugar-centro">
+          <Mascota grande animo={reinicio ? "animo" : "festejo"} mensaje={msgFin} />
+          <div className="jugar-estrellas-grande">{"⭐".repeat(bien)}{"☆".repeat(total - bien)}</div>
+          <button className="jugar-btn guia-mano" onClick={onSalir}>▶ Seguir</button>
+        </div>
+      </div>
+    );
   }
 
   if (fin) {
@@ -428,6 +707,8 @@ export function EvaluacionRun({ evalDef, etapa, onSalir }) {
       claveGuardado={`${evalDef.key}_${evalDef.palabras[i].palabra}`}
       tipo="evaluacion"
       modoEvaluacion
+      modoNinos={modoNinos}
+      modoInicial={modoInicial}
       indice={i}
       total={total}
       onTerminar={siguiente}
@@ -757,6 +1038,7 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
         {progreso && <span className="path-progress-pill">{progreso}</span>}
       </div>
       <div className="etapa-list" style={{ paddingBottom: 24 }}>
+        <Mascota mensaje="¡Toca un dibujo y dilo en voz alta!" />
         <AvisoProfesional />
         <label className="solo-imagen">
           <input
@@ -772,7 +1054,7 @@ export default function SonidosScreen({ onBack, categoria, titulo, progreso, ext
             <div className="seccion-titulo">{b.nombre}</div>
             {b.grupo.startsWith("pr_") && (
               <button className="ver-video" onClick={() => setVista({ tipo: "fonemas", grupoKey: b.grupo })}>
-                🔤 Ejercicio: di cada sonido de las palabras
+                🔤 Juego: di cada sonido
               </button>
             )}
             {b.grupo === "pr_r" && <VideoReferencia src="/referencia/r.mp4" etiqueta="Ver cómo se dice la R" />}

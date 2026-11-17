@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { PRACTICA_SECCIONES, ORDEN_SONIDOS, SONIDOS_EXTRA } from "../palabras.js";
 import { TITULO_SONIDO } from "../progresoSonidos.js";
 import { PalabraStage } from "./SonidosScreen.jsx";
+import Mascota, { BotonVoz } from "../components/Mascota.jsx";
 import "./LearningPathScreen.css";
 import "./SoundsScreen.css";
 import "./HomeScreen.css";
@@ -108,12 +109,12 @@ export default function DiagnosticoScreen({ onFinish }) {
       <div className="path-screen">
         <div className="path-header">
           <span className="path-title"><span className="path-mascot">🗣️</span> Antes de arrancar...</span>
+          <BotonVoz />
         </div>
         <div className="mode-choice-stage">
-          <div className="mode-choice-title">¡Hola! Vamos a hacer una pequeña prueba</div>
+          <Mascota grande mensaje={`¡Hola! Soy Fofo. Vamos a jugar con ${CUANTAS} palabras fáciles. ¡Toca para escucharme!`} />
           <div className="repeat-hint" style={{ maxWidth: 420, textAlign: "center" }}>
-            Son {CUANTAS} palabras fáciles, elegidas al azar, para ver cuántas puedes decir. Si alguna no te sale,
-            la puedes saltar.
+            Si alguna no te sale, la puedes saltar.
           </div>
           <div className="mode-choice-title">¿Cómo quieres hacerla?</div>
           <div className="mode-choice-buttons">

@@ -293,8 +293,52 @@ def diagnose_tipo_error(fonemas_esperados, reconocido_libre_lista):
     return None
 
 
+def recortar_ruido_inicial(waveform):
+    """Quita un soplido o ruidito suelto antes de la voz: un golpecito débil, seguido de un silencio de 50 ms o más y
+    recién después la voz de verdad. El modelo lo oye como una consonante ("asa" le suena a "casa"). Una consonante de
+    verdad ("k" de casa) va pegada a su vocal, sin silencio entre las dos, así que esa no se toca."""
+    x = waveform.numpy() if hasattr(waveform, "numpy") else np.asarray(waveform)
+    sr = TARGET_SAMPLE_RATE
+    w = int(0.025 * sr)
+    n = len(x) // w
+    if n < 10:
+        return waveform
+    rms = np.array([float(np.sqrt(np.mean(x[i * w:(i + 1) * w] ** 2))) for i in range(n)])
+    pico = float(rms.max())
+    if pico < 0.01:
+        return waveform
+    fuerte = rms > 0.12 * pico
+    if not fuerte.any():
+        return waveform
+    ini = int(np.argmax(fuerte))  # primer tramo con voz de verdad
+    silencio = max(0.0025, 0.015 * pico)
+    # Salta el arranque suave de la voz (hasta 100 ms) y cuenta el silencio que hay antes.
+    k = ini - 1
+    rampa = 0
+    while k >= 0 and rms[k] >= silencio and rampa < 4:
+        k -= 1
+        rampa += 1
+    while k >= 0 and rms[k] < silencio:
+        k -= 1
+    k_ini = k
+    gap = ini - 1 - rampa - k
+    if gap < 2 or k < 0:
+        return waveform
+    # Antes del silencio hay un golpecito débil de menos de 0.4 s: se descarta.
+    j = k
+    while j >= 0 and rms[j] >= silencio:
+        j -= 1
+    corto = (k - j) * 0.025 <= 0.4
+    debil = float(rms[j + 1:k + 1].max()) < 0.12 * pico
+    if not (corto and debil):
+        return waveform
+    corte = max((ini - 2) * w, 0)
+    return waveform[corte:]
+
+
 def score_pronunciation(wav_path, palabra, model, feature_extractor, vocab, device):
     waveform = load_audio_16k(wav_path)
+    waveform = recortar_ruido_inicial(waveform)
 
     inputs = feature_extractor(waveform.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors="pt")
     with torch.inference_mode():

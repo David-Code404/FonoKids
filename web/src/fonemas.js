@@ -54,6 +54,8 @@ export function decirEnVoz(texto) {
 const ARCHIVO = { "ñ": "ni", v: "b" };
 const CON_ARCHIVO = new Set(["m", "p", "n", "t", "b", "d", "f", "k", "g", "ch", "ll", "y", "ni", "l", "s", "r", "rr", "a", "e", "i", "o", "u", "j", "z"]);
 let sonandoAhora = null;
+// Calla el sonido de letra que esté sonando (por ejemplo al empezar a grabar).
+export function callarSonidos() { try { sonandoAhora?.pause(); } catch { /* nada */ } }
 export function decirSonido(sonido) {
   const clave = ARCHIVO[sonido] || sonido;
   try { window.speechSynthesis?.cancel(); sonandoAhora?.pause(); } catch { /* nada */ }

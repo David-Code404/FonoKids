@@ -11,7 +11,10 @@ import os
 import shutil
 import sys
 import tempfile
+import hashlib
+import threading
 import time
+import wave
 from collections import defaultdict
 from datetime import datetime
 
@@ -20,7 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1248,6 +1251,83 @@ async def predict(
                 pass
 
 
+def _normalizar_palabra(p):
+    import unicodedata
+    p = unicodedata.normalize("NFD", (p or "").strip().lower())
+    return "".join(c for c in p if unicodedata.category(c) != "Mn")
+
+
+# Umbral para que el video "vete" una palabra que el audio dio por buena: el modelo visual tiene que estar MUY seguro
+# de que fue incorrecta (con grabaciones reales de la app falló bastante más que en validación).
+VISUAL_VETO_PROB = 0.85
+
+
+@app.post("/predict_video")
+async def predict_video(file: UploadFile = File(...), palabra: str = Form(...)):
+    """Opinión del modelo de cara completa (TCN + Conformer) sobre UNA palabra: solo video, sin audio.
+    Para las palabras que no están en el modelo devuelve en_modelo=False."""
+    if _state["model_cara"] is None:
+        raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo.")
+    clases = _state["class_names_cara"]
+    p = _normalizar_palabra(palabra)
+    if f"{p}_correcto" not in clases or f"{p}_incorrecto" not in clases:
+        return {"valid": True, "en_modelo": False}
+
+    suffix = os.path.splitext(file.filename or "")[1] or ".webm"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp)
+        tmp_path = tmp.name
+    try:
+        cap = cv2.VideoCapture(tmp_path)
+        frames = []
+        while cap.isOpened():
+            ok, frame = cap.read()
+            if not ok:
+                break
+            h, w = frame.shape[:2]
+            if w > MAX_FRAME_WIDTH:
+                frame = cv2.resize(frame, (MAX_FRAME_WIDTH, round(h * MAX_FRAME_WIDTH / w)), interpolation=cv2.INTER_AREA)
+            frames.append(frame)
+        cap.release()
+        if len(frames) < MIN_FRAMES_VALID:
+            return {"valid": False, "en_modelo": True, "reason": f"toma muy corta ({len(frames)} cuadros)"}
+
+        landmarks_por_frame = detect_landmarks_batch(_state["landmarker"], frames)
+        positions, detected, ultimo = [], 0, None
+        for lm in landmarks_por_frame:
+            v = normalize_face_landmarks(lm) if lm is not None else None
+            if v is not None and is_outlier(v, ultimo):
+                v = None
+            if v is not None:
+                detected += 1
+                ultimo = v
+            positions.append(v)
+        filled = fill_missing_frames(positions)
+        if filled is None or detected / len(frames) < MIN_DETECCION_CARA:
+            return {"valid": False, "en_modelo": True, "reason": "no se vio la cara completa"}
+
+        sequence, mask = preprocess_sequence(filled, _state["max_frames_cara"])
+        sequence, mask = sequence.to(DEVICE), mask.to(DEVICE)
+        with torch.inference_mode():
+            probs = torch.softmax(_state["model_cara"](sequence, src_key_padding_mask=mask), dim=1)[0]
+        top = int(torch.argmax(probs).item())
+        clase_top = clases[top]
+        prob_top = float(probs[top].item())
+        p_c = float(probs[clases.index(f"{p}_correcto")].item())
+        p_i = float(probs[clases.index(f"{p}_incorrecto")].item())
+        veto = clase_top == f"{p}_incorrecto" and prob_top >= VISUAL_VETO_PROB
+        print(f"[predict_video] {p}: top={clase_top} {prob_top:.2f} | correcto={p_c:.2f} incorrecto={p_i:.2f} | veto={veto}")
+        return {
+            "valid": True, "en_modelo": True, "clase": clase_top, "prob": round(prob_top, 3),
+            "prob_correcto": round(p_c, 3), "prob_incorrecto": round(p_i, 3), "veto": veto,
+        }
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 FRASE_DISTANCIA_MAXIMA = 0.48
 
 
@@ -1435,6 +1515,214 @@ def ejercicios_resumen():
     return {"ejercicios": filas if filas is not None else [], "base_de_datos": filas is not None}
 
 
+# Voz natural de Fofo: Piper (es_MX-claude-high, licencia Apache-2.0), corre sin internet.
+# Las frases ya dichas se guardan en data/voz_cache para no volver a generarlas.
+PIPER_VOZ_PATH = os.path.join(BASE_DIR, "models", "piper", "es_MX-claude-high.onnx")
+_piper = {"voz": None, "fallo": False}
+_piper_lock = threading.Lock()
+
+
+def _voz_piper():
+    if _piper["fallo"]:
+        return None
+    if _piper["voz"] is None:
+        try:
+            from piper import PiperVoice
+            _piper["voz"] = PiperVoice.load(PIPER_VOZ_PATH)
+            print("Voz natural de Fofo (Piper) cargada.")
+        except Exception as e:
+            print(f"[voz] Piper no disponible: {e}")
+            _piper["fallo"] = True
+            return None
+    return _piper["voz"]
+
+
+# Se carga en segundo plano al arrancar para que la primera frase de Fofo no tarde.
+threading.Thread(target=_voz_piper, daemon=True).start()
+
+
+def _wav_a_array(ruta):
+    with wave.open(ruta, "rb") as w:
+        return np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0, w.getframerate()
+
+
+def _array_a_wav(x, sr, ruta):
+    with wave.open(ruta, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(sr)
+        w.writeframes((np.clip(x, -1, 1) * 32767).astype(np.int16).tobytes())
+
+
+def _voz_con_g(voz, palabra, resto, ruta):
+    """La voz de Piper dice las palabras que empiezan con G como si fueran con K ("gato" suena "cato"). Truco: se dice dentro
+    de "el gato", donde la G sí sale sonora (se prueba varias veces y se comprueba con el modelo de audio), y se recorta desde
+    la G. Devuelve True si pudo armar el audio en `ruta`."""
+    import re as _re
+    if _state["audio_model"] is None:
+        return False
+    vocab = _state["audio_vocab"]
+    g_id = vocab.get("\u0261")
+    if g_id is None:
+        return False
+    tmp = ruta + ".t.wav"
+    elegido = None
+    for _ in range(8):
+        with wave.open(tmp, "wb") as w:
+            voz.synthesize_wav(f"Di: ¡el {palabra}!", w)
+        x, sr = _wav_a_array(tmp)
+        wav = load_audio_16k(tmp)
+        inp = _state["audio_feature_extractor"](wav.numpy(), sampling_rate=TARGET_SAMPLE_RATE, return_tensors="pt")
+        with torch.inference_mode():
+            ids = torch.argmax(_state["audio_model"](inp.input_values.to(DEVICE)).logits, -1)[0].tolist()
+        if g_id in ids:
+            elegido = (x, sr, ids.index(g_id) * 0.02)
+            break
+    if elegido is None:
+        return False
+    x, sr, t = elegido
+    gato = x[max(int((t - 0.05) * sr), 0):]
+    with wave.open(tmp, "wb") as w:
+        voz.synthesize_wav("Di:", w)
+    di, sr2 = _wav_a_array(tmp)
+    partes = [di, np.zeros(int(0.18 * sr2), dtype=np.float32), gato]
+    if resto.strip(" .,;:"):
+        with wave.open(tmp, "wb") as w:
+            voz.synthesize_wav(resto.strip(), w)
+        partes += [np.zeros(int(0.25 * sr2), dtype=np.float32), _wav_a_array(tmp)[0]]
+    _array_a_wav(np.concatenate(partes), sr2, ruta + ".tmp")
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    return True
+
+
+@app.post("/ninos/entrar")
+def ninos_entrar(datos: dict):
+    """El niño escribe su nombre: si ya había entrado antes se le devuelve su avance guardado; si no, se crea."""
+    nombre = str((datos or {}).get("nombre", "")).strip()
+    if not nombre:
+        raise HTTPException(status_code=400, detail="Falta el nombre.")
+    r = db.entrar_nino(nombre)
+    if r is None:
+        return {"id": None, "nombre": nombre, "nuevo": True, "estado": None}
+    return r
+
+
+@app.put("/ninos/{nino_id}/estado")
+def ninos_guardar_estado(nino_id: int, datos: dict):
+    """Guarda el avance del niño (test previo, logros, rachas...) para que lo recupere al volver a escribir su nombre."""
+    import json as _json
+    ok = db.guardar_estado_nino(nino_id, _json.dumps((datos or {}).get("estado", {}), ensure_ascii=False))
+    return {"ok": ok}
+
+
+@app.get("/voz")
+def voz_de_fofo(texto: str, fuerte: int = 0):
+    """Audio WAV con la voz de Fofo diciendo `texto` (frases cortas). fuerte=1: más rápida, más expresiva y mucho más fuerte,
+    para festejar (¡Bravo!)."""
+    texto = " ".join(texto.split())[:200]
+    if not texto:
+        raise HTTPException(status_code=400, detail="Falta el texto.")
+    carpeta = os.path.join(BASE_DIR, "data", "voz_cache")
+    os.makedirs(carpeta, exist_ok=True)
+    ruta = os.path.join(carpeta, hashlib.sha1(texto.encode("utf-8")).hexdigest()[:20] + ("_f" if fuerte else "") + ".wav")
+    if not os.path.exists(ruta):
+        with _piper_lock:
+            voz = _voz_piper()
+            if voz is None:
+                raise HTTPException(status_code=503, detail="La voz natural no está disponible.")
+            tmp = ruta + ".tmp"
+            import re as _re
+            m = _re.match(r"^Di: (g(?:[aoulr]|ue|ui)[a-záéíóúñü]*)(.*)$", texto, _re.IGNORECASE)
+            hecho_g = False
+            if m and not fuerte:
+                try:
+                    hecho_g = _voz_con_g(voz, m.group(1).lower(), m.group(2), ruta)
+                except Exception as e:
+                    print(f"[AVISO] No pude armar la voz con G ({e}); uso la normal.")
+                    hecho_g = False
+            config = None
+            if hecho_g:
+                pass
+            elif fuerte:
+                from piper import SynthesisConfig
+                config = SynthesisConfig(length_scale=0.86, noise_scale=0.95, noise_w_scale=1.0)
+            else:
+                config = None
+            if not hecho_g:
+                with wave.open(tmp, "wb") as w:
+                    voz.synthesize_wav(texto, w, syn_config=config)
+            # Si empieza con vocal o con H ("Hola"), la voz suelta un golpecito al arrancar y suena "gola" o "bola":
+            # se recortan los primeros 90 ms y se entra con un fundido suave.
+            primera = _re.sub(r"^[^a-záéíóúüñ]+", "", texto.lower())[:1]
+            if primera and primera in "aeiouáéíóúüh" and not hecho_g:
+                with wave.open(tmp, "rb") as r:
+                    params, datos = r.getparams(), r.readframes(r.getnframes())
+                x = np.frombuffer(datos, dtype=np.int16).astype(np.float32)
+                ini = int(0.09 * params.framerate)
+                if len(x) > ini * 3:
+                    x = x[ini:].copy()
+                    n = int(0.05 * params.framerate)
+                    x[:n] *= np.linspace(0.0, 1.0, n)
+                    with wave.open(tmp, "wb") as w:
+                        w.setparams(params)
+                        w.writeframes(x.astype(np.int16).tobytes())
+            if fuerte and not hecho_g:
+                # Sube mucho el volumen con un limitador suave (tanh) para que suene fuerte sin deformarse.
+                with wave.open(tmp, "rb") as r:
+                    params, datos = r.getparams(), r.readframes(r.getnframes())
+                x = np.frombuffer(datos, dtype=np.int16).astype(np.float32) / 32768.0
+                y = np.tanh(x * 5.0) * 0.97
+                with wave.open(tmp, "wb") as w:
+                    w.setparams(params)
+                    w.writeframes((y * 32767).astype(np.int16).tobytes())
+            os.replace(tmp, ruta)
+    return FileResponse(ruta, media_type="audio/wav")
+
+
+# Pares de sonidos que casi solo se distinguen por si la voz vibra (sonoro/sordo): g-k, b-p, d-t. Al modelo de audio le cuestan.
+_PAR_SONORO = {"g": "c", "c": "g", "b": "p", "p": "b", "d": "t", "t": "d"}
+
+
+def _contraste_inicial(audio_path, texto, scores):
+    """Qué tan parecido suena el primer sonido al de su pareja ("gato" vs "cato"): puntaje del esperado y del de la pareja
+    sobre el mismo audio. Hoy solo se anota en data/contraste_voz.csv para calibrar; todavía no cambia el veredicto."""
+    t = (texto or "").strip().lower()
+    if len(t) < 2 or t[0] not in _PAR_SONORO or t[1] not in "aou" or not scores or scores[0] is None:
+        return None
+    alt = _PAR_SONORO[t[0]] + t[1:]
+    r = _score_audio_pronunciation(audio_path, alt)
+    if not r or not r.get("scores") or r["scores"][0] is None:
+        return None
+    return {"alternativa": alt, "score_esperada": round(float(scores[0]), 2), "score_alternativa": round(float(r["scores"][0]), 2)}
+
+
+# Detector de voz Silero (modelo pequeño, MIT, corre sin internet): dice cuánto rato hay voz de verdad en el audio.
+_vad = {"modelo": None, "fallo": False}
+
+
+def _segundos_de_voz(waveform):
+    """Segundos con voz humana según Silero VAD, o None si el detector no está disponible."""
+    if _vad["fallo"]:
+        return None
+    try:
+        if _vad["modelo"] is None:
+            from silero_vad import load_silero_vad
+            _vad["modelo"] = load_silero_vad()
+        from silero_vad import get_speech_timestamps
+        tramos = get_speech_timestamps(
+            waveform.float().cpu(), _vad["modelo"], sampling_rate=TARGET_SAMPLE_RATE,
+            threshold=0.35, min_speech_duration_ms=120,
+        )
+        return sum(t["end"] - t["start"] for t in tramos) / TARGET_SAMPLE_RATE
+    except Exception as e:  # sin Silero la app sigue con el método anterior
+        print(f"[vad] no disponible: {e}")
+        _vad["fallo"] = True
+        return None
+
+
 @app.post("/ejercicio_voz")
 async def ejercicio_voz(
     audio: UploadFile = File(...),
@@ -1455,6 +1743,12 @@ async def ejercicio_voz(
             return {"valid": False, "reason": "no te escuché -- ¡probá de nuevo, más fuerte!"}
         activo = (waveform.abs() > 0.05 * pico).nonzero()
         seg_habla = max(float(activo[-1] - activo[0]) / TARGET_SAMPLE_RATE, 0.5) if len(activo) else 0.5
+        voz_seg = _segundos_de_voz(waveform)
+        if voz_seg is not None:
+            # Silero no oyó voz (ruido, golpes, un zumbido): no hay nada que evaluar.
+            if voz_seg < 0.15:
+                return {"valid": False, "reason": "no te escuché hablar -- ¡prueba de nuevo, más fuerte!"}
+            seg_habla = max(voz_seg, 0.5)
 
         resultado = _score_audio_pronunciation(audio_path, texto)
         if resultado is None:
@@ -1573,7 +1867,11 @@ async def ejercicio_voz(
                         # Si se oye otra cosa en su lugar ("m a l i p o s a", "k a p i b a j a") sigue en -5.5.
                         r_oida = any(t[:1] in ("r", "ɾ", "ɹ", "ɽ", "ʁ") for t in libres)
                         return -9.5 if r_oida else -5.5
-                    return -8.5 if f in vocales_pal else -5.0  # consonante: bien dicha rara vez baja de -4
+                    if f in vocales_pal:
+                        return -8.5
+                    # Consonante: bien dicha rara vez baja de -4. La consonante FINAL de la palabra ("sol", "mar", "pan") se
+                    # dice más débil (se vuelve casi vocal) y puntúa más bajo aunque esté bien: ahí el límite es -7.
+                    return -7.0 if i == len(fon_lista) - 1 else -5.0
                 muy_mal_por_puntaje = any(
                     sc is not None and _limite(i, f) is not None and sc < _limite(i, f)
                     for i, (f, sc) in enumerate(zip(fon_lista, scores))
@@ -1598,6 +1896,10 @@ async def ejercicio_voz(
                 )
                 if tiene_sinfon and libres and not any(t[:1] in liquidas for t in libres):
                     algun_sonido_muy_mal = True
+                # La R/RR: si la palabra tiene R y en lo que se oyó no aparece ninguna r ("cado" por "carro",
+                # "pelo" por "perro"), la R no se dijo aunque el resto de los puntajes salgan bien.
+                if any(f in ("ɾ", "r") for f in fon_lista) and libres and not any(t[:1] in ("r", "ɾ", "ɹ", "ɽ", "ʁ") for t in libres):
+                    algun_sonido_muy_mal = True
                 # Murmullo o susurro: si lo que se oye tiene menos de la mitad de los sonidos que tiene la palabra
                 # ("t" para "pato"), no se pronunció la palabra aunque algunos puntajes salgan altos.
                 if fon_lista and len(tokens) < 0.5 * len(fon_lista):
@@ -1612,13 +1914,13 @@ async def ejercicio_voz(
                 # La D entre vocales ("nido" dicho "nio") se omite o se vuelve casi nada: bien dicha sale ~0,
                 # si la omiten baja a -3.5 o menos. Por eso una D que no es la primera no puede bajar de -3.0.
                 d_omitida = any(
-                    i > 0 and f in ("d", "ð") and sc is not None and sc < -3.0
+                    0 < i < len(fon_lista) - 1 and f in ("d", "ð") and sc is not None and sc < -3.0
                     for i, (f, sc) in enumerate(zip(fon_lista, scores))
                 )
                 # La M/N dentro de la palabra ("mamá" dicho "maá", "mono" dicho "moo"): bien dicha sale entre 0 y -4,
                 # si se omite baja a -6 o menos, así que no puede bajar de -5.0.
                 nasal_omitida = any(
-                    i > 0 and f in ("m", "n") and sc is not None and sc < -5.0
+                    0 < i < len(fon_lista) - 1 and f in ("m", "n") and sc is not None and sc < -5.0
                     for i, (f, sc) in enumerate(zip(fon_lista, scores))
                 )
                 salida["correcta"] = pct_ok >= corte and not primer_sonido_mal and not algun_sonido_muy_mal and not d_omitida and not nasal_omitida
@@ -1628,6 +1930,20 @@ async def ejercicio_voz(
                     and bool(resultado["palabra_reconocida"])
                     and not malas
                 )
+        if tipo in ("palabra", "diagnostico"):
+            try:
+                cont = _contraste_inicial(audio_path, texto, resultado.get("scores"))
+                if cont:
+                    salida["contraste_inicio"] = cont
+                    ruta_c = os.path.join(BASE_DIR, "data", "contraste_voz.csv")
+                    nuevo_c = not os.path.exists(ruta_c)
+                    with open(ruta_c, "a", encoding="utf-8") as fh:
+                        if nuevo_c:
+                            fh.write("fecha;palabra;score_esperada;alternativa;score_alternativa;veredicto\n")
+                        fh.write(f"{datetime.now().isoformat(timespec='seconds')};{texto};{cont['score_esperada']};"
+                                 f"{cont['alternativa']};{cont['score_alternativa']};{'bien' if salida['correcta'] else 'mal'}\n")
+            except Exception as e:
+                print(f"[contraste] {e}")
         palabra_corta = "".join(ch for ch in texto.lower() if ch.isalnum())[:14]
         tipo_seguro = "".join(ch for ch in tipo if ch.isalnum())[:12]  # el tipo viene del cliente: no puede traer / ni ..
         _guardar_debug_frase(audio_path, None, f"ej_{tipo_seguro}_{palabra_corta}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")

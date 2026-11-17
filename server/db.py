@@ -77,6 +77,18 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ninos (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                clave VARCHAR(60) NOT NULL UNIQUE,
+                nombre VARCHAR(60) NOT NULL,
+                estado LONGTEXT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """
+        )
         conn.commit()
         cur.close()
         conn.close()
@@ -221,3 +233,52 @@ def get_ejercicios_resumen():
     except Exception as e:
         print(f"[AVISO] No se pudo leer los ejercicios de MySQL ({e}).")
         return None
+
+
+def _clave_nombre(nombre):
+    import unicodedata
+    t = unicodedata.normalize("NFD", (nombre or "").strip().lower())
+    return "".join(c for c in t if unicodedata.category(c) != "Mn")[:60]
+
+
+def entrar_nino(nombre):
+    """Busca al niño por su nombre (sin importar mayúsculas ni tildes); si no existe, lo crea.
+    Devuelve {id, nombre, nuevo, estado} o None si no hay base de datos."""
+    clave = _clave_nombre(nombre)
+    pool = _get_pool()
+    if pool is None or not clave:
+        return None
+    try:
+        conn = pool.get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT id, nombre, estado FROM ninos WHERE clave = %s", (clave,))
+        fila = cur.fetchone()
+        if fila:
+            res = {"id": fila[0], "nombre": fila[1], "nuevo": False, "estado": fila[2]}
+        else:
+            cur.execute("INSERT INTO ninos (clave, nombre) VALUES (%s, %s)", (clave, (nombre or "").strip()[:60]))
+            conn.commit()
+            res = {"id": cur.lastrowid, "nombre": (nombre or "").strip()[:60], "nuevo": True, "estado": None}
+        cur.close()
+        conn.close()
+        return res
+    except Exception as e:
+        print(f"[AVISO] No se pudo buscar al niño en MySQL ({e}).")
+        return None
+
+
+def guardar_estado_nino(nino_id, estado_json):
+    pool = _get_pool()
+    if pool is None:
+        return False
+    try:
+        conn = pool.get_connection()
+        cur = conn.cursor()
+        cur.execute("UPDATE ninos SET estado = %s WHERE id = %s", (estado_json, int(nino_id)))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[AVISO] No se pudo guardar el avance del niño en MySQL ({e}).")
+        return False

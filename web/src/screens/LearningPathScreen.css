@@ -608,3 +608,36 @@
   flex: 0 0 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
   background: rgba(255,255,255,0.7); font-weight: 800; font-size: 15px; color: var(--text-primary);
 }
+
+/* ---- Camino de sonidos como mapa de aventura ---- */
+.mapa-saludo { padding: 8px 16px 0; flex-shrink: 0; }
+.mapa-aventura { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 16px 12px 60px; }
+.nodo-wrap { display: flex; flex-direction: column; align-items: center; gap: 6px; opacity: 0; animation: etapa-card-in 0.4s ease forwards; position: relative; padding-bottom: 22px; }
+.nodo-wrap::after { content: ""; position: absolute; bottom: 0; left: 50%; height: 18px; border-left: 5px dotted #d4c7f5; transform: translateX(-50%); }
+.nodo-wrap:last-child::after { display: none; }
+.nodo-pos-0 { left: -70px; } .nodo-pos-1 { left: 0; } .nodo-pos-2 { left: 70px; } .nodo-pos-3 { left: 0; }
+.nodo {
+  position: relative; width: 112px; height: 112px; border-radius: 50%; border: 6px solid #fff; cursor: pointer; font-size: 54px; line-height: 1;
+  display: grid; place-items: center; box-shadow: 0 8px 0 rgba(0,0,0,0.13), 0 12px 22px rgba(0,0,0,0.12); transition: transform .15s ease;
+}
+.nodo:hover { transform: scale(1.07); } .nodo:active { transform: scale(0.94) translateY(4px); box-shadow: 0 3px 0 rgba(0,0,0,0.13); }
+.nodo-color-0 { background: linear-gradient(135deg, #cdbbff, #8c6bff); } .nodo-color-1 { background: linear-gradient(135deg, #b7f0d8, #2ecc8f); }
+.nodo-color-2 { background: linear-gradient(135deg, #ffe0ad, #ffb84d); } .nodo-color-3 { background: linear-gradient(135deg, #ffc9c9, #ff8e8e); }
+.nodo-ok { outline: 5px solid #ffd84d; } .nodo-practica { outline: 5px dashed #ff8e8e; }
+.nodo-num { position: absolute; top: -8px; left: -8px; width: 34px; height: 34px; border-radius: 50%; background: #fff; color: var(--text-primary); font-size: 16px; font-weight: 800; display: grid; place-items: center; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.nodo-estado { position: absolute; right: -8px; bottom: -6px; font-size: 30px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.25)); }
+.nodo-titulo { font-weight: 800; font-size: 17px; color: var(--text-primary); text-align: center; max-width: 210px; line-height: 1.15; }
+@media (max-width: 520px) { .nodo-pos-0 { left: -40px; } .nodo-pos-2 { left: 40px; } }
+
+/* El círculo que Fofo recomienda hoy: brilla y una manito lo señala */
+.nodo-sugerido .nodo { animation: nodo-brilla 1.3s ease-in-out infinite; outline: 6px solid #ff6b6b; }
+.nodo-sugerido .nodo-titulo { color: #d6336c; font-size: 19px; }
+.nodo-sugerido::before { content: "👆"; position: absolute; top: 96px; left: calc(50% + 40px); font-size: 46px; z-index: 3; animation: mano-sube 1.1s ease-in-out infinite; pointer-events: none; filter: drop-shadow(0 4px 4px rgba(0,0,0,.25)); }
+@keyframes mano-sube { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-14px); } }
+@keyframes nodo-brilla { 0%, 100% { box-shadow: 0 8px 0 rgba(0,0,0,.13), 0 0 0 0 rgba(255,107,107,.7); } 50% { box-shadow: 0 8px 0 rgba(0,0,0,.13), 0 0 0 22px rgba(255,107,107,0); } }
+
+/* Botón del mapa para ver qué sonidos salieron mal en el juego de entrada */
+.resumen-boton-fila { display: flex; justify-content: center; margin: 4px 0 8px; }
+.resumen-boton { border: none; border-radius: 999px; padding: 10px 22px; font: 900 17px inherit; font-family: inherit; color: #fff; background: #22b573; box-shadow: 0 5px 0 #14804f; cursor: pointer; }
+.resumen-boton:active { transform: translateY(3px); box-shadow: 0 2px 0 #14804f; }
+.resumen-panel { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 0 auto 12px; padding: 10px; max-width: 900px; }
