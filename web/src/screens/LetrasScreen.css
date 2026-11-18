@@ -19,3 +19,8 @@
 .letra-verde { --borde: #c3f0dc; --fondo: #e3fbf1; } .letra-naranja { --borde: #ffd9a8; --fondo: #fff2df; } .letra-azul { --borde: #c5e1ff; --fondo: #e4f1ff; }
 .letras-titulo.letra-rosa { background: #ffe3ec; } .letras-titulo.letra-morado { background: #efe9ff; } .letras-titulo.letra-verde { background: #e3fbf1; }
 .letras-titulo.letra-naranja { background: #fff2df; } .letras-titulo.letra-azul { background: #e4f1ff; }
+.letras-guia { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; background: #fff; border: 4px solid #d9ccff; border-radius: 26px; padding: 10px 18px; margin: 6px 0 12px; box-shadow: 0 5px 0 rgba(60,40,120,.14); }
+.letras-pasos { list-style: none; display: flex; gap: 12px; flex-wrap: wrap; margin: 0; padding: 0; flex: 1; }
+.letras-pasos li { position: relative; display: flex; align-items: center; gap: 8px; background: #f6f2ff; border-radius: 18px; padding: 8px 14px 8px 18px; font-weight: 800; font-size: 16px; color: #3b2a7a; }
+.letras-pasos li span { font-size: 26px; }
+.letras-pasos li em { position: absolute; top: -8px; left: -6px; width: 24px; height: 24px; border-radius: 50%; background: #ff6b6b; color: #fff; font-style: normal; font-weight: 900; font-size: 14px; display: grid; place-items: center; border: 2px solid #fff; }

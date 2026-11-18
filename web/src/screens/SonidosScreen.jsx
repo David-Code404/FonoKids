@@ -266,6 +266,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
   const [micListo, setMicListo] = useState(false);
   const [micError, setMicError] = useState(null);
   const [grabando, setGrabando] = useState(false);
+  const dudasRef = useRef(0);
   const [procesando, setProcesando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [mensaje, setMensaje] = useState("");
@@ -371,7 +372,7 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
     try {
       // El audio decide (con sus reglas) y, en paralelo, el modelo visual da su opinión si la palabra es de las que conoce.
       const [r, vis] = await Promise.all([
-        ejercicioVoz(getServerUrl(), blob, item.palabra, "palabra"),
+        ejercicioVoz(getServerUrl(), blob, item.palabra, "palabra", dudasRef.current),
         videoListo.then((vb) => (vb ? predictVideo(getServerUrl(), vb, item.palabra) : null)),
       ]);
       // Si el audio la dio por buena pero el modelo visual está MUY seguro de que los labios no la hicieron bien, no pasa.
@@ -386,6 +387,8 @@ export function PalabraStage({ item, claveGuardado, tipo, modoEvaluacion, indice
       } else if (!r.valid && bocaQuieta) {
         r.boca_cerrada = true;
       }
+      // Si el sistema dudó, no cuenta como intento: Fofo pide repetir (hasta 2 veces seguidas; a la tercera ya decide).
+      if (!r.valid && r.duda) { dudasRef.current += 1; hablar("No te oí bien. ¡Repite, por favor!"); } else { dudasRef.current = 0; }
       setResultado(r);
       if (r.valid) {
         const bien = !!r.correcta;

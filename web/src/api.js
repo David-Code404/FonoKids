@@ -291,12 +291,13 @@ export async function predictVideo(baseUrl, videoBlob, palabra) {
 
 /// Ejercicios de voz (prueba) -- POST /ejercicio_voz en server/main.py.
 /// tipo: "ritmo" (pa-ta-ka) o "trabalenguas".
-export async function ejercicioVoz(baseUrl, audioBlob, texto, tipo) {
+export async function ejercicioVoz(baseUrl, audioBlob, texto, tipo, dudas = 0) {
   const uri = `${normalize(baseUrl)}/ejercicio_voz`;
   const form = new FormData();
   form.append("audio", audioBlob, "ejercicio.wav");
   form.append("texto", texto);
   form.append("tipo", tipo);
+  form.append("dudas", String(dudas));
 
   let response;
   try {

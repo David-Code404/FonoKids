@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ejemploDe, pistaCara, decirSonido, videosDe } from "../fonemas.js";
 import { VideoReferencia } from "./SonidosScreen.jsx";
-import { hablar } from "../voz.js";
+import { hablar, hablarUnaVez } from "../voz.js";
+import { useAyuda } from "../useAyuda.js";
+import Mascota from "../components/Mascota.jsx";
 import "./LetrasScreen.css";
 
 // "Cómo se dice": todas las letras y sonidos del español en orden, cada uno con su dibujo de ejemplo, la parte de la cara
@@ -43,13 +45,29 @@ function Tarjeta({ nombre, sonido, color }) {
   );
 }
 
+const GUIA = "Toca una letra y escucha cómo suena. Después toca el botón Mira cómo se dice, y copia lo que hace la boca.";
+
 export default function LetrasScreen() {
+  // Guía hablada: al entrar Fofo explica cómo usar la pantalla (una vez) y, si el niño se queda quieto, la repite.
+  useEffect(() => {
+    const t = setTimeout(() => hablarUnaVez("letras-guia", GUIA), 600);
+    return () => clearTimeout(t);
+  }, []);
+  useAyuda("Toca una letra para escucharla.");
   return (
     <div className="path-screen letras-pantalla">
       <div className="path-header">
         <span className="path-title">📖 Cómo se dice</span>
       </div>
       <div className="letras-contenido">
+        <div className="letras-guia">
+          <Mascota mensaje="¡Aprende cómo se dice cada letra!" />
+          <ol className="letras-pasos">
+            <li><em>1</em><span>👆</span>Toca una letra y escucha</li>
+            <li><em>2</em><span>▶️</span>Toca "Mira cómo se dice"</li>
+            <li><em>3</em><span>👄</span>Copia lo que hace la boca</li>
+          </ol>
+        </div>
         <p className="letras-intro">Toca una letra para oír cómo suena y ver qué parte de la cara usar. 👄 labios · 👅 lengua · 🦷 dientes · 🗣️ garganta</p>
         {GRUPOS.map((g) => (
           <section key={g.titulo} className="letras-grupo">

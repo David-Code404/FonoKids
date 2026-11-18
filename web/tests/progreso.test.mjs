@@ -87,3 +87,26 @@ test("una prueba con menos de 2 estrellas se descarta y reinicia el sonido", () 
   assert.equal(est.intermedia.toca, false);
   assert.equal(est.e.previa.bien, 1);
 });
+
+test("repaso espaciado: una palabra lograda toca repasarla a los 2 días y no antes", () => {
+  p.marcarLograda("gato");
+  assert.deepEqual(p.palabrasParaRepasar(), []); // recién lograda: todavía no toca
+  const r = JSON.parse(mem.fk_repaso);
+  const atras = (d) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+  r.gato.t = atras(1);
+  mem.fk_repaso = JSON.stringify(r);
+  assert.deepEqual(p.palabrasParaRepasar(), []); // 1 día: falta
+  r.gato.t = atras(2);
+  mem.fk_repaso = JSON.stringify(r);
+  assert.deepEqual(p.palabrasParaRepasar(), ["gato"]); // 2 días: toca
+  p.marcarLograda("gato"); // la dijo bien en el repaso: el próximo se aleja (4 días)
+  const n = JSON.parse(mem.fk_repaso).gato;
+  assert.equal(n.n, 1);
+  assert.deepEqual(p.palabrasParaRepasar(), []);
+});
+
+test("el repaso se hace una sola vez por día", () => {
+  assert.equal(p.repasoHechoHoy(), false);
+  p.marcarRepasoHoy();
+  assert.equal(p.repasoHechoHoy(), true);
+});

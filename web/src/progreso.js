@@ -34,8 +34,37 @@ export function marcarLograda(palabra) {
   const l = leer(K_LOGRADAS, {});
   l[palabra] = true;
   escribir(K_LOGRADAS, l);
+  // Repaso espaciado: la primera vez se anota el día; si se vuelve a decir bien cuando ya tocaba repasarla, el próximo repaso se aleja.
+  const r = leer(K_REPASO, {});
+  const hoy = hoyISO();
+  if (!r[palabra]) r[palabra] = { t: hoy, n: 0 };
+  else if (diasEntre(r[palabra].t, hoy) >= INTERVALOS_REPASO[Math.min(r[palabra].n, INTERVALOS_REPASO.length - 1)]) r[palabra] = { t: hoy, n: r[palabra].n + 1 };
+  escribir(K_REPASO, r);
 }
 export const palabrasLogradas = () => leer(K_LOGRADAS, {});
+
+const K_REPASO = "fk_repaso";
+const K_REPASO_HOY = "fk_repaso_hoy";
+const INTERVALOS_REPASO = [2, 4, 7, 14]; // días que pasan antes de volver a repasar una palabra ya lograda
+const hoyISO = () => new Date().toISOString().slice(0, 10);
+const diasEntre = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+
+/// Las palabras ya logradas que toca repasar hoy (las más atrasadas primero).
+export function palabrasParaRepasar(max = 3) {
+  const hoy = hoyISO();
+  const r = leer(K_REPASO, {});
+  const logradas = leer(K_LOGRADAS, {});
+  return Object.entries(r)
+    .filter(([p]) => logradas[p])
+    .map(([p, v]) => ({ p, atraso: diasEntre(v.t, hoy) - INTERVALOS_REPASO[Math.min(v.n, INTERVALOS_REPASO.length - 1)] }))
+    .filter((x) => x.atraso >= 0)
+    .sort((a, b) => b.atraso - a.atraso)
+    .slice(0, max)
+    .map((x) => x.p);
+}
+export const repasoHechoHoy = () => leer(K_REPASO_HOY, "") === hoyISO();
+export const marcarRepasoHoy = () => escribir(K_REPASO_HOY, hoyISO());
+
 
 export const soloImagen = () => leer(K_SOLO_IMAGEN, false);
 export const guardarSoloImagen = (v) => escribir(K_SOLO_IMAGEN, !!v);

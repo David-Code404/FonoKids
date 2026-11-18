@@ -3,6 +3,7 @@ import LearningPathScreen from "./screens/LearningPathScreen.jsx";
 import EjerciciosScreen from "./screens/EjerciciosScreen.jsx";
 import LetrasScreen from "./screens/LetrasScreen.jsx";
 import JugarScreen from "./screens/JugarScreen.jsx";
+import EtiquetarScreen from "./screens/EtiquetarScreen.jsx";
 import { testPrevioHecho, getNombre, setNombre, reiniciarTestPrevio } from "./modoNinos.js";
 
 // Para las pruebas y la muestra: cada vez que se actualiza la página se pide de nuevo el nombre del niño y se hace el test previo.
@@ -11,7 +12,7 @@ const PEDIR_NOMBRE_Y_TEST_AL_RECARGAR = true;
 if (PEDIR_NOMBRE_Y_TEST_AL_RECARGAR) {
   setNombre("");
   reiniciarTestPrevio();
-  if (window.location.hash && window.location.hash !== "#/") window.history.replaceState(null, "", "#/");
+  if (window.location.hash && window.location.hash !== "#/" && window.location.hash !== "#/etiquetar") window.history.replaceState(null, "", "#/");
 }
 import "./screens/NinosTema.css";
 import "./App.css";
@@ -47,7 +48,13 @@ function PantallaNinos({ children }) {
   );
 }
 
+// Pantalla para el docente: #/etiquetar (poner la etiqueta real a las grabaciones). Fuera de la app del niño.
 export default function App() {
+  if (window.location.hash === "#/etiquetar") return <EtiquetarScreen />;
+  return <AppDelNino />;
+}
+
+function AppDelNino() {
   const [index, setIndex] = useState(0);
   // Las pantallas con cámara piden el micrófono/cámara apenas se montan: no se montan hasta que el niño toca esa pestaña.
   const [visited, setVisited] = useState(new Set([0]));

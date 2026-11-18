@@ -1,6 +1,6 @@
 // Arma la partida guiada del modo niños: Fofo elige la letra y las palabras; el niño solo juega.
 import { PRACTICA_SECCIONES, palabrasDeGrupo, evaluacionDeGrupo } from "./palabras.js";
-import { palabrasLogradas, evaluaciones, contarLogradas, SONIDOS_DESBLOQUEADOS } from "./progreso.js";
+import { palabrasLogradas, evaluaciones, contarLogradas, SONIDOS_DESBLOQUEADOS, palabrasParaRepasar, repasoHechoHoy, marcarRepasoHoy } from "./progreso.js";
 
 // De los sonidos más fáciles a los más difíciles.
 const ORDEN = ["pr_m", "pr_p", "pr_n", "pr_t", "pr_b", "pr_d", "pr_f", "pr_k", "pr_g", "pr_ch", "pr_ll", "pr_y", "pr_ni", "pr_l", "pr_j", "pr_z", "pr_s", "pr_r", "sf_l", "sf_r"];
@@ -118,6 +118,22 @@ export function armarPartida(claveForzada = null, modo = null) {
     if (faltan.length) return { ...base, tipo: "practica", palabras: faltan.slice(0, PALABRAS_POR_PARTIDA) };
   }
   return null;
+}
+
+/// Repaso del día: unas pocas palabras que ya dijo bien hace unos días, para que no se olviden. Una sola vez por día.
+/// Devuelve una partida de práctica (con `repaso: true`) o null si hoy no toca.
+export function armarRepaso() {
+  if (!testPrevioHecho() || repasoHechoHoy()) return null;
+  const toca = palabrasParaRepasar(3);
+  if (!toca.length) return null;
+  const items = [];
+  let clave = null;
+  for (const sec of PRACTICA_SECCIONES) for (const g of sec.grupos) for (const p of palabrasDe(g)) {
+    if (toca.includes(p.palabra) && !items.some((x) => x.palabra === p.palabra)) { items.push(p); clave ||= g.key; }
+  }
+  if (!items.length) return null;
+  marcarRepasoHoy();
+  return { tipo: "practica", repaso: true, clave, titulo: "Repaso", icono: "🔁", sonido: null, palabras: items };
 }
 
 export function palabrasAprendidas() {

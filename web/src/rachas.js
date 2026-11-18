@@ -77,6 +77,14 @@ export function registrarIntentoValido(correcta) {
   return { estrellaGanada, rachaNueva, racha: e.racha, estrellas: e.estrellas };
 }
 
+/// Una estrella por terminar una partida aunque no salga perfecta: premia el esfuerzo, no solo el acierto.
+export function sumarEstrellaEsfuerzo() {
+  const e = leer();
+  e.estrellas += 1;
+  guardar(e);
+  return e.estrellas;
+}
+
 /// Aviso corto arriba de la pantalla (se saca solo). Se arma directo en el
 /// DOM a propósito: así funciona desde cualquier pantalla, incluso mientras
 /// está abierta la de práctica con cámara, sin tocar su lógica.

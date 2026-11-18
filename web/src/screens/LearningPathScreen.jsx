@@ -1,7 +1,7 @@
 import Mascota, { BotonVoz } from "../components/Mascota.jsx";
 import { armarPartida, resultadoTestPrevio, testPrevioHecho, getNombre, gruposDelCamino, pruebasDeSonido } from "../modoNinos.js";
 import { useAyuda } from "../useAyuda.js";
-import { hablar, hablarUnaVez } from "../voz.js";
+import { hablar, hablarUnaVez, callar } from "../voz.js";
 import { useEffect, useRef, useState } from "react";
 import { getHealth, getRecordings, getServerUrl, guardarEjercicio, predict, wordsFromClasses } from "../api.js";
 import { iconFor } from "../wordIcons.js";
@@ -147,7 +147,6 @@ export default function LearningPathScreen({ onJugar = null }) {
     const t = setTimeout(() => hablarUnaVez("mapa-brilla", `${getNombre() ? getNombre() + ", " : ""}toca el círculo que brilla.`), 700);
     return () => clearTimeout(t);
   }, [onJugar]);
-  useAyuda("Toca el círculo que brilla.", !!onJugar);
   const [view, setView] = useState("categorias"); // categorias | etapas | pasos | repetir | practicar | practicar_frase | descanso
   // A dónde ir después de la pausa de "descanso" (dificultad que se ajusta
   // sola, ver chooseMode) -- "practicar" o "practicar_frase".
@@ -160,6 +159,14 @@ export default function LearningPathScreen({ onJugar = null }) {
   const [extraSonido, setExtraSonido] = useState(null);
   const [verResumen, setVerResumen] = useState(false);
   const [menuSonido, setMenuSonido] = useState(null); // el sonido cuyo círculo se tocó: sus tres pruebas
+  // Con la ventana del sonido abierta ya no se repite "toca el círculo que brilla": Fofo dice qué botón tocar.
+  useAyuda("Toca el círculo que brilla.", !!onJugar && !menuSonido);
+  useEffect(() => {
+    if (!onJugar || !menuSonido) return undefined;
+    callar();
+    const t = setTimeout(() => hablar("Toca el botón verde que dice Practicar, y practicamos las palabras."), 400);
+    return () => clearTimeout(t);
+  }, [onJugar, menuSonido]);
   const [selectedStepIdx, setSelectedStepIdx] = useState(0);
   // Al abrir un paso que SÍ evalúa de verdad, primero se pregunta cómo
   // quiere practicar (cámara o solo voz) -- pedido explícito: la pregunta

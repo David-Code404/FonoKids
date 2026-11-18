@@ -3,10 +3,10 @@ import Mascota, { BotonVoz } from "../components/Mascota.jsx";
 import { PalabraStage, EvaluacionRun } from "./SonidosScreen.jsx";
 import EjerciciosScreen from "./EjerciciosScreen.jsx";
 import { PalabraPorSonidos } from "./FonemasScreen.jsx";
-import { armarPartida, palabrasAprendidas, guardarTestPrevio, testPrevioHecho, gruposDelCamino, getNombre, setNombre, entrarNino } from "../modoNinos.js";
+import { armarPartida, armarRepaso, palabrasAprendidas, guardarTestPrevio, testPrevioHecho, gruposDelCamino, getNombre, setNombre, entrarNino } from "../modoNinos.js";
 import { decirSonido, pistaCara } from "../fonemas.js";
 import { callar, hablar, hablarUnaVez } from "../voz.js";
-import { getEstado } from "../rachas.js";
+import { getEstado, sumarEstrellaEsfuerzo } from "../rachas.js";
 import { useAyuda } from "../useAyuda.js";
 import { usarCamara } from "../progreso.js";
 import "./LearningPathScreen.css";
@@ -106,6 +106,7 @@ function textoIntro(p) {
     if (p.etapa === "intermedia") return { voz: `¡Vamos a ver cuánto mejoraste con la letra ${L(p)}!`, texto: `¡Mira cuánto mejoraste con la ${p.titulo}!`, rotulo: "¿Cuánto mejoraste?" };
     return { voz: `¡Llegó el reto final de la letra ${L(p)}! ¡Tú puedes!`, texto: `¡Reto final de la ${p.titulo}!`, rotulo: "Reto final" };
   }
+  if (p.repaso) return { voz: "¡Vamos a repasar! Mira qué palabras ya sabes decir.", texto: "¡Repasemos lo que ya sabes!", rotulo: "Repaso" };
   return { voz: `Vamos a jugar con la letra ${L(p)}.`, texto: `¡Vamos a jugar con la letra ${p.titulo}!`, rotulo: `La letra ${p.titulo}` };
 }
 
@@ -257,7 +258,7 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
   useAyuda("Toca el botón verde para empezar.", vista === "intro");
 
   function jugar(clave = null, modo = null) {
-    const p = armarPartida(clave, modo);
+    const p = (!clave && !modo && armarRepaso()) || armarPartida(clave, modo);
     if (!p) { if (onSalir) onSalir(); else setVista("todo"); return; }
     setPartida(p); setI(0); setAciertos(0); setVista("intro");
     hablarUnaVez(`intro-${p.clave}-${p.tipo}`, `${textoIntro(p).voz} Mira y escucha cómo se hace.`);
@@ -267,6 +268,7 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
     const nuevos = aciertos + (bien ? 1 : 0);
     setAciertos(nuevos);
     if (i + 1 >= partida.palabras.length) {
+      sumarEstrellaEsfuerzo(); // una estrella por terminar, salga como salga
       setVista("fin");
       hablar(nuevos >= 3 ? "¡Lo lograste! ¡Eres un campeón!" : "¡Muy bien! ¡Sigue practicando y lo lograrás!", { fuerte: nuevos >= 3 });
     } else {
@@ -486,6 +488,7 @@ export default function JugarScreen({ onAprender = null, claveInicial = null, on
         <div className="jugar-centro">
           <Mascota grande animo="festejo" mensaje={aciertos >= 3 ? "¡Lo lograste! ¡Eres un campeón!" : "¡Muy bien! ¡Sigue practicando!"} />
           <div className="jugar-estrellas-grande">{"⭐".repeat(aciertos) || "💪"}</div>
+          <div className="jugar-esfuerzo">🌟 ¡Una estrella extra por intentarlo!</div>
           <button className="jugar-btn guia-mano" onClick={() => jugar(partida?.clave)}>🔁 Jugar otra vez</button>
           <button className="jugar-btn jugar-btn-sec" onClick={salir}>🗺️ Mi camino</button>
         </div>

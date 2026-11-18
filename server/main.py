@@ -49,7 +49,7 @@ AUDIO_CLASSIFIER_PATH = os.path.join(BASE_DIR, "models", "audio_classifier.pth")
 SESSIONS_DIR = os.path.join(BASE_DIR, "data", "sesiones_continuas")
 ARCHIVADO_SESSIONS_DIR = os.path.join(BASE_DIR, "dataARCHIVADO", "sesiones_continuas")
 # [LABIOS DESACTIVADO] MODEL_PATH = os.path.join(BASE_DIR, "models", "best.pth")
-MODELO_CARA_PATH = os.path.join(BASE_DIR, "models", "best_cara_completa.pth")
+MODELO_CARA_PATH = os.path.join(BASE_DIR, "models", "modelo_visual_cnn.pt")
 # [LABIOS DESACTIVADO] USAR_MODELO_CARA = os.environ.get("FONOKIDS_CARA", "1") != "0"
 MIN_DETECCION_CARA = 0.6
 OJO_DERECHO_EXTERNO = 36
@@ -253,170 +253,27 @@ def add_dynamics(positions):
     return np.concatenate([positions, velocity, acceleration], axis=1).astype(np.float32)
 
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=500):
+class CNNLiviana(nn.Module):
+    """Modelo visual (cara completa): convoluciones separables en el tiempo con dilatacion (un TCN chico) y promedio sobre los
+    cuadros reales. Entrenada con data/landmarks_cara_completa_npy: 94,5 % de acierto, 129 mil parametros, ~4 ms por clip."""
+
+    def __init__(self, n_clases, entrada=408, canales=128, bloques=(1, 2, 4, 8), p=0.2):
         super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        self.register_buffer("pe", pe.unsqueeze(0))
+        self.entrada = nn.Sequential(nn.Linear(entrada, canales), nn.GELU(), nn.Dropout(p))
+        self.bloques = nn.ModuleList()
+        for d in bloques:
+            self.bloques.append(nn.Sequential(
+                nn.Conv1d(canales, canales, 5, padding=2 * d, dilation=d, groups=canales),
+                nn.Conv1d(canales, canales, 1), nn.BatchNorm1d(canales), nn.GELU(), nn.Dropout(p)))
+        self.salida = nn.Linear(canales, n_clases)
 
-    def forward(self, x):
-        return x + self.pe[:, : x.size(1)]
-
-
-class TCNBlock(nn.Module):
-    def __init__(self, channels, kernel_size=3, dilation=1, dropout=0.1):
-        super().__init__()
-        padding = (kernel_size - 1) * dilation // 2
-        self.conv1 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
-        self.bn1 = nn.BatchNorm1d(channels)
-        self.conv2 = nn.Conv1d(channels, channels, kernel_size, padding=padding, dilation=dilation)
-        self.bn2 = nn.BatchNorm1d(channels)
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, key_padding_mask=None):
-        residual = x
-        x = x.transpose(1, 2)
-        if key_padding_mask is not None:
-            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
-        x = self.dropout(self.relu(self.bn1(self.conv1(x))))
-        x = self.bn2(self.conv2(x))
-        x = x.transpose(1, 2)
-        return self.relu(residual + self.dropout(x))
-
-
-class TCNFeatureExtractor(nn.Module):
-    def __init__(self, channels, n_blocks=3, kernel_size=3, dropout=0.1):
-        super().__init__()
-        self.blocks = nn.ModuleList([
-            TCNBlock(channels, kernel_size=kernel_size, dilation=2 ** i, dropout=dropout)
-            for i in range(n_blocks)
-        ])
-
-    def forward(self, x, key_padding_mask=None):
-        for block in self.blocks:
-            x = block(x, key_padding_mask=key_padding_mask)
-        return x
-
-
-class ConformerFeedForward(nn.Module):
-    def __init__(self, d_model, dim_feedforward, dropout):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.LayerNorm(d_model),
-            nn.Linear(d_model, dim_feedforward),
-            nn.SiLU(),
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, d_model),
-            nn.Dropout(dropout),
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class ConformerConvModule(nn.Module):
-    def __init__(self, d_model, kernel_size=15, dropout=0.1):
-        super().__init__()
-        self.layer_norm = nn.LayerNorm(d_model)
-        self.pointwise_conv1 = nn.Conv1d(d_model, 2 * d_model, kernel_size=1)
-        self.glu = nn.GLU(dim=1)
-        padding = (kernel_size - 1) // 2
-        self.depthwise_conv = nn.Conv1d(d_model, d_model, kernel_size=kernel_size, padding=padding, groups=d_model)
-        self.batch_norm = nn.BatchNorm1d(d_model)
-        self.swish = nn.SiLU()
-        self.pointwise_conv2 = nn.Conv1d(d_model, d_model, kernel_size=1)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, key_padding_mask=None):
-        residual = x
-        x = self.layer_norm(x)
-        x = x.transpose(1, 2)
-        if key_padding_mask is not None:
-            x = x.masked_fill(key_padding_mask.unsqueeze(1), 0.0)
-        x = self.pointwise_conv1(x)
-        x = self.glu(x)
-        x = self.depthwise_conv(x)
-        x = self.batch_norm(x)
-        x = self.swish(x)
-        x = self.pointwise_conv2(x)
-        x = self.dropout(x)
-        x = x.transpose(1, 2)
-        return residual + x
-
-
-class ConformerBlock(nn.Module):
-    def __init__(self, d_model, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
-        super().__init__()
-        self.ff1 = ConformerFeedForward(d_model, dim_feedforward, dropout)
-        self.self_attn_norm = nn.LayerNorm(d_model)
-        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
-        self.attn_dropout = nn.Dropout(dropout)
-        self.conv_module = ConformerConvModule(d_model, conv_kernel_size, dropout)
-        self.ff2 = ConformerFeedForward(d_model, dim_feedforward, dropout)
-        self.final_norm = nn.LayerNorm(d_model)
-
-    def forward(self, x, src_key_padding_mask=None):
-        x = x + 0.5 * self.ff1(x)
-        residual = x
-        x_norm = self.self_attn_norm(x)
-        attn_out, _ = self.self_attn(x_norm, x_norm, x_norm, key_padding_mask=src_key_padding_mask, need_weights=False)
-        x = residual + self.attn_dropout(attn_out)
-        x = self.conv_module(x, key_padding_mask=src_key_padding_mask)
-        x = x + 0.5 * self.ff2(x)
-        return self.final_norm(x)
-
-
-class ConformerEncoder(nn.Module):
-    def __init__(self, d_model, n_layers, n_heads, dim_feedforward, conv_kernel_size=15, dropout=0.1):
-        super().__init__()
-        self.layers = nn.ModuleList([
-            ConformerBlock(d_model, n_heads, dim_feedforward, conv_kernel_size, dropout)
-            for _ in range(n_layers)
-        ])
-
-    def forward(self, x, src_key_padding_mask=None):
-        for layer in self.layers:
-            x = layer(x, src_key_padding_mask=src_key_padding_mask)
-        return x
-
-
-def masked_mean_pool(x, src_key_padding_mask):
-    if src_key_padding_mask is None:
-        return x.mean(dim=1)
-    real_mask = (~src_key_padding_mask).unsqueeze(-1).float()
-    summed = (x * real_mask).sum(dim=1)
-    counts = real_mask.sum(dim=1).clamp(min=1.0)
-    return summed / counts
-
-
-class LipReadingConformer(nn.Module):
-    def __init__(self, num_classes, input_dim, hidden_dim=128,
-                 n_layers=2, n_heads=8, dim_feedforward=256,
-                 conv_kernel_size=15, tcn_blocks=3, tcn_kernel_size=3, dropout=0.3):
-        super().__init__()
-        self.input_proj = nn.Linear(input_dim, hidden_dim)
-        self.tcn = TCNFeatureExtractor(hidden_dim, n_blocks=tcn_blocks, kernel_size=tcn_kernel_size, dropout=dropout)
-        self.pos_encoder = PositionalEncoding(hidden_dim)
-        self.conformer_encoder = ConformerEncoder(
-            d_model=hidden_dim, n_layers=n_layers, n_heads=n_heads,
-            dim_feedforward=dim_feedforward, conv_kernel_size=conv_kernel_size, dropout=dropout,
-        )
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_dim, 64), nn.ReLU(), nn.Dropout(dropout), nn.Linear(64, num_classes),
-        )
-
-    def forward(self, x, src_key_padding_mask=None):
-        x = self.input_proj(x)
-        x = self.tcn(x, key_padding_mask=src_key_padding_mask)
-        x = self.pos_encoder(x)
-        x = self.conformer_encoder(x, src_key_padding_mask=src_key_padding_mask)
-        pooled = masked_mean_pool(x, src_key_padding_mask)
-        return self.classifier(pooled)
+    def forward(self, x, src_key_padding_mask):
+        h = self.entrada(x).transpose(1, 2)
+        m = (~src_key_padding_mask).float().unsqueeze(1)  # True = relleno
+        for b in self.bloques:
+            h = h + b(h) * m
+        h = (h * m).sum(2) / m.sum(2).clamp(min=1)
+        return self.salida(h)
 
 
 def make_padding_mask(lengths, max_len, device):
@@ -453,18 +310,17 @@ async def load_everything():
 
     if not os.path.exists(MODELO_CARA_PATH):
         print(f"[AVISO] No encontré {MODELO_CARA_PATH} -- /predict queda deshabilitado. "
-              "Entrenalo con Colab/Entrenar_Cara_Completa_FonoKids.ipynb. "
+              "Entrenalo con scripts/experimento_modelos_visuales.py. "
               "El resto del server (dashboard, stats) funciona igual.")
         return
 
     ckpt_cara = safe_torch_load(MODELO_CARA_PATH)
     class_names = ckpt_cara["class_names"]
-    max_frames = ckpt_cara["max_frames"]
-    modelo_cara = LipReadingConformer(num_classes=len(class_names), input_dim=ckpt_cara["input_dim"]).to(DEVICE)
-    modelo_cara.load_state_dict(ckpt_cara["model_state_dict"])
+    max_frames = 60
+    modelo_cara = CNNLiviana(n_clases=len(class_names)).to(DEVICE)
+    modelo_cara.load_state_dict(ckpt_cara["state_dict"])
     modelo_cara.eval()
-    print(f"Modelo de cara completa cargado ({len(class_names)} clases, entrada {ckpt_cara['input_dim']}, "
-          f"val_acc guardado: {ckpt_cara.get('val_acc', '?')}).")
+    print(f"Modelo visual (CNN liviana) cargado ({len(class_names)} clases, {sum(p.numel() for p in modelo_cara.parameters())} parametros).")
 
     # [LABIOS DESACTIVADO] if not os.path.exists(MODEL_PATH):
         # [LABIOS DESACTIVADO] print(f"[AVISO] No encontré {MODEL_PATH} -- /predict queda deshabilitado. "
@@ -802,6 +658,107 @@ def _guardar_debug_frase(audio_path, recortado_path, palabra, motivo):
         print(f"[AVISO] No se pudo guardar el audio de depuracion ({e}).")
 
 
+# ---------------------------------------------------------------- Etiquetado de audios (para afinar y medir el modelo de audio)
+AUDIOS_ETIQUETAR_DIR = os.path.join(BASE_DIR, "data", "audios_para_etiquetar")
+ETIQUETAS_CSV = os.path.join(BASE_DIR, "data", "etiquetas_audio.csv")
+_etiquetas_lock = threading.Lock()
+
+
+def _guardar_para_etiquetar(audio_path, palabra, veredicto, porcentaje):
+    """Guarda (sin limite) el audio de cada intento de palabra, para que una persona le ponga la etiqueta real."""
+    try:
+        os.makedirs(AUDIOS_ETIQUETAR_DIR, exist_ok=True)
+        limpia = "".join(ch for ch in palabra.lower() if ch.isalnum())[:14] or "x"
+        nombre = f"{time.strftime('%Y%m%d_%H%M%S')}_{limpia}_ok{porcentaje}_{veredicto}.wav"
+        shutil.copyfile(audio_path, os.path.join(AUDIOS_ETIQUETAR_DIR, nombre))
+    except Exception as e:
+        print(f"[AVISO] No se pudo guardar el audio para etiquetar ({e}).")
+
+
+def _leer_etiquetas():
+    etiquetas = {}
+    if os.path.exists(ETIQUETAS_CSV):
+        with open(ETIQUETAS_CSV, encoding="utf-8") as fh:
+            for linea in fh.read().splitlines()[1:]:
+                partes = linea.split(";")
+                if len(partes) >= 3:
+                    etiquetas[partes[0]] = partes[2]
+    return etiquetas
+
+
+def _datos_de_nombre(nombre):
+    # 20261117_081204_gato_ok100_bien.wav  ->  palabra, porcentaje, veredicto del sistema
+    partes = nombre[:-4].split("_")
+    return {
+        "archivo": nombre, "palabra": partes[2] if len(partes) > 2 else "?",
+        "sistema": partes[4] if len(partes) > 4 else "?",
+    }
+
+
+@app.get("/etiquetar/pendientes")
+def etiquetar_pendientes(limite: int = 30):
+    """Audios que todavia no tienen etiqueta (los mas nuevos primero)."""
+    if not os.path.isdir(AUDIOS_ETIQUETAR_DIR):
+        return {"pendientes": [], "total": 0, "etiquetados": len(_leer_etiquetas())}
+    hechas = _leer_etiquetas()
+    todos = sorted((f for f in os.listdir(AUDIOS_ETIQUETAR_DIR) if f.endswith(".wav")), reverse=True)
+    faltan = [f for f in todos if f not in hechas]
+    return {"pendientes": [_datos_de_nombre(f) for f in faltan[:max(1, min(limite, 200))]], "total": len(todos),
+            "etiquetados": len(hechas)}
+
+
+@app.get("/etiquetar/audio")
+def etiquetar_audio(archivo: str):
+    base = os.path.basename(archivo)  # sin carpetas: solo archivos de esa carpeta
+    ruta = os.path.join(AUDIOS_ETIQUETAR_DIR, base)
+    if base != archivo or not base.endswith(".wav") or not os.path.isfile(ruta):
+        raise HTTPException(status_code=404, detail="No existe ese audio.")
+    return FileResponse(ruta, media_type="audio/wav")
+
+
+@app.post("/etiquetar")
+def etiquetar_guardar(datos: dict):
+    archivo = os.path.basename(str((datos or {}).get("archivo", "")))
+    etiqueta = str((datos or {}).get("etiqueta", ""))
+    if etiqueta not in ("bien", "mal", "dudoso") or not os.path.isfile(os.path.join(AUDIOS_ETIQUETAR_DIR, archivo)):
+        raise HTTPException(status_code=400, detail="Archivo o etiqueta no validos.")
+    with _etiquetas_lock:
+        nuevo = not os.path.exists(ETIQUETAS_CSV)
+        with open(ETIQUETAS_CSV, "a", encoding="utf-8") as fh:
+            if nuevo:
+                fh.write("archivo;fecha;etiqueta\n")
+            fh.write(f"{archivo};{datetime.now().isoformat(timespec='seconds')};{etiqueta}\n")
+    return {"ok": True}
+
+
+@app.get("/etiquetar/resumen")
+def etiquetar_resumen():
+    """Cuanto coincide el sistema con la persona: aciertos, falsos aprobados (el sistema dijo bien y era mal) y falsos rechazos."""
+    etiquetas = _leer_etiquetas()
+    c = {"bien_bien": 0, "mal_mal": 0, "falso_aprobado": 0, "falso_rechazo": 0, "dudoso": 0}
+    por_palabra = {}
+    for archivo, et in etiquetas.items():
+        if et == "dudoso":
+            c["dudoso"] += 1
+            continue
+        d = _datos_de_nombre(archivo)
+        sis = d["sistema"]
+        if sis not in ("bien", "mal"):
+            continue
+        if sis == et:
+            c["bien_bien" if et == "bien" else "mal_mal"] += 1
+        elif sis == "bien":
+            c["falso_aprobado"] += 1
+        else:
+            c["falso_rechazo"] += 1
+        p = por_palabra.setdefault(d["palabra"], {"total": 0, "acuerdo": 0})
+        p["total"] += 1
+        p["acuerdo"] += int(sis == et)
+    n = c["bien_bien"] + c["mal_mal"] + c["falso_aprobado"] + c["falso_rechazo"]
+    return {"etiquetados": len(etiquetas), "comparados": n, **c,
+            "acuerdo_pct": round(100 * (c["bien_bien"] + c["mal_mal"]) / n, 1) if n else None, "por_palabra": por_palabra}
+
+
 def _save_practice_clip(class_name, tmp_path, suffix):
     try:
         clips_dir = os.path.join(SESSIONS_DIR, class_name, "clips")
@@ -1072,7 +1029,7 @@ def _run_prediction_pipeline(tmp_path, suffix, landmarker, model, class_names, m
     with torch.inference_mode():
         logits = model(sequence, src_key_padding_mask=mask)
         probs = torch.softmax(logits, dim=1)[0]
-    print(f"[predict] modelo Conformer ({modelo_video}) listo ({time.time() - t_start:.1f}s total)")
+    print(f"[predict] modelo visual ({modelo_video}) listo ({time.time() - t_start:.1f}s total)")
 
     sorted_probs, sorted_idx = torch.sort(probs, descending=True)
     top_idx = int(sorted_idx[0].item())
@@ -1264,7 +1221,7 @@ VISUAL_VETO_PROB = 0.85
 
 @app.post("/predict_video")
 async def predict_video(file: UploadFile = File(...), palabra: str = Form(...)):
-    """Opinión del modelo de cara completa (TCN + Conformer) sobre UNA palabra: solo video, sin audio.
+    """Opinión del modelo de cara completa (CNN liviana) sobre UNA palabra: solo video, sin audio.
     Para las palabras que no están en el modelo devuelve en_modelo=False."""
     if _state["model_cara"] is None:
         raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo.")
@@ -1728,6 +1685,7 @@ async def ejercicio_voz(
     audio: UploadFile = File(...),
     texto: str = Form(...),
     tipo: str = Form("trabalenguas"),
+    dudas: int = Form(0),
 ):
     if _state["audio_model"] is None:
         raise HTTPException(status_code=503, detail="El servidor todavía está cargando el modelo de audio.")
@@ -1740,14 +1698,26 @@ async def ejercicio_voz(
         waveform = load_audio_16k(audio_path)
         pico = float(waveform.abs().max()) if waveform.numel() else 0.0
         if pico < 0.01:
-            return {"valid": False, "reason": "no te escuché -- ¡probá de nuevo, más fuerte!"}
+            return {"valid": False, "duda": True, "reason": "no te escuché -- ¡probá de nuevo, más fuerte!"}
+        # Zona de duda: si el audio es muy flojo o tiene mucho ruido, no se marca mal: se pide repetir (como mucho 2 veces seguidas).
+        if tipo == "palabra" and dudas < 2:
+            w = waveform.numpy()
+            n_v = len(w) // 400
+            if n_v >= 8:
+                niveles = np.array([float(np.sqrt(np.mean(w[i * 400:(i + 1) * 400] ** 2))) for i in range(n_v)])
+                p90, p10 = float(np.percentile(niveles, 90)), float(np.percentile(niveles, 10))
+                snr = 20 * math.log10(max(p90, 1e-6) / max(p10, 1e-5))
+                if p90 < 0.02:
+                    return {"valid": False, "duda": True, "reason": "no te oí bien -- ¡habla más fuerte y repite!"}
+                if snr < 12:
+                    return {"valid": False, "duda": True, "reason": "hay mucho ruido, no te oí bien -- ¡repite!"}
         activo = (waveform.abs() > 0.05 * pico).nonzero()
         seg_habla = max(float(activo[-1] - activo[0]) / TARGET_SAMPLE_RATE, 0.5) if len(activo) else 0.5
         voz_seg = _segundos_de_voz(waveform)
         if voz_seg is not None:
             # Silero no oyó voz (ruido, golpes, un zumbido): no hay nada que evaluar.
             if voz_seg < 0.15:
-                return {"valid": False, "reason": "no te escuché hablar -- ¡prueba de nuevo, más fuerte!"}
+                return {"valid": False, "duda": True, "reason": "no te escuché hablar -- ¡prueba de nuevo, más fuerte!"}
             seg_habla = max(voz_seg, 0.5)
 
         resultado = _score_audio_pronunciation(audio_path, texto)
@@ -1934,6 +1904,14 @@ async def ejercicio_voz(
             try:
                 cont = _contraste_inicial(audio_path, texto, resultado.get("scores"))
                 if cont:
+                    # Duda: el modelo no distingue el sonido pedido de su pareja ("casa" y "gasa" puntúan casi igual): se pide repetir.
+                    try:
+                        dif = abs(float(cont["score_esperada"]) - float(cont["score_alternativa"]))
+                        mejor = max(float(cont["score_esperada"]), float(cont["score_alternativa"]))
+                    except (TypeError, ValueError):
+                        dif, mejor = 99.0, -99.0
+                    if tipo == "palabra" and dudas < 2 and dif < 0.8 and mejor > -3.0:
+                        return {"valid": False, "duda": True, "reason": "no te oí bien -- ¡repite, por favor!"}
                     salida["contraste_inicio"] = cont
                     ruta_c = os.path.join(BASE_DIR, "data", "contraste_voz.csv")
                     nuevo_c = not os.path.exists(ruta_c)
@@ -1947,6 +1925,8 @@ async def ejercicio_voz(
         palabra_corta = "".join(ch for ch in texto.lower() if ch.isalnum())[:14]
         tipo_seguro = "".join(ch for ch in tipo if ch.isalnum())[:12]  # el tipo viene del cliente: no puede traer / ni ..
         _guardar_debug_frase(audio_path, None, f"ej_{tipo_seguro}_{palabra_corta}", f"ok{salida['porcentaje_ok']}_{'bien' if salida['correcta'] else 'mal'}")
+        if tipo == "palabra":
+            _guardar_para_etiquetar(audio_path, texto, "bien" if salida["correcta"] else "mal", salida["porcentaje_ok"])
         try:
             ruta_log = os.path.join(BASE_DIR, "data", "intentos_voz.csv")
             nuevo_log = not os.path.exists(ruta_log)
